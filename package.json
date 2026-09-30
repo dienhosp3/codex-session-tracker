@@ -1,0 +1,175 @@
+{
+  "name": "codex-session-tracker",
+  "displayName": "Codex Session Tracker",
+  "description": "Compact Codex activity tracker with active-only thread UI and safe queued-message delivery to the selected chat.",
+  "version": "0.5.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "codex",
+    "openai",
+    "status",
+    "session",
+    "tracker"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:codexSessionTracker.view",
+    "onCommand:codexSessionTracker.openTracker",
+    "onCommand:codexSessionTracker.openDashboard",
+    "onCommand:codexSessionTracker.selectChat",
+    "onCommand:codexSessionTracker.refresh",
+    "onCommand:codexSessionTracker.clearSelection",
+    "onCommand:codexSessionTracker.reprobeCodexCli"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexSessionTracker.openTracker",
+        "title": "Codex Tracker: Open Tracker"
+      },
+      {
+        "command": "codexSessionTracker.openDashboard",
+        "title": "Codex Tracker: Open Tracker"
+      },
+      {
+        "command": "codexSessionTracker.selectChat",
+        "title": "Codex Tracker: Show Running Chats"
+      },
+      {
+        "command": "codexSessionTracker.refresh",
+        "title": "Codex Tracker: Refresh"
+      },
+      {
+        "command": "codexSessionTracker.clearSelection",
+        "title": "Codex Tracker: Clear Selection"
+      },
+      {
+        "command": "codexSessionTracker.reprobeCodexCli",
+        "title": "Codex Tracker: Re-detect Codex CLI"
+      }
+    ],
+    "configuration": {
+      "title": "Codex Session Tracker",
+      "properties": {
+        "codexSessionTracker.codexHome": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Codex home directory. Empty uses CODEX_HOME or ~/.codex."
+        },
+        "codexSessionTracker.historyLimit": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "Maximum number of active root Codex chats shown in the tracker panel."
+        },
+        "codexSessionTracker.includeNonVsCodeSessions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also show Codex sessions whose source is not VS Code."
+        },
+        "codexSessionTracker.pollIntervalMs": {
+          "type": "number",
+          "default": 1500,
+          "minimum": 500,
+          "maximum": 10000,
+          "description": "How often to refresh the pinned chat status. The tracker only reads Codex files."
+        },
+        "codexSessionTracker.quietAfterSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 3600,
+          "description": "While a turn is still running, show a quiet duration after no new rollout writes for this many seconds."
+        },
+        "codexSessionTracker.staleAfterSeconds": {
+          "type": "number",
+          "default": 3600,
+          "minimum": 60,
+          "maximum": 86400,
+          "description": "After this many seconds without a rollout write, an unfinished turn is treated as stale and removed from the running-chat list. Its history remains available when selected."
+        },
+        "codexSessionTracker.rescanThreadEverySeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 2,
+          "maximum": 120,
+          "description": "How often to rescan Codex rollout metadata for child agents and newer physical rollouts."
+        },
+        "codexSessionTracker.treeScanLimit": {
+          "type": "number",
+          "default": 1200,
+          "minimum": 50,
+          "maximum": 10000,
+          "description": "Maximum recent rollout files inspected when resolving the selected root thread and its child agents."
+        },
+        "codexSessionTracker.activityTailMb": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "maximum": 32,
+          "description": "Megabytes read from the tail of each root/child rollout for current activity and timeline details. Terminal task state is scanned separately across the full file."
+        },
+        "codexSessionTracker.timelineLimit": {
+          "type": "number",
+          "default": 50,
+          "minimum": 10,
+          "maximum": 200,
+          "description": "Maximum recent activity events retained per refresh and shown in the expandable timeline."
+        },
+        "codexSessionTracker.activeScanEverySeconds": {
+          "type": "number",
+          "default": 4,
+          "minimum": 2,
+          "maximum": 120,
+          "description": "How often to rescan the running-chat list while the tracker panel is visible."
+        },
+        "codexSessionTracker.codexCliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to the Codex CLI binary used only for the official `codex queue` command. Empty auto-detects PATH or the OpenAI Codex extension bundle."
+        }
+      }
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "codexSessionTrackerPanel",
+          "title": "Codex Tracker",
+          "icon": "media/tracker.svg"
+        }
+      ]
+    },
+    "views": {
+      "codexSessionTrackerPanel": [
+        {
+          "type": "webview",
+          "id": "codexSessionTracker.view",
+          "name": "Codex Tracker",
+          "icon": "media/tracker.svg",
+          "contextualTitle": "Codex Tracker"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "files": [
+    "extension.js",
+    "tracker.js",
+    "codex_queue.js",
+    "dashboard.html",
+    "media/tracker.svg",
+    "README.md",
+    "LICENSE"
+  ]
+}
