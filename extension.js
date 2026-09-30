@@ -25,6 +25,7 @@ let queueBusy = false;
 let queueNotice = null;
 let steerCapability = { checked: false, available: false, reason: 'Steer capability has not been checked yet.', executable: '', source: '', version: '' };
 let steerCapabilityCheckedAt = 0;
+let steerCapabilityConversationId = '';
 let steerBusy = false;
 let steerNotice = null;
 
@@ -243,6 +244,9 @@ async function selectThread(threadId) {
   latestSnapshot = null;
   queueNotice = null;
   steerNotice = null;
+  steerCapability = { checked: false, available: false, reason: 'Chưa kiểm tra owner IPC của chat.', executable: '', source: '', version: '' };
+  steerCapabilityCheckedAt = 0;
+  steerCapabilityConversationId = '';
   lastTreeRescanAt = 0;
   await persistSelection();
   renderStatus();
@@ -256,6 +260,9 @@ async function clearSelection() {
   latestSnapshot = null;
   queueNotice = null;
   steerNotice = null;
+  steerCapability = { checked: false, available: false, reason: 'Chưa kiểm tra owner IPC của chat.', executable: '', source: '', version: '' };
+  steerCapabilityCheckedAt = 0;
+  steerCapabilityConversationId = '';
   await persistSelection();
   renderStatus();
   postViewState();
@@ -383,33 +390,23 @@ async function refreshQueueCapability(force) {
 
 async function refreshSteerCapability(force) {
   const now = Date.now();
-  if (!force && steerCapability.checked && now - steerCapabilityCheckedAt < 60_000) return steerCapability;
+  const conversationId = String(selected && selected.threadId || '').trim();
+  if (!force && steerCapability.checked && steerCapabilityConversationId === conversationId && now - steerCapabilityCheckedAt < 60_000) return steerCapability;
   steerCapabilityCheckedAt = now;
+  steerCapabilityConversationId = conversationId;
   const cfg = config();
   try {
-    const resolved = await codexQueue.resolveCodexExecutable({
-      configuredPath: cfg.codexCliPath,
-      extensionRoots: openAiExtensionRoots(),
-      platform: process.platform
+    const probe = await codexSteer.probeExtensionIpcSupport({
+      codexHome: cfg.codexHome,
+      threadId: conversationId
     });
-    if (!resolved.executable) {
-      steerCapability = {
-        checked: true,
-        available: false,
-        executable: '',
-        source: resolved.source || '',
-        version: '',
-        reason: resolved.error || 'Codex CLI binary was not found.'
-      };
-      return steerCapability;
-    }
-    const probe = await codexSteer.probeSteerSupport(resolved.executable, { codexHome: cfg.codexHome });
     steerCapability = {
       checked: true,
       available: Boolean(probe.available),
-      executable: resolved.executable,
-      source: probe.source || resolved.source || '',
-      version: probe.version || '',
+      executable: '',
+      source: probe.source || '',
+      version: '',
+      ownerClientId: probe.ownerClientId || '',
       reason: probe.reason || ''
     };
   } catch (error) {
@@ -419,6 +416,7 @@ async function refreshSteerCapability(force) {
       executable: '',
       source: '',
       version: '',
+      ownerClientId: '',
       reason: codexSteer.compactError(error)
     };
   }
@@ -486,13 +484,6 @@ async function sendQueuedMessage(rawText) {
   }
 }
 
-function selectedActiveTurnId() {
-  const root = latestSnapshot && latestSnapshot.root;
-  return String(root && root.status && root.status.turnId
-    || latestSnapshot && latestSnapshot.overallStatus && latestSnapshot.overallStatus.turnId
-    || '').trim();
-}
-
 async function sendSteeredMessage(rawText) {
   const text = String(rawText || '').trim();
   if (!text) return;
@@ -510,14 +501,11 @@ async function sendSteeredMessage(rawText) {
     postViewState();
     return;
   }
-  const expectedTurnId = selectedActiveTurnId();
-  if (!expectedTurnId) {
-    steerNotice = { kind: 'error', text: 'Không đọc được active turn id; tracker không gửi để tránh chèn nhầm turn.', at: Date.now() };
-    postViewState();
-    return;
-  }
-  await refreshSteerCapability(false);
-  if (!steerCapability.available || !steerCapability.executable) {
+  // Re-discover the owner immediately before sending. The webview can close
+  // or reconnect between polling ticks, and a cached owner must never receive
+  // a message for a different client.
+  await refreshSteerCapability(true);
+  if (!steerCapability.available) {
     steerNotice = { kind: 'error', text: steerCapability.reason || 'Steer chưa khả dụng với app-server owner hiện tại.', at: Date.now() };
     postViewState();
     return;
@@ -527,27 +515,16 @@ async function sendSteeredMessage(rawText) {
   steerNotice = null;
   postViewState();
   const steerArgs = () => ({
-    executable: steerCapability.executable,
     threadId: selected.threadId,
-    expectedTurnId,
     message: text,
     codexHome: config().codexHome,
     cwd: selected.cwd || undefined
   });
   try {
-    let result;
-    try {
-      result = await codexSteer.steerMessage(steerArgs());
-    } catch (error) {
-      if (!error || error.code !== 'ENOENT') throw error;
-      const previous = steerCapability.executable;
-      await refreshSteerCapability(true);
-      if (!steerCapability.available || !steerCapability.executable || steerCapability.executable === previous) throw error;
-      result = await codexSteer.steerMessage(steerArgs());
-    }
+    const result = await codexSteer.steerViaExtensionIpc(steerArgs());
     steerNotice = {
       kind: 'success',
-      text: result && result.turnId ? 'Đã steer vào turn đang chạy.' : 'Đã gửi yêu cầu steer vào app-server owner.',
+      text: result && result.turnId ? 'Đã steer vào turn đang chạy qua Codex Extension owner.' : 'Đã steer qua Codex Extension owner.',
       turnId: result && result.turnId || '',
       at: Date.now()
     };
@@ -592,6 +569,7 @@ function postViewState() {
         reason: steerCapability.reason || '',
         source: steerCapability.source || '',
         version: steerCapability.version || '',
+        ownerClientId: steerCapability.ownerClientId || '',
         notice: steerNotice
       }
     }
@@ -622,7 +600,9 @@ function serializeSelectedShell() {
     lastActivityMs: Math.max(selected.status && selected.status.mtimeMs || 0, selected.indexedUpdatedAtMs || 0),
     current: null,
     latestUserText: '',
+    latestUserTextAt: 0,
     latestAssistantText: '',
+    latestAssistantTextAt: 0,
     timeline: [],
     activeNodes: [],
     truncated: false
@@ -680,7 +660,9 @@ function serializeSnapshot(snapshot) {
       text: snapshot.current.text || ''
     } : null,
     latestUserText: snapshot.latestUserText || '',
+    latestUserTextAt: Number(snapshot.latestUserTextAt) || 0,
     latestAssistantText: snapshot.latestAssistantText || '',
+    latestAssistantTextAt: Number(snapshot.latestAssistantTextAt) || 0,
     timeline,
     completedSummary: snapshot.completedSummary ? {
       count: Number(snapshot.completedSummary.count) || 0,

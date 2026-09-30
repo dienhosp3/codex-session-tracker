@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const EventEmitter = require('events');
 const tracker = require('../tracker');
 const codexQueue = require('../codex_queue');
 const codexSteer = require('../codex_steer');
@@ -84,6 +85,9 @@ test('reads VS Code session title and running state', async t => {
   const status = await tracker.readLatestTaskEvent(file);
   assert.equal(status.kind, 'running');
   assert.equal(status.turnId, 'turn-1');
+  const activity = await tracker.readRecentActivity(file, await tracker.readSessionSummary(file), 'thread-a', { timelineLimit: 20 });
+  assert.equal(activity.latestUserText, 'Cải tổ UI UX AHUST Editor');
+  assert.equal(activity.latestUserTextAt, Date.parse('2026-09-30T07:00:01Z'));
 });
 
 test('task_complete makes the latest state completed', async t => {
@@ -155,6 +159,7 @@ test('parses current Codex item_completed records for commands, file changes, im
   assert.ok(activity.timeline.some(item => item.label === 'Da xem anh' && /screen\.png/.test(item.detail)));
   assert.ok(activity.timeline.some(item => item.kind === 'message' && item.text === 'Finished the checks.'));
   assert.equal(activity.latestAssistantText, 'Finished the checks.');
+  assert.equal(activity.latestAssistantTextAt, Date.parse('2026-09-30T08:00:05Z'));
 });
 
 test('parses response_item tool calls and assistant messages with event timestamps', async t => {
@@ -174,6 +179,7 @@ test('parses response_item tool calls and assistant messages with event timestam
   assert.ok(activity.timeline.some(item => item.kind === 'command' && item.phase === 'end'));
   assert.ok(activity.timeline.some(item => item.kind === 'message' && item.text === 'All good.'));
   assert.equal(activity.latestAssistantText, 'All good.');
+  assert.equal(activity.latestAssistantTextAt, Date.parse('2026-09-30T09:00:04Z'));
 });
 
 test('scanSessions groups multiple rollout files by thread and keeps newest', async t => {
@@ -691,6 +697,9 @@ test('dashboard UI renders timeline details, timestamps, and safe queue composer
   assert.doesNotMatch(html, /index===0\?' open'/);
   assert.match(html, /captureUiState/);
   assert.match(html, /composerInput/);
+  assert.match(html, /latestUserTextAt/);
+  assert.match(html, /latestAssistantTextAt/);
+  assert.match(html, /message-time/);
 });
 
 test('steer request uses the official active-turn precondition and text input shape', () => {
@@ -737,4 +746,94 @@ test('steer capability probe reports unavailable instead of starting a competing
   const result = await codexSteer.probeSteerSupport('C:\\codex.exe', { execFileImpl });
   assert.equal(result.available, false);
   assert.match(result.reason, /Steer/);
+});
+
+test('Extension IPC probe discovers the live owner without starting another app-server', async () => {
+  const requests = [];
+  const connectImpl = (endpoint, callback) => {
+    assert.equal(endpoint, 'test-extension-ipc');
+    const socket = new EventEmitter();
+    socket.writable = true;
+    socket.destroyed = false;
+    socket.write = frame => {
+      codexSteer.parseIpcFrames(frame, request => {
+        requests.push(request);
+        const result = request.method === 'initialize'
+          ? { clientId: 'tracker-client' }
+          : { supportsUntrustedAppInput: true };
+        const response = {
+          type: 'response',
+          requestId: request.requestId,
+          resultType: 'success',
+          method: request.method,
+          ...(request.method === 'thread-owner-discovery' ? { handledByClientId: 'owner-client' } : {}),
+          result
+        };
+        process.nextTick(() => socket.emit('data', codexSteer.frameIpcMessage(response)));
+      });
+      return true;
+    };
+    socket.end = () => {};
+    socket.destroy = () => { socket.destroyed = true; };
+    process.nextTick(callback);
+    return socket;
+  };
+  const result = await codexSteer.probeExtensionIpcSupport({
+    endpoint: 'test-extension-ipc',
+    threadId: 'root-thread',
+    connectImpl
+  });
+  assert.equal(result.available, true);
+  assert.equal(result.source, 'codex-extension-ipc');
+  assert.equal(result.ownerClientId, 'owner-client');
+  assert.deepEqual(requests.map(request => request.method), ['initialize', 'thread-owner-discovery']);
+  assert.equal(requests[1].params.hostId, 'local');
+  assert.equal(requests[1].params.conversationId, 'root-thread');
+});
+
+test('Extension IPC steer targets the discovered owner and uses the follower restore shape', async () => {
+  const requests = [];
+  const connectImpl = (endpoint, callback) => {
+    const socket = new EventEmitter();
+    socket.writable = true;
+    socket.destroyed = false;
+    socket.write = frame => {
+      codexSteer.parseIpcFrames(frame, request => {
+        requests.push(request);
+        let response;
+        if (request.method === 'initialize') {
+          response = { type: 'response', requestId: request.requestId, resultType: 'success', method: request.method, result: { clientId: 'tracker-client' } };
+        } else if (request.method === 'thread-owner-discovery') {
+          response = { type: 'response', requestId: request.requestId, resultType: 'success', method: request.method, handledByClientId: 'owner-client', result: { supportsUntrustedAppInput: true } };
+        } else {
+          response = { type: 'response', requestId: request.requestId, resultType: 'success', method: request.method, result: { method: request.method, result: { turnId: 'turn-99' } } };
+        }
+        process.nextTick(() => socket.emit('data', codexSteer.frameIpcMessage(response)));
+      });
+      return true;
+    };
+    socket.end = () => {};
+    socket.destroy = () => { socket.destroyed = true; };
+    process.nextTick(callback);
+    return socket;
+  };
+  const result = await codexSteer.steerViaExtensionIpc({
+    endpoint: 'test-extension-ipc',
+    threadId: 'root-thread',
+    message: 'Dừng bước hiện tại và kiểm tra lại',
+    cwd: 'C:\\workspace',
+    clientUserMessageId: '11111111-1111-4111-8111-111111111111',
+    connectImpl
+  });
+  assert.equal(result.turnId, 'turn-99');
+  assert.equal(result.transport, 'codex-extension-ipc');
+  const steer = requests.find(request => request.method === 'thread-follower-steer-turn');
+  assert.ok(steer);
+  assert.equal(steer.version, 1);
+  assert.equal(steer.targetClientId, 'owner-client');
+  assert.equal(steer.sourceClientId, 'tracker-client');
+  assert.deepEqual(steer.params.input, [{ type: 'text', text: 'Dừng bước hiện tại và kiểm tra lại', text_elements: [] }]);
+  assert.equal(steer.params.conversationId, 'root-thread');
+  assert.equal(steer.params.restoreMessage.id, steer.params.clientUserMessageId);
+  assert.deepEqual(steer.params.restoreMessage.context.workspaceRoots, ['C:\\workspace']);
 });

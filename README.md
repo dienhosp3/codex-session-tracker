@@ -1,4 +1,4 @@
-﻿# Codex Session Tracker 0.6.0
+﻿# Codex Session Tracker 0.7.0
 
 A VS Code tracker for Codex sessions. It reads Codex rollout JSONL files so a gray or disconnected Codex panel does not hide work that is still running.
 
@@ -25,7 +25,7 @@ For recency, the tracker prefers the read-only `threads.updated_at_ms` value fro
 
 The composer has two explicit actions:
 
-- **Steer ngay** sends the official app-server `turn/steer` request with the selected root thread and the currently active `turn_id`. It is enabled only when a read-only probe confirms that a control socket is available. The installed VS Code Codex extension currently owns its app-server over a private stdio pipe, so this button is normally disabled with an explanation. The tracker never starts a second app-server; doing so conflicts with the active writer.
+- **Steer ngay** joins the installed Codex Extension as a follower through its live local IPC router (`\\.\\pipe\\codex-ipc` on Windows). It discovers the owner for the selected root conversation and sends the official `thread-follower-steer-turn` request to that owner. The owner validates the active turn itself, so the tracker never guesses from wall-clock age or races a stale `turn_id`. This is the path intended for a gray Codex panel: the existing owner and app-server remain in charge, while the tracker supplies the text through the Extension's own control path.
 - **G&#7917;i sau** invokes the durable queue command below. It is the reliable action for the current VS Code stdio owner and does not interrupt the running turn.
 
 The composer uses Codex's durable queue command:
@@ -38,7 +38,7 @@ This is the safe insertion path. It writes to Codex's shared queue and lets the 
 
 The executable resolver is platform-aware. On Windows it rejects Linux, macOS, and other Unix binaries shipped beside the Windows build, then prefers the `windows-*`/`win32-*` binary and finally `codex` from `PATH`. The bundled executable is probed for `queue --thread` and `--message` support before the composer is enabled. If an extension update leaves a cached path to a removed executable, an `ENOENT` error triggers one fresh platform re-probe and a single retry.
 
-The queue operation preserves `CODEX_HOME`, the selected root thread ID, and the selected working directory. It never passes a model override. A successful notice includes the queue result; an error keeps the CLI diagnostic visible so the user can re-probe.
+The queue operation preserves `CODEX_HOME`, the selected root thread ID, and the selected working directory. It never passes a model override. A successful notice includes the queue result; an error keeps the CLI diagnostic visible so the user can re-probe. Steer is enabled only after the tracker finds a live Extension owner for this exact conversation. If the Codex panel or its owner is closed, the button is disabled and the tracker does not create a competing app-server.
 
 ## Files read and writes performed
 
@@ -49,14 +49,14 @@ Monitoring reads:
 <CODEX_HOME>/sessions/**/rollout-*.jsonl
 ```
 
-Sending invokes the detected Codex CLI's official `queue` command. A steer attempt uses only `codex app-server proxy` after a control-socket probe; it never starts `codex app-server` itself. The extension itself does not write rollout JSONL files or call `resume`, reload, or interrupt operations.
+Sending invokes the detected Codex CLI's official `queue` command or, for Steer, the existing Codex Extension IPC owner. The tracker never starts `codex app-server`, creates a second writer, or uses a private app-server stdio process. The extension itself does not write rollout JSONL files or call `resume`, reload, or interrupt operations.
 
 ## Install
 
 Build a VSIX with the repository's packaging script, then install it from VS Code's **Install from VSIX...** command:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.6.0.vsix --force
+code --install-extension .\codex-session-tracker-0.7.0.vsix --force
 ```
 
 Reloading VS Code is not requested by the tracker. If a window reload would interrupt an important turn, defer the reload until the turn is safe to stop.

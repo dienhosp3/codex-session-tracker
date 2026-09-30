@@ -759,6 +759,14 @@ function actorLabel(session, rootThreadId) {
   return agentDisplayName(session, rootThreadId, session.taskPreview || '', session.agentOrdinal || 1);
 }
 
+// Message cards need the event's own timestamp. For item_completed records the
+// normalized payload also carries operation start/end timestamps; those are
+// useful for command lifecycle rows but must not make a finished response look
+// older than the message event that contains it.
+function messageTimestamp(item, payload) {
+  return timestampValue(item && item.timestamp, undefined) || timestampFromItem(item, payload) || 0;
+}
+
 async function readRecentActivity(file, session, rootThreadId, options = {}) {
   const maxBytes = clampInt(options.maxBytes, ACTIVITY_TAIL_BYTES, 128 * 1024, 32 * 1024 * 1024);
   const timelineLimit = clampInt(options.timelineLimit, 40, 5, 200);
@@ -770,7 +778,9 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
   const actor = { threadId: session.threadId, label: actorLabel(session, rootThreadId) };
   const activities = [];
   let latestUserText = '';
+  let latestUserTextAt = 0;
   let latestAssistantText = '';
+  let latestAssistantTextAt = 0;
   let streamingAssistantText = '';
   let latestReasoningText = '';
   let streamingReasoningText = '';
@@ -780,16 +790,23 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
     const item = parseJsonLine(line);
     if (!item) continue;
     const userText = firstUserTextFromItem(item);
-    if (userText) latestUserText = userText;
+    if (userText) {
+      latestUserText = userText;
+      latestUserTextAt = Math.max(latestUserTextAt, messageTimestamp(item, payloadFromItem(item)));
+    }
 
     if (item.type === 'event_msg' && item.payload) {
       const eventType = item.payload.type;
       if (eventType === 'agent_message') {
         const msg = extractText(item.payload.message || item.payload);
-        if (msg) latestAssistantText = msg;
+        if (msg) {
+          latestAssistantText = msg;
+          latestAssistantTextAt = Math.max(latestAssistantTextAt, messageTimestamp(item, item.payload));
+        }
         streamingAssistantText = '';
       } else if (eventType === 'agent_message_content_delta') {
         streamingAssistantText += String(item.payload.delta || item.payload.text || '');
+        latestAssistantTextAt = Math.max(latestAssistantTextAt, messageTimestamp(item, item.payload));
       } else if (eventType === 'agent_reasoning') {
         const reasoning = String(item.payload.text || '');
         if (reasoning) latestReasoningText = reasoning;
@@ -801,7 +818,10 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
       }
     } else if (item.type === 'response_item' && item.payload && item.payload.role === 'assistant') {
       const msg = extractText(item.payload.content || item.payload);
-      if (msg) latestAssistantText = msg;
+      if (msg) {
+        latestAssistantText = msg;
+        latestAssistantTextAt = Math.max(latestAssistantTextAt, messageTimestamp(item, item.payload));
+      }
     }
 
     let activity = activityFromItem(item, actor);
@@ -817,9 +837,13 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
     }
     if (activity) {
       activities.push(activity);
-      if (activity.kind === 'user' && activity.text) latestUserText = activity.text;
+      if (activity.kind === 'user' && activity.text) {
+        latestUserText = activity.text;
+        latestUserTextAt = Math.max(latestUserTextAt, messageTimestamp(item, payloadFromItem(item)), activity.at || 0);
+      }
       if (activity.kind === 'message' && activity.text && activity.type !== 'agent_message_content_delta') {
         latestAssistantText = activity.text;
+        latestAssistantTextAt = Math.max(latestAssistantTextAt, messageTimestamp(item, payloadFromItem(item)), activity.at || 0);
         streamingAssistantText = '';
       }
       const activityPayload = payloadFromItem(item);
@@ -858,7 +882,9 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
     current: { ...current, text: currentText },
     timeline,
     latestUserText,
+    latestUserTextAt,
     latestAssistantText: streamingAssistantText || latestAssistantText,
+    latestAssistantTextAt,
     latestReasoningText: streamingReasoningText || latestReasoningText,
     truncated,
     mtimeMs: stat.mtimeMs,
@@ -1259,8 +1285,10 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
   currentCandidates.sort((a, b) => (b.at || 0) - (a.at || 0));
   const current = currentCandidates.find(item => item.nodeStatus && item.nodeStatus.kind === 'running') || currentCandidates[0] || null;
 
-  const latestAssistantNode = validNodes.filter(node => node.latestAssistantText).sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0))[0];
-  const latestUserNode = rootNode && rootNode.latestUserText ? rootNode : validNodes.filter(node => node.latestUserText).sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0))[0];
+  const latestAssistantNode = validNodes.filter(node => node.latestAssistantText).sort((a, b) => (b.latestAssistantTextAt || b.mtimeMs || 0) - (a.latestAssistantTextAt || a.mtimeMs || 0))[0];
+  const latestUserNode = rootNode && rootNode.latestUserText
+    ? rootNode
+    : validNodes.filter(node => node.latestUserText).sort((a, b) => (b.latestUserTextAt || b.mtimeMs || 0) - (a.latestUserTextAt || a.mtimeMs || 0))[0];
 
   const activeNodes = runningNodes
     .slice()
@@ -1283,7 +1311,9 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
     current,
     timeline: allTimeline.slice(0, clampInt(options.timelineLimit, 40, 10, 200)),
     latestAssistantText: latestAssistantNode ? latestAssistantNode.latestAssistantText : '',
+    latestAssistantTextAt: latestAssistantNode ? latestAssistantNode.latestAssistantTextAt || 0 : 0,
     latestUserText: latestUserNode ? latestUserNode.latestUserText : '',
+    latestUserTextAt: latestUserNode ? latestUserNode.latestUserTextAt || 0 : 0,
     latestMtime,
     latestIndexedActivityMs,
     truncated: validNodes.some(node => node.truncated)
