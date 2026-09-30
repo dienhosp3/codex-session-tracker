@@ -58,7 +58,7 @@ async function listRolloutFiles(sessionsDir) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         stack.push(full);
-      } else if (entry.isFile() && /^rollout-.*\.jsonl(?:\.gz|\.zst)?$/i.test(entry.name)) {
+      } else if (entry.isFile() && /^rollout-.*\.jsonl$/i.test(entry.name)) {
         try {
           const stat = await fsp.stat(full);
           const parsedName = parseRolloutFileName(full);
@@ -324,9 +324,13 @@ function taskEventFromLine(line) {
   if (item.type === 'event_msg' && item.payload && typeof item.payload === 'object') payload = item.payload;
   if (!payload || typeof payload !== 'object') return null;
   const type = String(payload.type || '');
+  const eventAt = timestampValue(
+    payload.occurred_at_ms || payload.timestamp_ms || payload.occurred_at || payload.timestamp,
+    item.timestamp
+  );
 
   if (type === 'task_started' || type === 'turn_started') {
-    return { kind: 'running', type, turnId: String(payload.turn_id || payload.id || ''), startedAt: timestampValue(payload.started_at_ms, payload.started_at), raw: payload };
+    return { kind: 'running', type, turnId: String(payload.turn_id || payload.id || ''), startedAt: timestampValue(payload.started_at_ms, payload.started_at) || eventAt, eventAt, raw: payload };
   }
   if (type === 'task_complete' || type === 'turn_complete') {
     return {
@@ -334,7 +338,8 @@ function taskEventFromLine(line) {
       type,
       turnId: String(payload.turn_id || payload.id || ''),
       startedAt: timestampValue(payload.started_at_ms, payload.started_at),
-      completedAt: timestampValue(payload.completed_at_ms, payload.completed_at),
+      completedAt: timestampValue(payload.completed_at_ms, payload.completed_at) || eventAt,
+      eventAt,
       error: payload.error || null,
       raw: payload
     };
@@ -345,13 +350,14 @@ function taskEventFromLine(line) {
       type,
       turnId: String(payload.turn_id || payload.id || ''),
       startedAt: timestampValue(payload.started_at_ms, payload.started_at),
-      completedAt: timestampValue(payload.completed_at_ms, payload.completed_at),
+      completedAt: timestampValue(payload.completed_at_ms, payload.completed_at) || eventAt,
+      eventAt,
       error: payload.reason || payload.error || null,
       raw: payload
     };
   }
   if (type === 'error') {
-    return { kind: 'error', type, turnId: String(payload.turn_id || payload.id || ''), error: payload, raw: payload };
+    return { kind: 'error', type, turnId: String(payload.turn_id || payload.id || ''), eventAt, error: payload, raw: payload };
   }
   return null;
 }
@@ -384,15 +390,15 @@ async function readLatestTaskEvent(file) {
       carry = lines.shift() || '';
       for (let i = lines.length - 1; i >= 0; i -= 1) {
         const event = taskEventFromLine(lines[i]);
-        if (event) return { ...event, mtimeMs: stat.mtimeMs, size: stat.size };
+        if (event) return { ...event, mtimeMs: event.eventAt || stat.mtimeMs, rolloutMtimeMs: stat.mtimeMs, size: stat.size };
       }
       position = start;
     }
     if (carry) {
       const event = taskEventFromLine(carry);
-      if (event) return { ...event, mtimeMs: stat.mtimeMs, size: stat.size };
+      if (event) return { ...event, mtimeMs: event.eventAt || stat.mtimeMs, rolloutMtimeMs: stat.mtimeMs, size: stat.size };
     }
-    return { kind: 'idle', type: '', turnId: '', mtimeMs: stat.mtimeMs, size: stat.size };
+    return { kind: 'idle', type: '', turnId: '', mtimeMs: stat.mtimeMs, rolloutMtimeMs: stat.mtimeMs, size: stat.size };
   } finally {
     await handle.close();
   }
@@ -705,7 +711,6 @@ function computeCurrentActivity(activities, status) {
   if (status && status.kind === 'completed') return { kind: 'complete', label: 'Da hoan tat', detail: '', at: status.completedAt || status.mtimeMs || 0 };
   if (status && status.kind === 'error') return { kind: 'error', label: 'Da dung voi loi', detail: '', at: status.completedAt || status.mtimeMs || 0 };
   if (status && status.kind === 'aborted') return { kind: 'error', label: 'Turn da dung', detail: compactText(status.error || '', 260), at: status.completedAt || status.mtimeMs || 0 };
-  if (status && status.kind === 'stale') return { kind: 'stale', label: 'Khong co ghi moi', detail: 'Rollout khong co cap nhat trong thoi gian dai', at: status.staleAt || status.mtimeMs || 0 };
   return { kind: 'idle', label: 'Dang ranh', detail: '', at: status && status.mtimeMs || 0 };
 }
 
@@ -769,6 +774,7 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
   let streamingAssistantText = '';
   let latestReasoningText = '';
   let streamingReasoningText = '';
+  const operationKinds = new Map();
 
   for (const line of text.split(/\r?\n/)) {
     const item = parseJsonLine(line);
@@ -798,7 +804,17 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
       if (msg) latestAssistantText = msg;
     }
 
-    const activity = activityFromItem(item, actor);
+    let activity = activityFromItem(item, actor);
+    // Current Codex emits an `exec` custom_tool_call followed by a generic
+    // custom_tool_call_output. Keep the call identity so the completed row is
+    // rendered as a command result instead of an unrelated generic tool row.
+    if (activity && activity.callId) {
+      if (activity.phase === 'begin') operationKinds.set(activity.callId, activity.kind);
+      else if (activity.phase === 'end' && operationKinds.get(activity.callId) === 'command' && activity.kind === 'tool') {
+        activity = { ...activity, kind: 'command', label: 'Da chay lenh' };
+      }
+      if (activity.phase === 'end') operationKinds.delete(activity.callId);
+    }
     if (activity) {
       activities.push(activity);
       if (activity.kind === 'user' && activity.text) latestUserText = activity.text;
@@ -912,7 +928,59 @@ async function readThreadNames(codexHome, threadIds) {
     const id = String(item.id || item.thread_id || '');
     if (!wanted.has(id) || result.has(id)) continue;
     const name = cleanTitle(item.thread_name || item.title || '', 140);
-    if (name) result.set(id, { name, updatedAt: String(item.updated_at || '') });
+    result.set(id, { name, updatedAt: String(item.updated_at || '') });
+  }
+  return result;
+}
+
+// The rollout file is an append-only transport and can be flushed after the
+// thread state has already changed.  Newer Codex builds persist the authoritative
+// thread update in state_*.sqlite, so use it as a read-only activity clock when
+// the host Node runtime exposes the built-in SQLite driver.  Older VS Code
+// runtimes simply fall back to session_index.jsonl and rollout event timestamps.
+function readStateThreadActivity(codexHome, threadIds) {
+  const wanted = Array.from(threadIds || []).map(String).filter(Boolean);
+  const result = new Map();
+  if (!codexHome || !wanted.length) return result;
+
+  let DatabaseSync;
+  try {
+    ({ DatabaseSync } = require('node:sqlite'));
+  } catch {
+    return result;
+  }
+
+  let files;
+  try {
+    files = fs.readdirSync(codexHome)
+      .filter(name => /^state(?:_\d+)?\.sqlite$/i.test(name))
+      .sort()
+      .map(name => path.join(codexHome, name));
+  } catch {
+    return result;
+  }
+
+  const placeholders = wanted.map(() => '?').join(',');
+  for (const file of files) {
+    let db;
+    try {
+      db = new DatabaseSync(file, { readOnly: true });
+      const rows = db.prepare(`SELECT id, updated_at_ms, updated_at FROM threads WHERE id IN (${placeholders})`).all(...wanted);
+      for (const row of rows) {
+        const id = String(row.id || '');
+        const milliseconds = Number(row.updated_at_ms);
+        const seconds = Number(row.updated_at);
+        const updatedAtMs = Number.isFinite(milliseconds) && milliseconds > 0
+          ? milliseconds
+          : (Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0);
+        if (id && updatedAtMs) result.set(id, Math.max(result.get(id) || 0, updatedAtMs));
+      }
+    } catch {
+      // A database can be in the middle of a rotation or use an older schema.
+      // The JSONL/index path remains a valid fallback in that case.
+    } finally {
+      try { if (db) db.close(); } catch {}
+    }
   }
   return result;
 }
@@ -939,7 +1007,6 @@ async function scanActiveSessions(options = {}) {
   const historyLimit = clampInt(options.historyLimit, 100, 10, 1000);
   const scanLimit = clampInt(options.scanLimit, 1200, 50, 10000);
   const includeNonVsCodeSessions = Boolean(options.includeNonVsCodeSessions);
-  const staleAfterSeconds = clampInt(options.staleAfterSeconds, 3600, 60, 86400);
   if (!sessionsDir) return [];
 
   const files = await listRolloutFiles(sessionsDir);
@@ -955,8 +1022,12 @@ async function scanActiveSessions(options = {}) {
   const nodes = Array.from(byThread.values());
   const withStatus = await mapLimit(nodes, 10, async meta => {
     const status = await readLatestTaskEvent(meta.file);
-    return { ...meta, status: staleStatus(status, meta.mtimeMs, staleAfterSeconds) };
+    return { ...meta, status };
   });
+  const rootNodes = new Map();
+  for (const node of withStatus) {
+    if (node && !node.__error && isRootSession(node)) rootNodes.set(node.threadId, node);
+  }
   const activeRootIds = new Set();
   const treeStats = new Map();
   for (const node of withStatus) {
@@ -969,7 +1040,8 @@ async function scanActiveSessions(options = {}) {
       treeStats.set(rootId, stats);
     }
     stats.latestMtime = Math.max(stats.latestMtime, node.mtimeMs || 0);
-    if (node.status && node.status.kind === 'running') {
+    const rootNode = rootNodes.get(rootId) || null;
+    if (isRunningConversationNode(node, rootNode, rootId)) {
       activeRootIds.add(rootId);
       stats.runningCount += 1;
       if (node.threadId !== rootId) stats.runningChildren += 1;
@@ -993,11 +1065,21 @@ async function scanActiveSessions(options = {}) {
   }
 
   const names = await readThreadNames(codexHome, new Set(active.map(item => item.threadId)));
+  const stateTimes = readStateThreadActivity(codexHome, new Set(active.map(item => item.threadId)));
   for (const session of active) {
     const indexed = names.get(session.threadId);
     if (indexed && indexed.name) {
       session.title = indexed.name;
       session.titleUpdatedAt = indexed.updatedAt;
+    }
+    const indexedUpdatedAtMs = Math.max(
+      parseTimestampMs(indexed && indexed.updatedAt),
+      stateTimes.get(session.threadId) || 0
+    );
+    if (indexedUpdatedAtMs) {
+      session.indexedUpdatedAtMs = indexedUpdatedAtMs;
+      session.mtimeMs = Math.max(session.mtimeMs || 0, indexedUpdatedAtMs);
+      if (session.status) session.status.mtimeMs = Math.max(session.status.mtimeMs || 0, indexedUpdatedAtMs);
     }
   }
   active.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
@@ -1009,18 +1091,41 @@ async function attachStatuses(sessions) {
   return statuses.filter(value => value && !value.__error);
 }
 
-function staleStatus(status, mtimeMs, staleAfterSeconds = 3600) {
-  if (!status || status.kind !== 'running') return status;
-  const thresholdMs = Math.max(60, Number(staleAfterSeconds) || 3600) * 1000;
-  const lastWrite = Number(status.mtimeMs || mtimeMs || 0);
-  if (!lastWrite || Date.now() - lastWrite < thresholdMs) return status;
-  return {
-    ...status,
-    kind: 'stale',
-    stale: true,
-    staleForMs: Math.max(0, Date.now() - lastWrite),
-    staleAt: lastWrite
-  };
+function parseTimestampMs(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value > 1e12 ? value : value * 1000;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric > 1e12 ? numeric : numeric * 1000;
+  }
+  return 0;
+}
+
+function isTerminalStatus(status) {
+  return Boolean(status && ['completed', 'error', 'aborted'].includes(status.kind));
+}
+
+// A child rollout is active only when its own task is running and it belongs to
+// the current lifecycle of the root.  Old child files can remain open forever
+// after a root task completed; their earlier task_started event must not revive
+// the conversation.  This compares lifecycle event order, never wall-clock age.
+function isRunningConversationNode(node, rootNode, rootThreadId) {
+  if (!node || !node.status || node.status.kind !== 'running') return false;
+  if (node.threadId === rootThreadId || !rootNode) return true;
+
+  const rootTurnId = String(rootNode.status.turnId || '');
+  const childRootTurnId = String(node.status.raw && node.status.raw.root_turn_id || '');
+  if (rootTurnId && childRootTurnId && childRootTurnId !== rootTurnId) return false;
+
+  const childStartedAt = Number(node.status.startedAt || node.status.eventAt || 0);
+  const rootStartedAt = Number(rootNode.status.startedAt || rootNode.status.eventAt || 0);
+  if (childStartedAt && rootStartedAt && childStartedAt < rootStartedAt) return false;
+  if (!isTerminalStatus(rootNode.status)) return true;
+
+  const rootEndedAt = Number(rootNode.status.completedAt || rootNode.status.eventAt || 0);
+  if (childStartedAt && rootEndedAt && childStartedAt <= rootEndedAt) return false;
+  return true;
 }
 
 async function findLatestRolloutForThread(sessionsDir, threadId, options = {}) {
@@ -1093,6 +1198,9 @@ async function scanSessionTree(sessionsDir, rootSession, options = {}) {
 async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
   const tree = Array.isArray(options.tree) && options.tree.length ? options.tree : await scanSessionTree(sessionsDir, rootSession, { scanLimit: options.scanLimit });
   const rootThreadId = rootSession.threadId;
+  const codexHome = options.codexHome || path.dirname(sessionsDir || '');
+  const stateTimes = readStateThreadActivity(codexHome, tree.map(session => session && session.threadId));
+  const indexedNames = options.indexedActivity instanceof Map ? options.indexedActivity : new Map();
   const nodes = await mapLimit(tree, 6, async session => {
     const [activity, summary] = await Promise.all([
       readRecentActivity(session.file, session, rootThreadId, {
@@ -1104,7 +1212,7 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
     return {
       ...session,
       ...activity,
-      status: staleStatus(activity.status, session.mtimeMs, options.staleAfterSeconds || 3600),
+      indexedUpdatedAtMs: Math.max(stateTimes.get(session.threadId) || 0, Number(indexedNames.get(session.threadId) || 0)),
       taskPreview: summary && summary.preview || ''
     };
   });
@@ -1124,8 +1232,9 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
   }
 
   const rootNode = validNodes.find(node => node.threadId === rootThreadId) || null;
-  const runningNodes = validNodes.filter(node => node.status && node.status.kind === 'running');
+  const runningNodes = validNodes.filter(node => isRunningConversationNode(node, rootNode, rootThreadId));
   const latestMtime = validNodes.reduce((max, node) => Math.max(max, node.mtimeMs || 0), 0);
+  const latestIndexedActivityMs = validNodes.reduce((max, node) => Math.max(max, node.indexedUpdatedAtMs || 0), 0);
   let overallStatus = rootNode && rootNode.status ? { ...rootNode.status } : { kind: 'unknown', mtimeMs: latestMtime };
   if (runningNodes.length) {
     const latestRunning = runningNodes.reduce((best, node) => !best || (node.mtimeMs || 0) > (best.mtimeMs || 0) ? node : best, null);
@@ -1133,6 +1242,7 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
   } else {
     overallStatus.mtimeMs = latestMtime || overallStatus.mtimeMs;
   }
+  if (latestIndexedActivityMs) overallStatus.mtimeMs = Math.max(overallStatus.mtimeMs || 0, latestIndexedActivityMs);
 
   const allTimeline = [];
   for (const node of validNodes) {
@@ -1142,17 +1252,21 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
   }
   allTimeline.sort((a, b) => (b.at || 0) - (a.at || 0));
 
-  const currentCandidates = validNodes.map(node => ({ ...node.current, actor: node.displayName || actorLabel(node, rootThreadId), threadId: node.threadId, nodeStatus: node.status })).filter(Boolean);
+  const currentCandidates = runningNodes.map(node => ({ ...node.current, actor: node.displayName || actorLabel(node, rootThreadId), threadId: node.threadId, nodeStatus: node.status })).filter(Boolean);
+  if (!currentCandidates.length && rootNode && rootNode.current) {
+    currentCandidates.push({ ...rootNode.current, actor: rootNode.displayName || actorLabel(rootNode, rootThreadId), threadId: rootNode.threadId, nodeStatus: rootNode.status });
+  }
   currentCandidates.sort((a, b) => (b.at || 0) - (a.at || 0));
   const current = currentCandidates.find(item => item.nodeStatus && item.nodeStatus.kind === 'running') || currentCandidates[0] || null;
 
   const latestAssistantNode = validNodes.filter(node => node.latestAssistantText).sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0))[0];
   const latestUserNode = rootNode && rootNode.latestUserText ? rootNode : validNodes.filter(node => node.latestUserText).sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0))[0];
 
-  const activeNodes = validNodes
-    .filter(node => node.status && node.status.kind === 'running')
+  const activeNodes = runningNodes
+    .slice()
     .sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
-  const completedNodes = validNodes.filter(node => !node.status || node.status.kind !== 'running');
+  const runningIds = new Set(runningNodes.map(node => node.threadId));
+  const completedNodes = validNodes.filter(node => !runningIds.has(node.threadId));
   const completedSummary = {
     count: completedNodes.length,
     childCount: completedNodes.filter(node => node.threadId !== rootThreadId).length,
@@ -1171,6 +1285,7 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
     latestAssistantText: latestAssistantNode ? latestAssistantNode.latestAssistantText : '',
     latestUserText: latestUserNode ? latestUserNode.latestUserText : '',
     latestMtime,
+    latestIndexedActivityMs,
     truncated: validNodes.some(node => node.truncated)
   };
 }
@@ -1224,6 +1339,7 @@ module.exports = {
   scanSessions,
   scanActiveSessions,
   readThreadNames,
+  readStateThreadActivity,
   attachStatuses,
   findLatestRolloutForThread,
   scanSessionTree,

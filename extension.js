@@ -97,8 +97,6 @@ function config() {
     historyLimit: cfg.get('historyLimit', 100),
     includeNonVsCodeSessions: cfg.get('includeNonVsCodeSessions', false),
     pollIntervalMs: cfg.get('pollIntervalMs', 1500),
-    quietAfterSeconds: cfg.get('quietAfterSeconds', 30),
-    staleAfterSeconds: cfg.get('staleAfterSeconds', 3600),
     rescanThreadEverySeconds: cfg.get('rescanThreadEverySeconds', 5),
     activeScanEverySeconds: cfg.get('activeScanEverySeconds', 4),
     treeScanLimit: cfg.get('treeScanLimit', 1200),
@@ -185,8 +183,7 @@ async function refreshActiveChats(force) {
       sessionsDir: cfg.sessionsDir,
       historyLimit: cfg.historyLimit,
       includeNonVsCodeSessions: cfg.includeNonVsCodeSessions,
-      scanLimit: cfg.treeScanLimit,
-      staleAfterSeconds: cfg.staleAfterSeconds
+      scanLimit: cfg.treeScanLimit
     });
 
     if (selected) {
@@ -197,6 +194,7 @@ async function refreshActiveChats(force) {
         selected.file = activeSelected.file || selected.file;
         selected.createdAt = activeSelected.createdAt || selected.createdAt;
         selected.status = activeSelected.status || selected.status;
+        selected.indexedUpdatedAtMs = activeSelected.indexedUpdatedAtMs || selected.indexedUpdatedAtMs || 0;
         await persistSelection();
       }
     }
@@ -220,6 +218,7 @@ async function selectThread(threadId) {
   const cfg = config();
   const names = await tracker.readThreadNames(cfg.codexHome, new Set([session.threadId]));
   const indexed = names.get(session.threadId);
+  const stateTimes = tracker.readStateThreadActivity(cfg.codexHome, new Set([session.threadId]));
   selected = {
     threadId: session.threadId,
     sessionId: session.sessionId || session.threadId,
@@ -228,7 +227,8 @@ async function selectThread(threadId) {
     cwd: session.cwd,
     source: session.source,
     createdAt: session.createdAt || '',
-    status: session.status || null
+    status: session.status || null,
+    indexedUpdatedAtMs: Math.max(parseDateMs(indexed && indexed.updatedAt), stateTimes.get(session.threadId) || 0)
   };
   selectedTree = [];
   latestSnapshot = null;
@@ -274,6 +274,12 @@ async function refreshTrackedStatus(forceRescan) {
       const names = await tracker.readThreadNames(cfg.codexHome, new Set([selected.threadId]));
       const indexed = names.get(selected.threadId);
       if (indexed && indexed.name) selected.title = indexed.name;
+      const stateTimes = tracker.readStateThreadActivity(cfg.codexHome, new Set([selected.threadId]));
+      selected.indexedUpdatedAtMs = Math.max(
+        selected.indexedUpdatedAtMs || 0,
+        parseDateMs(indexed && indexed.updatedAt),
+        stateTimes.get(selected.threadId) || 0
+      );
       await persistSelection();
     }
 
@@ -290,7 +296,8 @@ async function refreshTrackedStatus(forceRescan) {
       activityMaxBytes: Math.max(1, Number(cfg.activityTailMb || 6)) * 1024 * 1024,
       timelineLimit: cfg.timelineLimit,
       timelinePerNode: Math.max(20, Math.ceil(Number(cfg.timelineLimit || 50) / 2)),
-      staleAfterSeconds: cfg.staleAfterSeconds
+      codexHome: cfg.codexHome,
+      indexedActivity: new Map([[selected.threadId, selected.indexedUpdatedAtMs || 0]])
     });
     latestSnapshot = snapshot;
     selected.status = snapshot.overallStatus;
@@ -456,7 +463,7 @@ function serializeActiveChat(chat) {
     title: humanChatTitle(chat),
     cwd: chat.cwd || '',
     createdAt: parseDateMs(chat.createdAt),
-    lastActivity: chat.mtimeMs || 0,
+    lastActivity: Math.max(chat.mtimeMs || 0, chat.indexedUpdatedAtMs || 0),
     runningChildren: chat.status && chat.status.runningChildren || 0,
     runningCount: chat.status && chat.status.runningCount || 1
   };
@@ -468,9 +475,9 @@ function serializeSelectedShell() {
     threadId: selected.threadId,
     cwd: selected.cwd,
     createdAt: parseDateMs(selected.createdAt),
-    state: displayState(selected.status || { kind: 'unknown' }, config().quietAfterSeconds),
+    state: displayState(selected.status || { kind: 'unknown' }),
     stateKind: selected.status && selected.status.kind || 'unknown',
-    lastActivityMs: selected.status && selected.status.mtimeMs || 0,
+    lastActivityMs: Math.max(selected.status && selected.status.mtimeMs || 0, selected.indexedUpdatedAtMs || 0),
     current: null,
     latestUserText: '',
     latestAssistantText: '',
@@ -481,7 +488,6 @@ function serializeSelectedShell() {
 }
 
 function serializeSnapshot(snapshot) {
-  const quietAfterSeconds = config().quietAfterSeconds;
   const activeNodes = (snapshot.activeNodes || snapshot.nodes.filter(node => node.status && node.status.kind === 'running'))
     .slice()
     .sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
@@ -514,9 +520,15 @@ function serializeSnapshot(snapshot) {
     threadId: selected.threadId,
     cwd: selected.cwd,
     createdAt: parseDateMs(selected.createdAt || snapshot.root && snapshot.root.createdAt),
-    state: displayState(snapshot.overallStatus, quietAfterSeconds),
+    state: displayState(snapshot.overallStatus),
     stateKind: snapshot.overallStatus.kind,
-    lastActivityMs: Math.max(latestEventAt, Number(statusAt) || 0, snapshot.latestMtime || 0),
+    lastActivityMs: Math.max(
+      latestEventAt,
+      Number(statusAt) || 0,
+      snapshot.latestMtime || 0,
+      snapshot.latestIndexedActivityMs || 0,
+      selected.indexedUpdatedAtMs || 0
+    ),
     current: snapshot.current ? {
       label: localizeActivity(snapshot.current.label),
       detail: snapshot.current.detail || '',
@@ -538,22 +550,25 @@ function serializeSnapshot(snapshot) {
       actor: node.displayName || (node.threadId === selected.threadId ? 'Main' : 'Sub-agent'),
       role: node.agentRole || '',
       nickname: node.agentNickname || '',
-      state: displayState(node.status || { kind: 'unknown' }, quietAfterSeconds),
+      state: displayState(node.status || { kind: 'unknown' }),
       current: node.current ? localizeActivity(node.current.label) : '',
       currentDetail: node.current && node.current.detail || '',
       currentText: node.current && node.current.text || '',
       currentAt: node.current && Number.isFinite(node.current.at) ? node.current.at : 0,
       taskPreview: node.taskPreview || '',
-      updatedAt: node.mtimeMs || 0
+      updatedAt: Math.max(node.mtimeMs || 0, node.indexedUpdatedAtMs || 0)
     })),
     truncated: Boolean(snapshot.truncated)
   };
 }
 
 function parseDateMs(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value > 1e12 ? value : value * 1000;
   if (!value) return 0;
   const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+  if (Number.isFinite(parsed)) return parsed;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? (numeric > 1e12 ? numeric : numeric * 1000) : 0;
 }
 
 function localizeActivity(label) {
@@ -605,7 +620,6 @@ function localizeActivity(label) {
     'Dang xu ly': '\u0110ang x\u1eed l\u00fd',
     'Da hoan tat': '\u0110\u00e3 ho\u00e0n t\u1ea5t',
     'Da dung voi loi': '\u0110\u00e3 d\u1eebng v\u1edbi l\u1ed7i',
-    'Khong co ghi moi': 'Kh\u00f4ng c\u00f3 ghi m\u1edbi',
     'Dang ranh': '\u0110ang r\u1ea3nh'
   };
   return map[label] || label || '';
@@ -637,18 +651,12 @@ function renderStatus() {
   statusBar.show();
 }
 
-function displayState(status, quietAfterSeconds) {
+function displayState(status) {
   const kind = status && status.kind ? status.kind : 'unknown';
-  if (kind === 'running') {
-    const quietMs = status.mtimeMs ? Math.max(0, Date.now() - status.mtimeMs) : 0;
-    const thresholdMs = Math.max(5, Number(quietAfterSeconds) || 30) * 1000;
-    if (quietMs >= thresholdMs) return `Running - quiet ${tracker.formatDuration(quietMs)}`;
-    return 'Running';
-  }
+  if (kind === 'running') return 'Running';
   if (kind === 'completed') return 'Completed';
   if (kind === 'error') return 'Error';
   if (kind === 'aborted') return 'Aborted';
-  if (kind === 'stale') return 'Stale - no recent rollout writes';
   if (kind === 'idle') return 'Idle';
   if (kind === 'missing') return 'Chat file missing';
   return 'Unknown';
@@ -659,7 +667,6 @@ function iconFor(kind) {
   if (kind === 'completed') return 'check';
   if (kind === 'error') return 'error';
   if (kind === 'aborted') return 'circle-slash';
-  if (kind === 'stale') return 'history';
   if (kind === 'idle') return 'circle-outline';
   if (kind === 'missing') return 'warning';
   return 'question';
@@ -669,7 +676,7 @@ function tooltipForSelection(session, status) {
   const md = new vscode.MarkdownString();
   md.isTrusted = false;
   md.appendMarkdown(`**${escapeMarkdown(session.title)}**\n\n`);
-  md.appendMarkdown(`- **State:** ${escapeMarkdown(displayState(status, config().quietAfterSeconds))}\n`);
+  md.appendMarkdown(`- **State:** ${escapeMarkdown(displayState(status))}\n`);
   if (status.runningChildren) md.appendMarkdown(`- **Running child agents:** ${status.runningChildren}\n`);
   if (session.cwd) md.appendMarkdown(`- **Workspace:** \`${escapeInlineCode(session.cwd)}\`\n`);
   if (status.mtimeMs) md.appendMarkdown(`- **Last activity:** ${escapeMarkdown(tracker.formatRelativeTime(status.mtimeMs))}\n`);

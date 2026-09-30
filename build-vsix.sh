@@ -3,10 +3,19 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 NAME="codex-session-tracker"
-VERSION="$(node -p "require('$ROOT/package.json').version")"
-ENGINE="$(node -p "require('$ROOT/package.json').engines.vscode")"
-DISPLAY="$(node -p "require('$ROOT/package.json').displayName")"
-DESCRIPTION="$(node -p "require('$ROOT/package.json').description")"
+# Git Bash on Windows passes POSIX paths to the native Node executable. Use a
+# Windows path only for these metadata reads; filesystem operations below stay
+# in the shell's native path form.
+if command -v cygpath >/dev/null 2>&1; then
+  NODE_ROOT="$(cygpath -w "$ROOT")"
+else
+  NODE_ROOT="$ROOT"
+fi
+export CODEX_TRACKER_PACKAGE="$NODE_ROOT/package.json"
+VERSION="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).version")"
+ENGINE="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).engines.vscode")"
+DISPLAY="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).displayName")"
+DESCRIPTION="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).description")"
 VSIX="$ROOT/${NAME}-${VERSION}.vsix"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT

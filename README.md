@@ -11,11 +11,13 @@ The selected chat now has a timestamped activity timeline. It understands the ro
 - Image views appear as **Viewed image** entries, including the image path when Codex recorded one.
 - Assistant and user messages are retained with their event time and expandable full text.
 - Consecutive command/file/image operations are grouped into an expandable activity block. The block keeps each individual operation and its own timestamp.
-- Root and child-agent current activity rows show the event time, while a quiet running turn is explicitly marked as quiet. A quiet duration is not treated as proof that Codex stopped.
+- Root and child-agent current activity rows show the event time. Rollout file age is displayed only as a timestamp source fallback; it never changes a running state.
 - Completed or aborted activity remains visible when the selected chat is no longer running.
 - Raw encrypted reasoning content is never rendered.
 
-The active-chat list remains scoped to root chats with at least one running root/child thread. Chat identity is the root `thread_id`; repository path and `cwd` are not used to merge unrelated chats.
+The active-chat list remains scoped to root chats with at least one running root/child thread in the current task lifecycle. Chat identity is the root `thread_id`; repository path and `cwd` are not used to merge unrelated chats. A child from an older root turn is ignored even if its old rollout file still ends in `task_started`; a terminal root also closes orphaned children whose start event precedes that root completion. No wall-clock timeout is used to decide whether a job is running.
+
+For recency, the tracker prefers the read-only `threads.updated_at_ms` value from `<CODEX_HOME>/state_*.sqlite` when the VS Code host exposes Node's built-in SQLite driver. It falls back to `session_index.jsonl` and timestamps embedded in rollout events. This avoids reporting an old file flush time as the time of the latest chat message.
 
 ## Sending while the Codex panel is gray
 
@@ -58,8 +60,6 @@ Reloading VS Code is not requested by the tracker. If a window reload would inte
 - `codexSessionTracker.codexCliPath`: exact executable used for queue delivery.
 - `codexSessionTracker.pollIntervalMs`: selected-chat refresh interval.
 - `codexSessionTracker.activeScanEverySeconds`: active-chat list refresh interval.
-- `codexSessionTracker.quietAfterSeconds`: quiet threshold shown while the rollout remains running.
-- `codexSessionTracker.staleAfterSeconds`: default one hour without a rollout write before an unfinished turn is classified as stale and removed from active chats.
 - `codexSessionTracker.timelineLimit`: maximum merged activity entries retained per refresh.
 - `codexSessionTracker.activityTailMb`: tail size used for activity parsing.
 - `codexSessionTracker.treeScanLimit`: rollout metadata scan bound for root/child resolution.

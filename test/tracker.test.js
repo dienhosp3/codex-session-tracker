@@ -45,11 +45,11 @@ function userMessage(text) {
   };
 }
 
-function started(turnId = 'turn-1') {
+function started(turnId = 'turn-1', timestamp = '2026-09-30T07:00:02Z', startedAt = 1790751602) {
   return {
-    timestamp: '2026-09-30T07:00:02Z',
+    timestamp,
     type: 'event_msg',
-    payload: { type: 'task_started', turn_id: turnId, started_at: 1790751602 }
+    payload: { type: 'task_started', turn_id: turnId, started_at: startedAt }
   };
 }
 
@@ -170,7 +170,7 @@ test('parses response_item tool calls and assistant messages with event timestam
   const summary = await tracker.readSessionSummary(file);
   const activity = await tracker.readRecentActivity(file, summary, id, { timelineLimit: 20 });
   assert.ok(activity.timeline.some(item => item.kind === 'command' && item.phase === 'begin'));
-  assert.ok(activity.timeline.some(item => item.kind === 'tool' && item.phase === 'end'));
+  assert.ok(activity.timeline.some(item => item.kind === 'command' && item.phase === 'end'));
   assert.ok(activity.timeline.some(item => item.kind === 'message' && item.text === 'All good.'));
   assert.equal(activity.latestAssistantText, 'All good.');
 });
@@ -291,7 +291,7 @@ test('session tree includes only selected root and its descendants, not same-cwd
       nickname: 'worker-a',
       role: 'worker'
     }),
-    started('child-turn')
+    started('child-turn', '2026-09-30T07:00:04Z', 1790751604)
   ], Date.now() - 1000);
 
   await writeRollout(root, `rollout-2026-09-30T08-00-02-${otherId}.jsonl`, [
@@ -326,7 +326,7 @@ test('overall selected chat stays running while a child agent is running', async
       parentThreadId: rootId,
       source: { subagent: { thread_spawn: { parent_thread_id: rootId, depth: 1, agent_path: ['worker'], agent_nickname: 'worker-b', agent_role: 'worker' } } }
     }),
-    started('child-turn'),
+    started('child-turn', new Date(Date.now() - 600).toISOString(), Date.now() - 600),
     event('exec_command_begin', { call_id: 'cmd-1', turn_id: 'child-turn', started_at_ms: Date.now() - 500, command: ['npm', 'test'], cwd: 'file:///C:/repo', parsed_cmd: [], source: 'agent' })
   ], Date.now());
 
@@ -430,6 +430,20 @@ test('scanActiveSessions uses session_index title, hides completed roots, and so
   assert.ok(!active.some(x => x.threadId === done));
 });
 
+test('state database timestamp is used when rollout mtime is behind', async t => {
+  let DatabaseSync;
+  try { ({ DatabaseSync } = require('node:sqlite')); } catch { t.skip('node:sqlite is unavailable in this host'); return; }
+  const root = await tempRoot();
+  t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+  const id = 'state-state-state-state-state-state';
+  const db = new DatabaseSync(path.join(root, 'state_1.sqlite'));
+  db.exec('CREATE TABLE threads (id TEXT PRIMARY KEY, updated_at INTEGER, updated_at_ms INTEGER)');
+  db.prepare('INSERT INTO threads (id, updated_at, updated_at_ms) VALUES (?, ?, ?)').run(id, 1790770000, 1790770000123);
+  db.close();
+  const times = tracker.readStateThreadActivity(root, new Set([id]));
+  assert.equal(times.get(id), 1790770000123);
+});
+
 test('scanActiveSessions keeps a root visible when only its child is running', async t => {
   const root = await tempRoot();
   t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
@@ -451,7 +465,7 @@ test('scanActiveSessions keeps a root visible when only its child is running', a
       parentThreadId: rootId,
       source: { subagent: { thread_spawn: { parent_thread_id: rootId, depth: 1, agent_path: ['worker'], agent_nickname: 'worker', agent_role: 'worker' } } }
     }),
-    started('child-turn')
+    started('child-turn', '2026-09-30T07:00:04Z', 1790751604)
   ], now - 500);
 
   const active = await tracker.scanActiveSessions({ codexHome: root, sessionsDir, historyLimit: 20, scanLimit: 100 });
@@ -461,17 +475,35 @@ test('scanActiveSessions keeps a root visible when only its child is running', a
   assert.equal(active[0].status.runningChildren, 1);
 });
 
-test('unfinished rollout with no writes beyond stale threshold is not reported as active', async t => {
+test('old orphan child rollouts do not revive a completed root conversation', async t => {
   const root = await tempRoot();
   t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
-  const id = 'stale-stale-stale-stale-stalestale';
-  await writeRollout(root, 'rollout-stale.jsonl', [
-    richMeta({ id }),
-    userMessage('Old unfinished turn'),
-    started('old-turn')
-  ], Date.now() - 2 * 60 * 60 * 1000);
-  const active = await tracker.scanActiveSessions({ sessionsDir: root, historyLimit: 20, scanLimit: 50, staleAfterSeconds: 3600 });
+  const rootId = 'abababab-abab-abab-abab-111111111111';
+  const childId = 'cdcdcdcd-cdcd-cdcd-cdcd-222222222222';
+  await writeRollout(root, `rollout-root-${rootId}.jsonl`, [
+    richMeta({ id: rootId }), userMessage('Completed root'), started('root-turn'), completed('root-turn')
+  ]);
+  await writeRollout(root, `rollout-child-${childId}.jsonl`, [
+    richMeta({ id: childId, sessionId: rootId, parentThreadId: rootId, source: { subagent: { thread_spawn: { parent_thread_id: rootId, depth: 1, agent_path: ['old'], agent_nickname: 'old', agent_role: 'worker' } } } }),
+    started('old-child')
+  ]);
+  const active = await tracker.scanActiveSessions({ sessionsDir: root, historyLimit: 20, scanLimit: 50 });
   assert.deepEqual(active, []);
+  const rootSession = await tracker.readSessionSummary(path.join(root, '2026', '09', '30', `rollout-root-${rootId}.jsonl`));
+  const tree = await tracker.scanSessionTree(root, rootSession, { scanLimit: 50 });
+  const snapshot = await tracker.buildSessionSnapshot(root, rootSession, { tree, timelineLimit: 20, activityMaxBytes: 1024 * 1024 });
+  assert.equal(snapshot.overallStatus.kind, 'completed');
+  assert.deepEqual(snapshot.activeNodes, []);
+});
+
+test('an unfinished root remains running regardless of rollout file age', async t => {
+  const root = await tempRoot();
+  t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+  const id = 'age-age-age-age-age-age-age-age';
+  await writeRollout(root, `rollout-old-${id}.jsonl`, [richMeta({ id }), userMessage('Still running'), started('turn')], Date.now() - 24 * 60 * 60 * 1000);
+  const active = await tracker.scanActiveSessions({ sessionsDir: root, historyLimit: 20, scanLimit: 50 });
+  assert.equal(active.length, 1);
+  assert.equal(active[0].status.kind, 'running');
 });
 
 test('snapshot activeNodes contains only running nodes and is newest-first', async t => {
@@ -485,7 +517,7 @@ test('snapshot activeNodes contains only running nodes and is newest-first', asy
   ], Date.now() - 4000);
   await writeRollout(root, `rollout-2026-09-30T09-20-01-${runningId}.jsonl`, [
     richMeta({ id: runningId, sessionId: rootId, parentThreadId: rootId, source: { subagent: { thread_spawn: { parent_thread_id: rootId, depth: 1, agent_path: ['run'], agent_nickname: 'run', agent_role: 'worker' } } } }),
-    started('run')
+    started('run', '2026-09-30T07:00:04Z', 1790751604)
   ], Date.now() - 500);
   await writeRollout(root, `rollout-2026-09-30T09-20-02-${doneId}.jsonl`, [
     richMeta({ id: doneId, sessionId: rootId, parentThreadId: rootId, source: { subagent: { thread_spawn: { parent_thread_id: rootId, depth: 1, agent_path: ['done'], agent_nickname: 'done', agent_role: 'worker' } } } }),
@@ -630,11 +662,11 @@ test('active thread rows are sorted by newest rollout activity first', async t =
   ], now - 5000);
   await writeRollout(root, `rollout-2026-09-30T10-00-01-${olderId}.jsonl`, [
     richMeta({ id: olderId, sessionId: rootId, parentThreadId: rootId, source: { subagent: { thread_spawn: { parent_thread_id: rootId, depth: 1, agent_path: ['older'], agent_nickname: 'Older', agent_role: 'worker' } } } }),
-    started('older')
+    started('older', '2026-09-30T07:00:04Z', 1790751604)
   ], now - 2000);
   await writeRollout(root, `rollout-2026-09-30T10-00-02-${newerId}.jsonl`, [
     richMeta({ id: newerId, sessionId: rootId, parentThreadId: rootId, source: { subagent: { thread_spawn: { parent_thread_id: rootId, depth: 1, agent_path: ['newer'], agent_nickname: 'Newer', agent_role: 'worker' } } } }),
-    started('newer')
+    started('newer', '2026-09-30T07:00:05Z', 1790751605)
   ], now - 200);
 
   const summary = await tracker.readSessionSummary(rootFile);

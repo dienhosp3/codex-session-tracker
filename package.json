@@ -83,20 +83,6 @@
           "maximum": 10000,
           "description": "How often to refresh the pinned chat status. The tracker only reads Codex files."
         },
-        "codexSessionTracker.quietAfterSeconds": {
-          "type": "number",
-          "default": 30,
-          "minimum": 5,
-          "maximum": 3600,
-          "description": "While a turn is still running, show a quiet duration after no new rollout writes for this many seconds."
-        },
-        "codexSessionTracker.staleAfterSeconds": {
-          "type": "number",
-          "default": 3600,
-          "minimum": 60,
-          "maximum": 86400,
-          "description": "After this many seconds without a rollout write, an unfinished turn is treated as stale and removed from the running-chat list. Its history remains available when selected."
-        },
         "codexSessionTracker.rescanThreadEverySeconds": {
           "type": "number",
           "default": 5,
