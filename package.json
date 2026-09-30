@@ -1,8 +1,8 @@
 {
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
-  "description": "Compact Codex activity tracker with active-only thread UI and safe queued-message delivery to the selected chat.",
-  "version": "0.5.0",
+  "description": "Compact Codex activity tracker with lifecycle-accurate details, expandable activity cards, and safe queue/steer delivery when the owner transport is available.",
+  "version": "0.6.0",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -121,7 +121,7 @@
         "codexSessionTracker.codexCliPath": {
           "type": "string",
           "default": "",
-          "description": "Optional path to the Codex CLI binary used only for the official `codex queue` command. Empty auto-detects PATH or the OpenAI Codex extension bundle."
+          "description": "Optional path to the Codex CLI binary used for official queue delivery and app-server steer capability checks. Empty auto-detects PATH or the OpenAI Codex extension bundle."
         }
       }
     },
@@ -153,6 +153,7 @@
     "extension.js",
     "tracker.js",
     "codex_queue.js",
+    "codex_steer.js",
     "dashboard.html",
     "media/tracker.svg",
     "README.md",

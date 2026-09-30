@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const tracker = require('./tracker');
 const codexQueue = require('./codex_queue');
+const codexSteer = require('./codex_steer');
 
 let contextRef = null;
 let statusBar = null;
@@ -22,6 +23,10 @@ let queueCapability = { checked: false, available: false, reason: 'Chưa kiểm 
 let queueCapabilityCheckedAt = 0;
 let queueBusy = false;
 let queueNotice = null;
+let steerCapability = { checked: false, available: false, reason: 'Steer capability has not been checked yet.', executable: '', source: '', version: '' };
+let steerCapabilityCheckedAt = 0;
+let steerBusy = false;
+let steerNotice = null;
 
 function activate(context) {
   contextRef = context;
@@ -44,7 +49,7 @@ function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.selectChat', openTracker),
     vscode.commands.registerCommand('codexSessionTracker.refresh', () => refreshAll(true)),
     vscode.commands.registerCommand('codexSessionTracker.clearSelection', clearSelection),
-    vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); postViewState(); }),
+    vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (!event.affectsConfiguration('codexSessionTracker')) return;
       restartPolling();
@@ -76,7 +81,8 @@ class TrackerViewProvider {
       if (message.command === 'refresh') await refreshAll(true);
       if (message.command === 'clear') await clearSelection();
       if (message.command === 'queueMessage') await sendQueuedMessage(message.text);
-      if (message.command === 'reprobeQueue') { await refreshQueueCapability(true); postViewState(); }
+      if (message.command === 'steerMessage') await sendSteeredMessage(message.text);
+      if (message.command === 'reprobeQueue' || message.command === 'reprobeCodex') { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }
     }, null, contextRef.subscriptions);
 
     webviewView.onDidChangeVisibility(() => {
@@ -164,7 +170,10 @@ async function openTracker() {
 async function refreshAll(force) {
   await refreshActiveChats(force);
   await refreshTrackedStatus(force);
-  if (trackerView && trackerView.visible) await refreshQueueCapability(false);
+  if (trackerView && trackerView.visible) {
+    await refreshQueueCapability(false);
+    await refreshSteerCapability(false);
+  }
   postViewState();
 }
 
@@ -233,6 +242,7 @@ async function selectThread(threadId) {
   selectedTree = [];
   latestSnapshot = null;
   queueNotice = null;
+  steerNotice = null;
   lastTreeRescanAt = 0;
   await persistSelection();
   renderStatus();
@@ -244,6 +254,8 @@ async function clearSelection() {
   selected = null;
   selectedTree = [];
   latestSnapshot = null;
+  queueNotice = null;
+  steerNotice = null;
   await persistSelection();
   renderStatus();
   postViewState();
@@ -369,6 +381,50 @@ async function refreshQueueCapability(force) {
   return queueCapability;
 }
 
+async function refreshSteerCapability(force) {
+  const now = Date.now();
+  if (!force && steerCapability.checked && now - steerCapabilityCheckedAt < 60_000) return steerCapability;
+  steerCapabilityCheckedAt = now;
+  const cfg = config();
+  try {
+    const resolved = await codexQueue.resolveCodexExecutable({
+      configuredPath: cfg.codexCliPath,
+      extensionRoots: openAiExtensionRoots(),
+      platform: process.platform
+    });
+    if (!resolved.executable) {
+      steerCapability = {
+        checked: true,
+        available: false,
+        executable: '',
+        source: resolved.source || '',
+        version: '',
+        reason: resolved.error || 'Codex CLI binary was not found.'
+      };
+      return steerCapability;
+    }
+    const probe = await codexSteer.probeSteerSupport(resolved.executable, { codexHome: cfg.codexHome });
+    steerCapability = {
+      checked: true,
+      available: Boolean(probe.available),
+      executable: resolved.executable,
+      source: probe.source || resolved.source || '',
+      version: probe.version || '',
+      reason: probe.reason || ''
+    };
+  } catch (error) {
+    steerCapability = {
+      checked: true,
+      available: false,
+      executable: '',
+      source: '',
+      version: '',
+      reason: codexSteer.compactError(error)
+    };
+  }
+  return steerCapability;
+}
+
 async function sendQueuedMessage(rawText) {
   const text = String(rawText || '').trim();
   if (!text) return;
@@ -430,6 +486,82 @@ async function sendQueuedMessage(rawText) {
   }
 }
 
+function selectedActiveTurnId() {
+  const root = latestSnapshot && latestSnapshot.root;
+  return String(root && root.status && root.status.turnId
+    || latestSnapshot && latestSnapshot.overallStatus && latestSnapshot.overallStatus.turnId
+    || '').trim();
+}
+
+async function sendSteeredMessage(rawText) {
+  const text = String(rawText || '').trim();
+  if (!text) return;
+  if (!selected) {
+    steerNotice = { kind: 'error', text: 'Chưa chọn chat Codex.', at: Date.now() };
+    postViewState();
+    return;
+  }
+  // Re-read lifecycle state immediately before steering. The expected turn id
+  // is an app-server precondition, so a stale composer can never steer a newer
+  // turn accidentally.
+  await refreshTrackedStatus(true);
+  if (!selected.status || selected.status.kind !== 'running') {
+    steerNotice = { kind: 'error', text: 'Chat này không còn chạy nên tracker không steer.', at: Date.now() };
+    postViewState();
+    return;
+  }
+  const expectedTurnId = selectedActiveTurnId();
+  if (!expectedTurnId) {
+    steerNotice = { kind: 'error', text: 'Không đọc được active turn id; tracker không gửi để tránh chèn nhầm turn.', at: Date.now() };
+    postViewState();
+    return;
+  }
+  await refreshSteerCapability(false);
+  if (!steerCapability.available || !steerCapability.executable) {
+    steerNotice = { kind: 'error', text: steerCapability.reason || 'Steer chưa khả dụng với app-server owner hiện tại.', at: Date.now() };
+    postViewState();
+    return;
+  }
+
+  steerBusy = true;
+  steerNotice = null;
+  postViewState();
+  const steerArgs = () => ({
+    executable: steerCapability.executable,
+    threadId: selected.threadId,
+    expectedTurnId,
+    message: text,
+    codexHome: config().codexHome,
+    cwd: selected.cwd || undefined
+  });
+  try {
+    let result;
+    try {
+      result = await codexSteer.steerMessage(steerArgs());
+    } catch (error) {
+      if (!error || error.code !== 'ENOENT') throw error;
+      const previous = steerCapability.executable;
+      await refreshSteerCapability(true);
+      if (!steerCapability.available || !steerCapability.executable || steerCapability.executable === previous) throw error;
+      result = await codexSteer.steerMessage(steerArgs());
+    }
+    steerNotice = {
+      kind: 'success',
+      text: result && result.turnId ? 'Đã steer vào turn đang chạy.' : 'Đã gửi yêu cầu steer vào app-server owner.',
+      turnId: result && result.turnId || '',
+      at: Date.now()
+    };
+    await refreshTrackedStatus(true);
+  } catch (error) {
+    // Never silently turn a failed steer into a queued message. The user chose
+    // an immediate intervention and must see the app-server rejection.
+    steerNotice = { kind: 'error', text: codexSteer.compactError(error), at: Date.now() };
+  } finally {
+    steerBusy = false;
+    postViewState();
+  }
+}
+
 function humanChatTitle(session) {
   return tracker.cleanTitle(session && session.title || '', 80)
     || path.basename(session && session.cwd || '')
@@ -452,6 +584,15 @@ function postViewState() {
         source: queueCapability.source || '',
         version: queueCapability.version || '',
         notice: queueNotice
+      },
+      steer: {
+        checked: Boolean(steerCapability.checked),
+        available: Boolean(steerCapability.available),
+        busy: steerBusy,
+        reason: steerCapability.reason || '',
+        source: steerCapability.source || '',
+        version: steerCapability.version || '',
+        notice: steerNotice
       }
     }
   });
@@ -477,6 +618,7 @@ function serializeSelectedShell() {
     createdAt: parseDateMs(selected.createdAt),
     state: displayState(selected.status || { kind: 'unknown' }),
     stateKind: selected.status && selected.status.kind || 'unknown',
+    activeTurnId: selected.status && selected.status.turnId || '',
     lastActivityMs: Math.max(selected.status && selected.status.mtimeMs || 0, selected.indexedUpdatedAtMs || 0),
     current: null,
     latestUserText: '',
@@ -522,6 +664,7 @@ function serializeSnapshot(snapshot) {
     createdAt: parseDateMs(selected.createdAt || snapshot.root && snapshot.root.createdAt),
     state: displayState(snapshot.overallStatus),
     stateKind: snapshot.overallStatus.kind,
+    activeTurnId: String(snapshot.root && snapshot.root.status && snapshot.root.status.turnId || snapshot.overallStatus && snapshot.overallStatus.turnId || ''),
     lastActivityMs: Math.max(
       latestEventAt,
       Number(statusAt) || 0,

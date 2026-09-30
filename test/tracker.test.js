@@ -7,6 +7,7 @@ const path = require('path');
 const os = require('os');
 const tracker = require('../tracker');
 const codexQueue = require('../codex_queue');
+const codexSteer = require('../codex_steer');
 
 async function tempRoot() {
   return fs.promises.mkdtemp(path.join(os.tmpdir(), 'codex-tracker-test-'));
@@ -682,5 +683,58 @@ test('dashboard UI renders timeline details, timestamps, and safe queue composer
   assert.match(html, /groupTimeline/);
   assert.match(html, /absTime/);
   assert.match(html, /queueMessage/);
+  assert.match(html, /steerMessage/);
+  assert.match(html, /data-state-key/);
+  assert.match(html, /sidebarResizer/);
+  assert.match(html, /history-summary/);
+  assert.doesNotMatch(html, /index===0&&item\.kind==='message'\?' open'/);
+  assert.doesNotMatch(html, /index===0\?' open'/);
+  assert.match(html, /captureUiState/);
   assert.match(html, /composerInput/);
+});
+
+test('steer request uses the official active-turn precondition and text input shape', () => {
+  const request = codexSteer.buildSteerRequest({
+    threadId: 'root-thread',
+    expectedTurnId: 'turn-42',
+    message: 'Đổi hướng ngay',
+    clientUserMessageId: '11111111-1111-4111-8111-111111111111'
+  });
+  assert.equal(request.method, 'turn/steer');
+  assert.deepEqual(request.params, {
+    threadId: 'root-thread',
+    expectedTurnId: 'turn-42',
+    input: [{ type: 'text', text: 'Đổi hướng ngay', text_elements: [] }],
+    clientUserMessageId: '11111111-1111-4111-8111-111111111111'
+  });
+  assert.throws(() => codexSteer.buildSteerRequest({ threadId: 'root-thread', message: 'missing turn' }), /active turn id/);
+});
+
+test('steer capability probe is read-only and requires the running daemon control socket', async () => {
+  const calls = [];
+  const execFileImpl = (file, args, options, callback) => {
+    calls.push({ file, args: [...args], options });
+    if (args[0] === 'app-server' && args[1] === 'proxy') callback(null, 'Proxy stdio bytes to the running app-server control socket\n', '');
+    else callback(null, '{"version":"0.155.0"}\n', '');
+  };
+  const result = await codexSteer.probeSteerSupport('C:\\codex.exe', { execFileImpl, codexHome: 'C:\\codex-home' });
+  assert.equal(result.available, true);
+  assert.equal(result.source, 'app-server-control-socket');
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(call => call.args[0] === 'app-server' && !call.args.includes('start')));
+  assert.equal(calls[0].options.env.CODEX_HOME, 'C:\\codex-home');
+});
+
+test('steer capability probe reports unavailable instead of starting a competing owner', async () => {
+  const execFileImpl = (file, args, options, callback) => {
+    if (args[1] === 'proxy') callback(null, 'Proxy stdio bytes to the running app-server control socket\n', '');
+    else {
+      const error = new Error('no control socket');
+      error.stderr = 'failed to connect to app-server-control.sock';
+      callback(error, '', error.stderr);
+    }
+  };
+  const result = await codexSteer.probeSteerSupport('C:\\codex.exe', { execFileImpl });
+  assert.equal(result.available, false);
+  assert.match(result.reason, /Steer/);
 });
