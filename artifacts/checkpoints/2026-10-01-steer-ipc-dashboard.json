@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-01T05:32:05.019Z",
+  "label": "steer IPC and dashboard width",
+  "repository": {
+    "revision": "8a2a76e5858db312f7c1ba3a0b71667810a51218",
+    "shortRevision": "8a2a76e5858d",
+    "dirty": true,
+    "trackerVersion": "0.7.0"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.928.31416"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.159.2",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "0.159.2",
+      "model": "gpt-6-sol"
+    }
+  }
+}

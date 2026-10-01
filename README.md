@@ -25,7 +25,7 @@ For recency, the tracker prefers the read-only `threads.updated_at_ms` value fro
 
 The composer has two explicit actions:
 
-- **Steer ngay** joins the installed Codex Extension as a follower through its live local IPC router (`\\.\\pipe\\codex-ipc` on Windows). It discovers the owner for the selected root conversation and sends the official `thread-follower-steer-turn` request to that owner. The owner validates the active turn itself, so the tracker never guesses from wall-clock age or races a stale `turn_id`. This is the path intended for a gray Codex panel: the existing owner and app-server remain in charge, while the tracker supplies the text through the Extension's own control path.
+- **Steer ngay** joins the installed Codex Extension as a follower through its live local IPC router (`\\.\\pipe\\codex-ipc` on Windows). It discovers the owner for the selected root conversation and sends the official `thread-follower-steer-turn` request to that owner. The owner validates the active turn itself, so the tracker never guesses from wall-clock age or races a stale `turn_id`. Owner discovery only proves that the Extension registered the conversation; the webview must still process the steer and acknowledge a turn ID.
 - **G&#7917;i sau** invokes the durable queue command below. It is the reliable action for the current VS Code stdio owner and does not interrupt the running turn.
 
 The composer uses Codex's durable queue command:
@@ -34,11 +34,11 @@ The composer uses Codex's durable queue command:
 codex queue --thread <ROOT_THREAD_ID> --message <TEXT>
 ```
 
-This is the safe insertion path. It writes to Codex's shared queue and lets the existing owner/app-server consume the message after the current turn becomes idle. A failed steer is never silently converted into a queued message. The tracker does not resume the chat, start a second owner, steer an unknown `turn_id`, interrupt a turn, edit rollout files, or change the model.
+This is the safe insertion path. It writes to Codex's shared queue and lets the existing owner/app-server consume the message after the current turn becomes idle. A failed steer is never silently converted into a queued message. If IPC closes, times out, or returns a malformed acknowledgement after sending, the tracker reports delivery as unknown and keeps the draft so the user can check the chat before retrying. A gray webview whose handler is unresponsive can still block this follower path. The tracker does not resume the chat, start a second owner, steer an unknown `turn_id`, interrupt a turn, edit rollout files, or change the model.
 
 The executable resolver is platform-aware. On Windows it rejects Linux, macOS, and other Unix binaries shipped beside the Windows build, then prefers the `windows-*`/`win32-*` binary and finally `codex` from `PATH`. The bundled executable is probed for `queue --thread` and `--message` support before the composer is enabled. If an extension update leaves a cached path to a removed executable, an `ENOENT` error triggers one fresh platform re-probe and a single retry.
 
-The queue operation preserves `CODEX_HOME`, the selected root thread ID, and the selected working directory. It never passes a model override. A successful notice includes the queue result; an error keeps the CLI diagnostic visible so the user can re-probe. Steer is enabled only after the tracker finds a live Extension owner for this exact conversation. If the Codex panel or its owner is closed, the button is disabled and the tracker does not create a competing app-server.
+The queue operation preserves `CODEX_HOME`, the selected root thread ID, and the selected working directory. It never passes a model override. A successful notice includes the queue result; an error keeps the CLI diagnostic visible so the user can re-probe. Steer is enabled after owner discovery for the selected conversation; delivery is confirmed only by the steer response. If the Codex panel or its owner is closed, the button is disabled and the tracker does not create a competing app-server.
 
 ## Files read and writes performed
 

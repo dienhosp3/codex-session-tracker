@@ -8,6 +8,7 @@ const path = require('path');
 
 const DEFAULT_TIMEOUT_MS = 12_000;
 const IPC_DEFAULT_TIMEOUT_MS = 5_000;
+const IPC_STEER_TIMEOUT_MS = 15_000;
 const IPC_INITIALIZING_CLIENT = 'initializing-client';
 const IPC_MAX_FRAME_BYTES = 256 * 1024 * 1024;
 
@@ -62,8 +63,10 @@ function ipcVersion(method) {
 
 function ipcError(response, fallback = 'Codex Extension IPC rejected the request.') {
   if (!response) return new Error(fallback);
-  const detail = response.error || response.message || fallback;
+  const raw = response.error;
+  const detail = (raw && typeof raw === 'object' ? raw.message || raw.code : raw) || response.message || fallback;
   const error = new Error(String(detail));
+  if (raw && typeof raw === 'object' && raw.code) error.code = raw.code;
   if (response.resultType) error.resultType = response.resultType;
   return error;
 }
@@ -103,13 +106,22 @@ function createIpcClient(socket, options = {}) {
   let closed = false;
   let clientId = IPC_INITIALIZING_CLIENT;
   const pending = new Map();
+  const requestFailure = (error, item) => {
+    const failure = new Error(error && error.message || String(error));
+    if (error && error.code) failure.code = error.code;
+    if (item.method === 'thread-follower-steer-turn' && item.sent) {
+      failure.delivery = 'unknown';
+      failure.deliveryStatus = 'unknown';
+    }
+    return failure;
+  };
 
   const close = () => {
     if (closed) return;
     closed = true;
     for (const item of pending.values()) {
       clearTimeout(item.timer);
-      item.reject(new Error('Codex Extension IPC connection closed.'));
+      item.reject(requestFailure(new Error('Codex Extension IPC connection closed.'), item));
     }
     pending.clear();
     try { socket.end(); } catch {}
@@ -121,12 +133,22 @@ function createIpcClient(socket, options = {}) {
     if (!item) return;
     pending.delete(message.requestId);
     clearTimeout(item.timer);
+    if (message.method !== item.method) {
+      const error = new Error('Codex Extension IPC response method did not match the request.');
+      error.code = 'EPROTO';
+      item.reject(requestFailure(error, item));
+      return;
+    }
     if (message.resultType === 'success') {
       if (message.method === 'initialize' && message.result && message.result.clientId) {
         clientId = String(message.result.clientId);
       }
       item.resolve(message);
-    } else item.reject(ipcError(message));
+    } else {
+      const error = ipcError(message);
+      if (item.method === 'thread-follower-steer-turn') error.delivery = 'rejected';
+      item.reject(error);
+    }
   };
   socket.on('data', chunk => {
     try {
@@ -134,7 +156,7 @@ function createIpcClient(socket, options = {}) {
     } catch (error) {
       for (const item of pending.values()) {
         clearTimeout(item.timer);
-        item.reject(error);
+        item.reject(requestFailure(error, item));
       }
       pending.clear();
       close();
@@ -144,13 +166,17 @@ function createIpcClient(socket, options = {}) {
   socket.on('error', error => {
     for (const item of pending.values()) {
       clearTimeout(item.timer);
-      item.reject(error);
+      item.reject(requestFailure(error, item));
     }
     pending.clear();
   });
 
   const request = (method, params, requestOptions = {}) => {
-    if (closed || !socket.writable) return Promise.reject(new Error('Codex Extension IPC is not connected.'));
+    if (closed || !socket.writable) {
+      const error = new Error('Codex Extension IPC is not connected.');
+      error.delivery = 'not_sent';
+      return Promise.reject(error);
+    }
     const requestId = randomUUID();
     const request = {
       type: 'request',
@@ -163,18 +189,22 @@ function createIpcClient(socket, options = {}) {
     if (requestOptions.targetClientId) request.targetClientId = requestOptions.targetClientId;
     if (requestOptions.hostId) request.hostId = requestOptions.hostId;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const item = { resolve, reject, method, sent: false, timer: null };
+      item.timer = setTimeout(() => {
         pending.delete(requestId);
         const error = new Error(`Codex Extension IPC timed out during ${method}.`);
         error.code = 'ETIMEDOUT';
-        reject(error);
-      }, Math.max(500, Number(requestOptions.timeoutMs || timeoutMs)));
-      pending.set(requestId, { resolve, reject, timer });
-      try { socket.write(frameIpcMessage(request)); }
+        reject(requestFailure(error, item));
+      }, Math.max(500, Number(requestOptions.timeoutMs || (method === 'thread-follower-steer-turn' ? IPC_STEER_TIMEOUT_MS : timeoutMs))));
+      pending.set(requestId, item);
+      try {
+        socket.write(frameIpcMessage(request));
+        item.sent = true;
+      }
       catch (error) {
-        clearTimeout(timer);
+        clearTimeout(item.timer);
         pending.delete(requestId);
-        reject(error);
+        reject(requestFailure(error, item));
       }
     });
   };
@@ -232,6 +262,7 @@ async function steerViaExtensionIpc(options = {}) {
   if (!conversationId) throw new Error('No Codex conversation is selected.');
   if (!text) throw new Error('Message is empty.');
   let client;
+  let steerStarted = false;
   try {
     client = await openExtensionIpc(options);
     const discovery = await client.request('thread-owner-discovery', { hostId: 'local', conversationId }, { timeoutMs: options.timeoutMs });
@@ -264,16 +295,28 @@ async function steerViaExtensionIpc(options = {}) {
     // app-server schema that only accepts the core steer fields.
     if (options.additionalContext !== undefined) params.additionalContext = options.additionalContext;
     if (options.toolOutput !== undefined) params.toolOutput = options.toolOutput;
+    steerStarted = true;
     const response = await client.request('thread-follower-steer-turn', params, {
       targetClientId: ownerId,
       timeoutMs: options.timeoutMs
     });
     const outer = response && response.result;
+    if (outer && outer.method && outer.method !== 'thread-follower-steer-turn') {
+      throw new Error('Codex Extension IPC returned a mismatched steer acknowledgement.');
+    }
     const result = outer && outer.result !== undefined ? outer.result : outer;
-    return { ...(result && typeof result === 'object' ? result : {}), ownerClientId: ownerId, transport: 'codex-extension-ipc' };
+    const turnId = result && typeof result.turnId === 'string' ? result.turnId.trim() : '';
+    if (!turnId) throw new Error('Codex Extension IPC did not acknowledge a steer turn id.');
+    return { ...(result && typeof result === 'object' ? result : {}), turnId, ownerClientId: ownerId, transport: 'codex-extension-ipc' };
   } catch (error) {
     const detail = compactError(error);
-    if (/no-client-found|client-disconnected/i.test(detail)) throw new Error(noOwnerReason(conversationId));
+    if (/no-client-found/i.test(detail)) {
+      const unavailable = new Error(noOwnerReason(conversationId));
+      unavailable.delivery = 'not_sent';
+      throw unavailable;
+    }
+    if (!steerStarted) error.delivery = 'not_sent';
+    else if (/client-disconnected/i.test(detail) || !error.delivery) error.delivery = 'unknown';
     throw error;
   } finally {
     if (client) client.close();

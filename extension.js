@@ -486,31 +486,19 @@ async function sendQueuedMessage(rawText) {
 
 async function sendSteeredMessage(rawText) {
   const text = String(rawText || '').trim();
-  if (!text) return;
+  if (!text || steerBusy || queueBusy) return;
   if (!selected) {
     steerNotice = { kind: 'error', text: 'Chưa chọn chat Codex.', at: Date.now() };
     postViewState();
     return;
   }
-  // Re-read lifecycle state immediately before steering. The expected turn id
-  // is an app-server precondition, so a stale composer can never steer a newer
-  // turn accidentally.
+  // Re-read lifecycle state immediately before steering.
   await refreshTrackedStatus(true);
   if (!selected.status || selected.status.kind !== 'running') {
     steerNotice = { kind: 'error', text: 'Chat này không còn chạy nên tracker không steer.', at: Date.now() };
     postViewState();
     return;
   }
-  // Re-discover the owner immediately before sending. The webview can close
-  // or reconnect between polling ticks, and a cached owner must never receive
-  // a message for a different client.
-  await refreshSteerCapability(true);
-  if (!steerCapability.available) {
-    steerNotice = { kind: 'error', text: steerCapability.reason || 'Steer chưa khả dụng với app-server owner hiện tại.', at: Date.now() };
-    postViewState();
-    return;
-  }
-
   steerBusy = true;
   steerNotice = null;
   postViewState();
@@ -530,9 +518,16 @@ async function sendSteeredMessage(rawText) {
     };
     await refreshTrackedStatus(true);
   } catch (error) {
-    // Never silently turn a failed steer into a queued message. The user chose
-    // an immediate intervention and must see the app-server rejection.
-    steerNotice = { kind: 'error', text: codexSteer.compactError(error), at: Date.now() };
+    const detail = codexSteer.compactError(error);
+    const unknown = error && error.delivery === 'unknown';
+    steerNotice = {
+      kind: unknown ? 'unknown' : 'error',
+      text: unknown
+        ? 'Codex chưa xác nhận đã nhận tin. Kiểm tra chat trước khi thử lại để tránh gửi trùng. ' + detail
+        : detail,
+      delivery: error && error.delivery || '',
+      at: Date.now()
+    };
   } finally {
     steerBusy = false;
     postViewState();
