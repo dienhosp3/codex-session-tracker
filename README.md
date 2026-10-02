@@ -1,62 +1,103 @@
 # Codex Session Tracker 0.10.2
 
-A VS Code tracker for Codex sessions with lifecycle-accurate local control, a loopback Codex Gateway, reversible Windows/VS Code routing, and optional full request/response inspection. Gateway settings are persisted by the Tracker UI itself; the extension no longer writes Gateway values into VS Code User Settings.
+VS Code tracker for Codex sessions with lifecycle-aware activity, queue/steer controls, a loopback transport Gateway, reversible proxy routing, and a dedicated traffic monitor.
 
-This build is designed for the user's current environment: **Codex inside VS Code on Windows 10**. It does not require manually editing `config.toml` for normal Gateway use.
+This build targets **Codex in VS Code on Windows 10**.
 
+## Transport architecture
 
-## 0.10.2 transport fix
+0.10.0/0.10.1 experimented with rewriting `chatgpt_base_url` to an HTTP localhost backend. That was the wrong layer for ChatGPT-authenticated Codex because workspace routing validates the application backend as an HTTPS origin.
 
-The previous diagnostic mode rewrote `chatgpt_base_url` to an HTTP localhost origin. That was the wrong layer for ChatGPT-authenticated Codex: workspace routing validates the backend as an HTTPS origin, so replacing the application backend origin could break account/workspace bootstrap.
+0.10.2 no longer rewrites the ChatGPT backend URL.
 
-0.10.2 keeps Codex's original HTTPS URLs unchanged and routes outbound traffic through an ordinary local forward proxy instead:
+Instead:
 
 ```text
 VS Code Codex
-  -> HTTP CONNECT 127.0.0.1:8765
-  -> original https://... backend
+    |
+    | HTTP_PROXY / HTTPS_PROXY
+    v
+127.0.0.1:<gateway-port>
+    |
+    | CONNECT / ordinary forward proxy
+    v
+original HTTPS backend
 ```
 
-The Tracker injects the proxy environment into the extension host before Codex starts and reloads VS Code when the proxy/port changes. Legacy `chatgpt_base_url` overrides created by 0.10.0/0.10.1 are reverted automatically when the new one-click proxy mode is enabled.
+The original destination remains `https://...`, so account/workspace routing still sees the real HTTPS origin.
 
-This pass-through design preserves login/workspace routing and records connection timing plus IN/OUT byte flow. HTTPS CONNECT payloads remain encrypted at this layer; the UI does not mislabel encrypted tunnel bytes as plaintext API bodies.
+When proxy mode or the proxy port changes, the Tracker reloads the VS Code window so the Codex extension starts with the new proxy environment.
 
-### Dedicated Traffic Monitor
+Any legacy localhost `chatgpt_base_url` override created by 0.10.0/0.10.1 is automatically reverted before normal 0.10.2 startup.
 
-Use **Codex Tracker: Open Traffic Monitor** or the **Mở Traffic Monitor** button. The monitor has independent visual pause controls for ALL/OUT/IN, direction filtering, host/API filtering when the path is visible, text search, and per-event details. Pause freezes only the monitor presentation; it never blocks live Codex network traffic.
+## Gateway UI
 
+Gateway settings are controlled from the Tracker UI rather than requiring manual edits.
 
-## What 0.10.0 changes
+Available controls include:
 
-The Gateway UI now owns the complete diagnostic setup:
+- local Gateway on/off;
+- loopback port;
+- Codex forward-proxy on/off;
+- optional content capture where plaintext is available;
+- capture-size limit;
+- local trace rotation limit;
+- one-click proxy enable + VS Code reload;
+- one-click proxy disable / legacy route restore;
+- dedicated Traffic Monitor.
 
-- start/stop the local Gateway;
-- choose the loopback port;
-- enable/disable model/backend proxying;
-- choose the real upstream base URL;
-- enable/disable full body/frame capture;
-- configure per-body/frame capture size;
-- configure trace rotation size;
-- backup the original Codex `config.toml`;
-- route VS Code Codex through the local Gateway;
-- reload VS Code automatically;
-- revert only the Tracker-managed route while preserving later unrelated config edits;
-- optionally restore the exact original config snapshot;
-- inspect captured HTTP input/output and WebSocket frame contents directly in the Tracker UI.
+The Gateway listens on `127.0.0.1` only.
 
-The one-click action is:
+## Dedicated Traffic Monitor
+
+Open it with:
 
 ```text
-Bật bắt toàn bộ + backup config + Reload
+Codex Tracker: Open Traffic Monitor
 ```
 
-No manual TOML editing is required.
+or **Mở Traffic Monitor** in the Tracker panel.
 
-## Why the Gateway exists
+The monitor provides:
 
-A successful local steer acknowledgement is not proof that the remote Codex/OpenAI service received or consumed that steer. Codex may accept input locally while rollout persistence, sampling, network transport, or UI reconciliation are still pending.
+- visual **PAUSE ALL**;
+- independent **PAUSE OUT**;
+- independent **PAUSE IN**;
+- direction filter: All / OUT / IN / Control;
+- host/API filter when path information is available;
+- text search;
+- timestamps, byte counts, status, connection/request IDs;
+- per-event details.
 
-The tracker therefore records explicit evidence stages:
+Pause controls freeze only the monitor presentation. They never pause or delay live Codex network traffic.
+
+This is intentional: the diagnostic UI must not create the network stall it is trying to diagnose.
+
+## HTTPS visibility
+
+The 0.10.2 default transport is an ordinary HTTPS CONNECT pass-through proxy.
+
+Therefore it can authoritatively observe:
+
+- CONNECT destination;
+- connection open/close/error;
+- OUT byte flow;
+- IN byte flow;
+- timing;
+- reconnect behavior;
+- total bytes.
+
+But HTTPS payload bytes remain encrypted inside the tunnel.
+
+The UI must not label encrypted CONNECT bytes as a plaintext API request or response body.
+
+Plaintext body/frame capture remains available for traffic that reaches the Gateway without an encrypted CONNECT tunnel. Exact HTTPS body inspection requires a separate trusted TLS-inspection or application-layer instrumentation mode.
+
+## Steer semantics
+
+A local steer acknowledgement is not proof that the remote server consumed the steer.
+
+The Gateway keeps stages such as:
 
 ```text
 LOCAL_CREATED
@@ -69,185 +110,49 @@ UPSTREAM_REQUEST_OPENED
 UPSTREAM_BYTES_SENT
 UPSTREAM_RESPONSE_HEADERS
 UPSTREAM_FIRST_EVENT
-CODEX_CONSUMED_RESPONSE
 TURN_COMPLETED
 ```
 
-Timing-only correlation is marked `heuristic`; rollout/message correlation can be `correlated`; direct protocol evidence is `authoritative`.
+Only evidence actually observed is emitted.
 
-The UI deliberately says:
+If the current transport exposes only encrypted tunnel bytes, the Tracker reports transport activity separately rather than fabricating model/API confirmation.
 
-```text
-Codex local đã nhận steer vào turn đang chạy; chưa đồng nghĩa server đã nhận.
-```
-
-after the current Extension owner/Core acknowledgement.
-
-## Local Gateway
-
-Default listen address:
-
-```text
-127.0.0.1:8765
-```
-
-The Gateway never binds to `0.0.0.0` by default. Control endpoints require a random in-memory token and reject non-loopback clients.
-
-When managed routing is enabled, the Tracker patches only the root-level Codex setting:
-
-```toml
-chatgpt_base_url = "http://127.0.0.1:<PORT>/backend-api"
-```
-
-Before the patch, the exact original `config.toml` is copied into VS Code extension `globalStorageUri`. The Tracker also remembers the previous Gateway settings.
-
-### Safe revert
-
-The UI exposes two revert modes.
-
-`Revert an toàn + Reload` restores the original `chatgpt_base_url`. If `config.toml` changed after Gateway activation, unrelated later edits are preserved.
-
-`Khôi phục snapshot gốc + Reload` restores the exact original file snapshot and is intentionally explicit because it can overwrite later manual changes.
-
-If the original `config.toml` did not exist, exact revert removes the Tracker-created file.
-
-## Full input/output viewer
-
-When **Capture và cho xem nội dung đầy đủ request/response** is enabled, the Gateway records the actual proxied body/frame content locally and exposes it inside the Tracker UI.
-
-HTTP inspection includes:
-
-- request chunks while they are transmitted;
-- the assembled request body;
-- response chunks while the backend is streaming;
-- the assembled response body;
-- method/path/status/byte counts/timing/fingerprint.
-
-WebSocket inspection includes:
-
-- direction: Codex → server or server → Codex;
-- opcode and frame size;
-- decoded text-frame content when not compressed;
-- base64 for binary/compressed frames;
-- SHA-256 payload fingerprints;
-- connection/open/close timing.
-
-Transport forwarding is never truncated by the viewer. Only stored/displayed capture is bounded by the configured per-event capture limit.
-
-This matters for diagnosing the observed failure mode:
-
-```text
-Codex local accepts steer
-        ↓
-no model request for a long time
-        ↓
-Codex/VS Code restarts
-        ↓
-old payload suddenly appears upstream
-```
-
-The Gateway keeps payload fingerprints across recent persisted trace data so delayed/replayed traffic can be identified without relying only on UI state.
-
-## Traffic truthfulness
-
-The UI distinguishes:
-
-```text
-model proxy: TẮT
-model proxy: THIẾU UPSTREAM
-model proxy: SẴN SÀNG, CHƯA THẤY TRAFFIC
-model proxy: ĐÃ THẤY TRAFFIC
-```
-
-A listening proxy is not called active server traffic. Only an observed `MODEL_REQUEST` or `MODEL_STREAM` marks model traffic as seen.
-
-Auth, thread-sync, metadata, telemetry and unknown requests can still be displayed in the traffic viewer, but they never count as evidence that a steer reached model transport.
-
-## Content privacy
-
-Full capture is intentionally optional because request/response bodies can contain prompts, code, file contents, tool data or other sensitive material.
-
-When capture is enabled:
-
-- raw captured content remains local under VS Code extension `globalStorageUri`;
-- trace files rotate by the configured local size limit;
-- `Authorization`, cookies, API keys, bearer tokens and secret-like headers are redacted;
-- unknown headers are omitted from diagnostic logs;
-- the sanitized **Export Gateway Diagnostics** report intentionally excludes raw body/frame content and headers.
-
-The exact original Codex config backup also remains local and is not included in diagnostic export.
-
-## HTTP and WebSocket transport
-
-No custom root CA or HTTPS MITM is used.
-
-Topology:
-
-```text
-VS Code Codex
-    ↓ HTTP / WS
-127.0.0.1 Gateway
-    ↓ HTTPS / WSS
-real ChatGPT/Codex backend
-```
-
-The Gateway streams HTTP bodies instead of buffering the complete request before forwarding it, so the diagnostic layer does not intentionally add a full-body delay.
-
-## Steer and Queue
+## Queue and Steer
 
 ### Steer ngay
 
-Uses the installed Codex Extension's live IPC owner. It never creates a competing long-lived owner.
+Uses the currently running Codex Extension owner through its IPC path. It does not start a competing long-lived owner.
 
-If IPC disconnects or times out after the steer may have been transmitted, delivery remains unknown. There is no automatic resend and no silent conversion to queue.
+If delivery may already have happened before a disconnect/timeout, state remains unknown. The Tracker never silently retries and never silently converts steer to queue.
 
 ### Gửi sau
 
-Uses the official Codex queue command:
+Uses the official Codex queue CLI flow for the exact thread.
 
-```text
-codex queue --thread <ROOT_THREAD_ID> --message <TEXT>
-```
+## Legacy config recovery
 
-Queue and steer remain distinct operations.
+The repository keeps the old config snapshot/revert helper only to safely migrate users who enabled the 0.10.0/0.10.1 localhost backend experiment.
 
-## Replay diagnostics
+0.10.2 does not create a new localhost `chatgpt_base_url` override.
 
-Outbound model request bodies and WebSocket payloads receive SHA-256 fingerprints.
+## Privacy
 
-A matching later payload can produce:
+Runtime traces are stored under the extension's VS Code `globalStorageUri`, not in the repository.
 
-```text
-POSSIBLE_REPLAY
-```
-
-Replay detection remains observe-only. It does not block or automatically retry traffic.
-
-## Stop/Interrupt limitation
-
-The public Codex app-server protocol includes `turn/interrupt`, but the Tracker still does not invent an unverified follower IPC method for the installed VS Code owner.
-
-Normal Stop must not be implemented by killing `codex.exe`.
-
-## Session tracking
-
-The tracker continues reading:
-
-```text
-<CODEX_HOME>/session_index.jsonl
-<CODEX_HOME>/sessions/**/rollout-*.jsonl
-```
-
-It preserves root/child lifecycle separation, ignores stale orphan children after a terminal root, uses no wall-clock timeout to decide whether a turn is running, and prefers Codex state/index timestamps when available.
-
-The non-running tab can delete a stopped chat through Codex's native `thread/delete` operation after rechecking lifecycle state. That helper may start a short-lived isolated `codex app-server --stdio`; steering still uses the live Extension owner.
+Authorization, cookies, API keys and secret-like headers are redacted from diagnostic logs. Sanitized diagnostic export excludes raw body content and headers.
 
 ## Build and install
 
-From Git Bash:
+Run tests:
 
-```bash
-bash ./build-vsix.sh
+```powershell
+npm test
+```
+
+Build on Windows with Git Bash:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./build-vsix.sh
 ```
 
 Expected artifact:
@@ -256,18 +161,18 @@ Expected artifact:
 codex-session-tracker-0.10.2.vsix
 ```
 
-Install from PowerShell:
+Install:
 
 ```powershell
 code --install-extension .\codex-session-tracker-0.10.2.vsix --force
 ```
 
-Then run **Developer: Reload Window** once after installing a new VSIX.
+Then run **Developer: Reload Window** once.
 
-## Tests
+## Automated tests
 
-```bash
+```powershell
 npm test
 ```
 
-Automated Gateway tests use local fake servers only; they do not call the real OpenAI service.
+Gateway integration tests use local fake endpoints only. They do not call the real OpenAI service.
