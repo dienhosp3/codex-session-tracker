@@ -274,11 +274,40 @@ function validateGatewaySettings(input = {}) {
 
 async function saveGatewaySettings(input) {
   try {
+    const before = gatewaySettingsSnapshot();
     const next = validateGatewaySettings(input);
+    let reloadRequired = false;
+    if (gatewayManagedState.active) {
+      if (next.enabled && next.modelProxyEnabled && next.upstreamBaseUrl) {
+        const localBase = `http://127.0.0.1:${next.port}/backend-api`;
+        await gatewayConfig.applyManagedConfig({
+          codexHome: config().codexHome,
+          storageDir: gatewayStorageDir(),
+          baseUrl: localBase,
+          originalTrackerSettings: gatewayManagedState.originalTrackerSettings || before
+        });
+        reloadRequired = next.port !== before.port;
+      } else {
+        await gatewayConfig.revertManagedConfig({
+          codexHome: config().codexHome,
+          storageDir: gatewayStorageDir()
+        });
+        reloadRequired = true;
+      }
+    }
     await applyGatewaySettings(next);
-    gatewayActionNotice = { kind: 'success', text: 'Đã lưu toàn bộ cài đặt Gateway trên giao diện.', at: Date.now() };
-    await restartGateway();
+    gatewayActionNotice = {
+      kind: 'success',
+      text: reloadRequired ? 'Đã lưu cài đặt và cập nhật route Codex. Đang reload VS Code...' : 'Đã lưu toàn bộ cài đặt Gateway trên giao diện.',
+      at: Date.now()
+    };
     await refreshGatewayManagedState();
+    if (reloadRequired) {
+      postViewState();
+      await vscode.commands.executeCommand('workbench.action.reloadWindow');
+      return;
+    }
+    await restartGateway();
   } catch (error) {
     gatewayActionNotice = { kind: 'error', text: friendlyError(error), at: Date.now() };
   }
