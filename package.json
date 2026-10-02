@@ -20,6 +20,7 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
+    "*",
     "onStartupFinished",
     "onView:codexSessionTracker.view",
     "onCommand:codexSessionTracker.openTracker",
