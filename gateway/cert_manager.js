@@ -68,6 +68,7 @@ class MitmCertificateManager {
     this.leafDir = path.join(this.dir, 'leaf');
     this.meta = null;
     this.contexts = new Map();
+    this.leafOptions = new Map();
     this.pending = new Map();
   }
 
@@ -136,13 +137,22 @@ class MitmCertificateManager {
     };
   }
 
-  async secureContextForHost(value) {
+  async tlsOptionsForHost(value) {
     const host = safeHost(value);
-    if (this.contexts.has(host)) return this.contexts.get(host);
+    if (this.leafOptions.has(host)) return this.leafOptions.get(host);
     if (this.pending.has(host)) return this.pending.get(host);
     const pending = this.loadOrCreateLeaf(host).finally(() => this.pending.delete(host));
     this.pending.set(host, pending);
-    const context = await pending;
+    const options = await pending;
+    this.leafOptions.set(host, options);
+    return options;
+  }
+
+  async secureContextForHost(value) {
+    const host = safeHost(value);
+    if (this.contexts.has(host)) return this.contexts.get(host);
+    const options = await this.tlsOptionsForHost(host);
+    const context = tls.createSecureContext({ pfx: options.pfx, passphrase: options.passphrase, minVersion: 'TLSv1.2' });
     this.contexts.set(host, context);
     return context;
   }
@@ -156,7 +166,7 @@ class MitmCertificateManager {
       meta = await this.createLeaf(host, paths);
     }
     const pfx = await fsp.readFile(paths.pfx);
-    return tls.createSecureContext({ pfx, passphrase: meta.password, minVersion: 'TLSv1.2' });
+    return { pfx, passphrase: meta.password, host };
   }
 
   async fileExists(file) {
