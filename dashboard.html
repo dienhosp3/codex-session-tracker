@@ -390,7 +390,7 @@ function bindGatewayUi(){
   const updateDraft=()=>{gatewaySettingsDraft=readGatewaySettingsFromUi()};
   for(const id of ids){const el=document.getElementById(id);if(el){el.oninput=updateDraft;el.onchange=updateDraft}}
   const save=document.getElementById('gwSave');if(save)save.onclick=()=>{const value=readGatewaySettingsFromUi();gatewaySettingsDraft=value;vscode.postMessage({command:'saveGatewaySettings',settings:value})};
-  const enable=document.getElementById('gwEnableFull');if(enable)enable.onclick=()=>vscode.postMessage({command:'enableGatewayFullCapture'});
+  const enable=document.getElementById('gwEnableFull');if(enable)enable.onclick=()=>vscode.postMessage({command:'enableGatewayFullCapture',settings:readGatewaySettingsFromUi()});
   const revert=document.getElementById('gwRevert');if(revert)revert.onclick=()=>vscode.postMessage({command:'revertGatewayManaged'});
   const force=document.getElementById('gwForceRestore');if(force)force.onclick=()=>vscode.postMessage({command:'forceRestoreGatewayManaged'});
   for(const btn of document.querySelectorAll('[data-gw-trace]'))btn.onclick=()=>vscode.postMessage({command:'loadGatewayPayload',traceId:Number(btn.dataset.gwTrace)});
