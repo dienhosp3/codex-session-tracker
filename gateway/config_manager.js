@@ -125,12 +125,14 @@ async function getManagedState(codexHome, storageDir) {
   const current = await readText(file);
   const metadata = await readMetadata(storageDir);
   const currentHash = sha256Text(current.text);
+  const currentRootLine = (findRootAssignment(current.text, 'chatgpt_base_url') || {}).line || '';
   const relevant = metadata && metadata.configPath === file ? metadata : null;
 
   return {
     configPath: file,
     configExists: current.exists,
     currentHash,
+    currentRootLine,
     active: Boolean(relevant && relevant.active),
     managed: Boolean(relevant && relevant.active && relevant.managedHash === currentHash),
     drifted: Boolean(relevant && relevant.active && relevant.managedHash && relevant.managedHash !== currentHash),
