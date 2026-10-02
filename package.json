@@ -1,8 +1,8 @@
 {
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
-  "description": "Compact Codex activity tracker with lifecycle-accurate local delivery diagnostics and an optional loopback gateway for queue/steer observability.",
-  "version": "0.9.0",
+  "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
+  "version": "0.10.0",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -154,6 +154,25 @@
           "type": "string",
           "default": "",
           "description": "Explicit upstream base URL used only by experimental Gateway model-proxy mode. Credentials are forwarded but redacted from diagnostics."
+        },
+        "codexSessionTracker.gateway.captureContent": {
+          "type": "boolean",
+          "default": false,
+          "description": "Capture proxied Codex request/response and WebSocket frame contents into local gateway diagnostics. May contain sensitive prompt, file and response data."
+        },
+        "codexSessionTracker.gateway.captureMaxMb": {
+          "type": "number",
+          "default": 16,
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Maximum captured content bytes per HTTP body or WebSocket frame in MiB. Transport forwarding is not truncated."
+        },
+        "codexSessionTracker.gateway.traceMaxMb": {
+          "type": "number",
+          "default": 64,
+          "minimum": 8,
+          "maximum": 512,
+          "description": "Maximum size of the current local gateway JSONL trace before rotation, in MiB."
         }
       }
     },
