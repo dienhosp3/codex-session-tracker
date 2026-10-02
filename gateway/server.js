@@ -119,31 +119,43 @@ class GatewayServer {
     if(!server) return;
 
     const tunnels=Array.from(this.tunnels);
+    const sockets=Array.from(this.sockets);
     for(const tunnel of tunnels){
       try{ tunnel.close('gateway-stop'); }catch{}
+    }
+    for(const socket of sockets){
+      try{ socket.destroy(); }catch{}
     }
 
     const closePromise=new Promise(resolve=>{
       let settled=false;
-      const finish=()=>{ if(settled)return; settled=true; resolve(); };
+      let timer=null;
+      const finish=()=>{
+        if(settled)return;
+        settled=true;
+        if(timer)clearTimeout(timer);
+        resolve();
+      };
       try{ server.close(finish); }catch{ finish(); }
-      const timer=setTimeout(()=>{
-        for(const socket of Array.from(this.sockets)){
+      timer=setTimeout(()=>{
+        for(const socket of sockets){
           try{ socket.destroy(); }catch{}
         }
         finish();
       },1500);
-      if(timer&&typeof timer.unref==='function')timer.unref();
     });
 
-    for(const socket of Array.from(this.sockets)){
-      try{ socket.destroy(); }catch{}
-    }
+    const tunnelWait=tunnels.length
+      ? Promise.race([
+          Promise.allSettled(tunnels.map(tunnel=>tunnel.done)),
+          new Promise(resolve=>setTimeout(resolve,500))
+        ])
+      : Promise.resolve();
 
-    await Promise.allSettled(tunnels.map(tunnel=>tunnel.done));
+    await tunnelWait;
     await closePromise;
-    this.tunnels.clear();
-    this.sockets.clear();
+    for(const tunnel of tunnels)this.tunnels.delete(tunnel);
+    for(const socket of sockets)this.sockets.delete(socket);
   }
 
   address() {
