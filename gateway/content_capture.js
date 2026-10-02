@@ -14,7 +14,7 @@ function isTextContentType(value) {
 class ContentCapture {
   constructor(options = {}) {
     this.enabled = Boolean(options.enabled);
-    this.maxBytes = Math.max(1024, Number(options.maxBytes || 16 * 1024 * 1024));
+    this.maxBytes = Math.max(1, Number(options.maxBytes || 16 * 1024 * 1024));
     this.contentType = String(options.contentType || '');
     this.totalBytes = 0;
     this.capturedBytes = 0;
