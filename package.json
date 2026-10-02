@@ -2,7 +2,7 @@
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
   "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -20,16 +20,7 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "*",
-    "onStartupFinished",
-    "onView:codexSessionTracker.view",
-    "onCommand:codexSessionTracker.openTracker",
-    "onCommand:codexSessionTracker.openDashboard",
-    "onCommand:codexSessionTracker.selectChat",
-    "onCommand:codexSessionTracker.refresh",
-    "onCommand:codexSessionTracker.clearSelection",
-    "onCommand:codexSessionTracker.reprobeCodexCli",
-    "onCommand:codexSessionTracker.exportGatewayDiagnostics"
+    "*"
   ],
   "contributes": {
     "commands": [
@@ -128,47 +119,6 @@
           "type": "string",
           "default": "",
           "description": "Optional path to the Codex CLI binary used for official queue delivery. Steer uses the live Codex Extension IPC owner and does not use this path. Empty auto-detects PATH or the OpenAI Codex extension bundle."
-        },
-        "codexSessionTracker.gateway.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Start the loopback-only Codex diagnostic gateway. Existing tracker behavior remains available if disabled."
-        },
-        "codexSessionTracker.gateway.port": {
-          "type": "number",
-          "default": 8765,
-          "minimum": 1,
-          "maximum": 65535,
-          "description": "Loopback port for the local Codex diagnostic gateway."
-        },
-        "codexSessionTracker.gateway.modelProxyEnabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable the experimental HTTP model reverse proxy. Leave disabled unless the current Codex runtime has been explicitly configured to use this gateway."
-        },
-        "codexSessionTracker.gateway.upstreamBaseUrl": {
-          "type": "string",
-          "default": "",
-          "description": "Explicit upstream base URL used only by experimental Gateway model-proxy mode. Credentials are forwarded but redacted from diagnostics."
-        },
-        "codexSessionTracker.gateway.captureContent": {
-          "type": "boolean",
-          "default": false,
-          "description": "Capture proxied Codex request/response and WebSocket frame contents into local gateway diagnostics. May contain sensitive prompt, file and response data."
-        },
-        "codexSessionTracker.gateway.captureMaxMb": {
-          "type": "number",
-          "default": 16,
-          "minimum": 1,
-          "maximum": 64,
-          "description": "Maximum captured content bytes per HTTP body or WebSocket frame in MiB. Transport forwarding is not truncated."
-        },
-        "codexSessionTracker.gateway.traceMaxMb": {
-          "type": "number",
-          "default": 64,
-          "minimum": 8,
-          "maximum": 512,
-          "description": "Maximum size of the current local gateway JSONL trace before rotation, in MiB."
         }
       }
     },
