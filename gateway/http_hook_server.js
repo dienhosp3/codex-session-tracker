@@ -219,17 +219,6 @@ class HttpHookServer {
     if (message.type === 'preflight') {
       this.lastPreflightAt = Date.now();
       const request = message.request && typeof message.request === 'object' ? message.request : {};
-      const observed = this.normalizeEvent({
-        phase: 'outbound_preflight',
-        direction: 'out',
-        requestId: request.requestId,
-        method: request.method,
-        url: request.url,
-        headers: request.headers,
-        body: request.body,
-        at: Date.now()
-      });
-      await this.record(observed);
       let decision = { action: 'pass' };
       if (this.mutationEnabled) {
         try {
