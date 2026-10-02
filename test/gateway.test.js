@@ -564,6 +564,16 @@ test('dashboard contains UI-only gateway settings, managed revert and traffic bo
   assert.match(html, /data-gw-trace/);
 });
 
+
+test('Gateway settings are persisted by the extension UI instead of VS Code registered configuration', async () => {
+  const extensionSource = await fs.promises.readFile(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const pkg = JSON.parse(await fs.promises.readFile(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  assert.match(extensionSource, /globalState\.update\(GATEWAY_SETTINGS_KEY/);
+  assert.doesNotMatch(extensionSource, /\.update\('gateway\./);
+  assert.deepEqual(pkg.activationEvents, ['*']);
+  assert.equal(Object.keys(pkg.contributes.configuration.properties).some(key => key.startsWith('codexSessionTracker.gateway.')), false);
+});
+
 test('loopback predicate rejects non-loopback clients', () => {
   assert.equal(isLoopback({ socket: { remoteAddress: '127.0.0.1' } }), true);
   assert.equal(isLoopback({ socket: { remoteAddress: '::1' } }), true);
