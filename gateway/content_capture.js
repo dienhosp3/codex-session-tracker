@@ -1,5 +1,7 @@
 'use strict';
 
+const zlib = require('zlib');
+
 function isTextContentType(value) {
   const contentType = String(value || '').toLowerCase();
   return !contentType
@@ -16,6 +18,7 @@ class ContentCapture {
     this.enabled = Boolean(options.enabled);
     this.maxBytes = Math.max(1, Number(options.maxBytes || 16 * 1024 * 1024));
     this.contentType = String(options.contentType || '');
+    this.contentEncoding = String(options.contentEncoding || '').toLowerCase().trim();
     this.totalBytes = 0;
     this.capturedBytes = 0;
     this.chunks = [];
@@ -31,18 +34,39 @@ class ContentCapture {
     this.capturedBytes += slice.length;
   }
 
-  finish(contentType) {
+  finish(contentType, contentEncoding) {
     if (contentType !== undefined) this.contentType = String(contentType || '');
+    if (contentEncoding !== undefined) this.contentEncoding = String(contentEncoding || '').toLowerCase().trim();
     if (!this.enabled) return null;
-    const buffer = Buffer.concat(this.chunks);
-    const text = isTextContentType(this.contentType);
+    const wireBuffer = Buffer.concat(this.chunks);
+    const truncated = this.totalBytes > this.capturedBytes;
+    let decodedBuffer = wireBuffer;
+    let decoded = false;
+    let decodeError = '';
+    if (this.contentEncoding && this.contentEncoding !== 'identity' && !truncated) {
+      try {
+        if (this.contentEncoding.includes('gzip')) decodedBuffer = zlib.gunzipSync(wireBuffer);
+        else if (this.contentEncoding.includes('deflate')) decodedBuffer = zlib.inflateSync(wireBuffer);
+        else if (this.contentEncoding.includes('br')) decodedBuffer = zlib.brotliDecompressSync(wireBuffer);
+        else throw new Error('unsupported content-encoding ' + this.contentEncoding);
+        decoded = true;
+      } catch (error) {
+        decodedBuffer = wireBuffer;
+        decodeError = String(error && error.message || error);
+      }
+    }
+    const text = isTextContentType(this.contentType) && (!this.contentEncoding || this.contentEncoding === 'identity' || decoded);
     return {
       contentType: this.contentType,
+      wireContentEncoding: this.contentEncoding,
+      decoded,
+      decodeError,
       encoding: text ? 'utf8' : 'base64',
-      content: text ? buffer.toString('utf8') : buffer.toString('base64'),
+      content: text ? decodedBuffer.toString('utf8') : decodedBuffer.toString('base64'),
       capturedBytes: this.capturedBytes,
       totalBytes: this.totalBytes,
-      truncated: this.totalBytes > this.capturedBytes
+      decodedBytes: decodedBuffer.length,
+      truncated
     };
   }
 }
