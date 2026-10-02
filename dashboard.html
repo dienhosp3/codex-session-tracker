@@ -325,7 +325,7 @@ function renderGatewayPayload(){
   return '<div class="payload-view"><div class="card-title">Nội dung input/output đã capture</div><div class="gateway-meta">'+esc(meta)+'</div>'+
     (c.decodeError?'<div class="gateway-warn gateway-meta">Không giải nén được nội dung capture: '+esc(c.decodeError)+'</div>':'')+
     (c.truncated?'<div class="gateway-warn gateway-meta">Đã capture '+esc(String(c.capturedBytes))+'/'+esc(String(c.totalBytes))+' bytes theo giới hạn UI; transport thực tế không bị cắt.</div>':'')+
-    headers+'<pre>'+esc(c.content||'')+'</pre></div>';
+    headers+'<pre>'+esc(c.content||'')+'</pre>'+(c.complete?'':'<div class="gateway-actions"><button id="gwLoadMorePayload">Tải thêm nội dung</button></div>')+'</div>';
 }
 function renderGateway(){
   const g=state.gateway||{},commands=Array.isArray(g.commands)?g.commands:[],cmd=commands[0],settings=gatewaySettingsValue(),managed=g.managedConfig||{},traffic=Array.isArray(g.traffic)?g.traffic:[];
@@ -393,7 +393,16 @@ function bindGatewayUi(){
   const enable=document.getElementById('gwEnableFull');if(enable)enable.onclick=()=>vscode.postMessage({command:'enableGatewayFullCapture',settings:readGatewaySettingsFromUi()});
   const revert=document.getElementById('gwRevert');if(revert)revert.onclick=()=>vscode.postMessage({command:'revertGatewayManaged'});
   const force=document.getElementById('gwForceRestore');if(force)force.onclick=()=>vscode.postMessage({command:'forceRestoreGatewayManaged'});
-  for(const btn of document.querySelectorAll('[data-gw-trace]'))btn.onclick=()=>vscode.postMessage({command:'loadGatewayPayload',traceId:Number(btn.dataset.gwTrace)});
+  for(const btn of document.querySelectorAll('[data-gw-trace]'))btn.onclick=()=>{
+    gatewayPayload=null;
+    vscode.postMessage({command:'loadGatewayPayload',traceId:Number(btn.dataset.gwTrace),offset:0});
+  };
+  const more=document.getElementById('gwLoadMorePayload');
+  if(more&&gatewayPayload&&gatewayPayload.contentCapture)more.onclick=()=>vscode.postMessage({
+    command:'loadGatewayPayload',
+    traceId:Number(gatewayPayload.traceId||0),
+    offset:Number(gatewayPayload.contentCapture.nextOffset||0)
+  });
 }
 
 function renderComposer(){
@@ -475,7 +484,14 @@ window.addEventListener('message',e=>{
       }
     }
     render();
-  }else if(m.type==='gatewayPayload'){gatewayPayload=m.payload||null;renderMain()}else if(m.type==='error')main.innerHTML='<div class="stopped">'+esc(m.message)+'</div>';
+  }else if(m.type==='gatewayPayload'){
+    const next=m.payload||null;
+    if(next&&gatewayPayload&&next.traceId===gatewayPayload.traceId&&next.contentCapture&&gatewayPayload.contentCapture&&Number(next.contentCapture.offset||0)>0){
+      next.contentCapture.content=String(gatewayPayload.contentCapture.content||'')+String(next.contentCapture.content||'');
+    }
+    gatewayPayload=next;
+    renderMain();
+  }else if(m.type==='error')main.innerHTML='<div class="stopped">'+esc(m.message)+'</div>';
 });
 render();
 </script>
