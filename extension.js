@@ -250,6 +250,12 @@ function config() {
 async function startGateway() {
   const cfg = config();
   if (!cfg.gatewayEnabled || !contextRef) {
+    if (contextRef && cfg.codexHome) {
+      await fs.promises.rm(
+        path.join(cfg.codexHome, 'codex-session-tracker-http-hook.json'),
+        { force: true }
+      ).catch(() => {});
+    }
     gatewayStatus = { enabled: false, running: false, error: '', address: null };
     return null;
   }
@@ -667,8 +673,9 @@ async function buildInstrumentedCodex() {
   await fs.promises.mkdir(instrumentedCodexDir(), { recursive: true });
   const terminal = vscode.window.createTerminal({ name: 'Codex HTTP Hook Build' });
   terminal.show(true);
-  const command = '& ' + JSON.stringify(script) + ' -OutputDir ' + JSON.stringify(instrumentedCodexDir());
-  terminal.sendText('powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ' + JSON.stringify(command), true);
+  const psQuote = value => "'" + String(value).replace(/'/g, "''") + "'";
+  const command = '& ' + psQuote(script) + ' -OutputDir ' + psQuote(instrumentedCodexDir());
+  terminal.sendText(command, true);
   gatewayActionNotice = {
     kind: 'success',
     text: 'Đã mở terminal build Codex HTTP Hook ' + HTTP_HOOK_CODEX_VERSION + '. Build xong thì bấm Cài hook daemon.',
@@ -698,6 +705,23 @@ async function installInstrumentedCodex() {
     const versionText = (version.stdout || version.stderr).trim();
     if (!versionText.includes(HTTP_HOOK_CODEX_VERSION)) {
       throw new Error('Instrumented Codex không đúng version yêu cầu: ' + versionText);
+    }
+
+    const official = await codexQueue.resolveCodexExecutable({
+      configuredPath: '',
+      extensionRoots: openAiExtensionRoots(),
+      platform: process.platform
+    });
+    if (!official.executable) {
+      throw new Error(official.error || 'Không tìm thấy Codex bundled hiện tại để kiểm tra version.');
+    }
+    const officialVersionResult = await execFilePromise(official.executable, ['--version'], { timeout: 10000 });
+    const officialVersion = (officialVersionResult.stdout || officialVersionResult.stderr).trim();
+    if (!officialVersion.includes(HTTP_HOOK_CODEX_VERSION)) {
+      throw new Error(
+        'Runtime Codex hiện tại không còn là ' + HTTP_HOOK_CODEX_VERSION
+        + ' (' + officialVersion + '). Không cài hook cũ để tránh lệch protocol.'
+      );
     }
 
     await ensureHttpHookConfig();
