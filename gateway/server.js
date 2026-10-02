@@ -58,11 +58,17 @@ class GatewayServer {
     this.upstreamBaseUrl = String(options.upstreamBaseUrl || '').trim();
     this.captureContent = Boolean(options.captureContent);
     this.captureMaxBytes = Math.max(1024, Number(options.captureMaxBytes || 16 * 1024 * 1024));
+    this.sockets = new Set();
+    this.tunnels = new Set();
   }
 
   async start() {
     if (this.server) return this.address();
     this.server = http.createServer((req,res)=>this.handle(req,res));
+    this.server.on('connection', socket => {
+      this.sockets.add(socket);
+      socket.on('close', () => this.sockets.delete(socket));
+    });
     this.server.on('connect', (req, socket, head) => {
       if (!isLoopback(req)) {
         socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
@@ -73,7 +79,9 @@ class GatewayServer {
         return;
       }
       try {
-        tunnelConnect(req, socket, head, { record: event => this.record(event) });
+        const tunnel = tunnelConnect(req, socket, head, { record: event => this.record(event) });
+        this.tunnels.add(tunnel);
+        tunnel.done.finally(() => this.tunnels.delete(tunnel));
       } catch (error) {
         this.record({ type:'gateway_error', stage:'CONNECT_ERROR', at:Date.now(), error:safeError(error) }).catch(()=>{});
         try { socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n'); } catch {}
@@ -109,7 +117,33 @@ class GatewayServer {
     const server=this.server;
     this.server=null;
     if(!server) return;
-    await new Promise(resolve=>server.close(()=>resolve()));
+
+    const tunnels=Array.from(this.tunnels);
+    for(const tunnel of tunnels){
+      try{ tunnel.close('gateway-stop'); }catch{}
+    }
+
+    const closePromise=new Promise(resolve=>{
+      let settled=false;
+      const finish=()=>{ if(settled)return; settled=true; resolve(); };
+      try{ server.close(finish); }catch{ finish(); }
+      const timer=setTimeout(()=>{
+        for(const socket of Array.from(this.sockets)){
+          try{ socket.destroy(); }catch{}
+        }
+        finish();
+      },1500);
+      if(timer&&typeof timer.unref==='function')timer.unref();
+    });
+
+    for(const socket of Array.from(this.sockets)){
+      try{ socket.destroy(); }catch{}
+    }
+
+    await Promise.allSettled(tunnels.map(tunnel=>tunnel.done));
+    await closePromise;
+    this.tunnels.clear();
+    this.sockets.clear();
   }
 
   address() {
