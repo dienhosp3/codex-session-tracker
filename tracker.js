@@ -98,14 +98,50 @@ async function readPrefix(file, maxBytes = SUMMARY_PREFIX_BYTES) {
 
 async function readTail(file, maxBytes = ACTIVITY_TAIL_BYTES) {
   const stat = await fsp.stat(file);
-  const length = Math.min(stat.size, maxBytes);
-  const start = Math.max(0, stat.size - length);
-  let text = await readRange(file, start, length);
-  if (start > 0) {
-    const newline = text.indexOf('\n');
-    if (newline >= 0) text = text.slice(newline + 1);
+  const targetStart = Math.max(0, stat.size - maxBytes);
+  // A single user event with embedded images can exceed the ordinary tail.
+  // Find its preceding LF before decoding, so UTF-8 is never split across reads.
+  const earliestStart = Math.max(0, stat.size - 64 * 1024 * 1024);
+  const handle = await fsp.open(file, 'r');
+  try {
+    let start = targetStart;
+    let foundBoundary = start === 0;
+    while (start > earliestStart) {
+      const scanStart = Math.max(earliestStart, start - 64 * 1024);
+      const scanLength = start - scanStart;
+      const chunk = Buffer.alloc(scanLength);
+      let scanRead = 0;
+      while (scanRead < scanLength) {
+        const result = await handle.read(chunk, scanRead, scanLength - scanRead, scanStart + scanRead);
+        if (!result.bytesRead) break;
+        scanRead += result.bytesRead;
+      }
+      const lastNewline = chunk.subarray(0, scanRead).lastIndexOf(10);
+      if (lastNewline >= 0) {
+        start = scanStart + lastNewline + 1;
+        foundBoundary = true;
+        break;
+      }
+      start = scanStart;
+    }
+    const buffer = Buffer.alloc(stat.size - start);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const result = await handle.read(buffer, bytesRead, buffer.length - bytesRead, start + bytesRead);
+      if (!result.bytesRead) break;
+      bytesRead += result.bytesRead;
+    }
+    let text = buffer.subarray(0, bytesRead).toString('utf8');
+    if (!foundBoundary && start > 0) {
+      // A line exceeding 64 MiB is skipped rather than parsed from a fragment.
+      // The truncated flag tells the UI that earlier activity is omitted.
+      const nextNewline = text.indexOf('\n');
+      text = nextNewline < 0 ? '' : text.slice(nextNewline + 1);
+    }
+    return { text, stat, truncated: start > 0 };
+  } finally {
+    await handle.close();
   }
-  return { text, stat, truncated: start > 0 };
 }
 
 function parseJsonLine(line) {
@@ -478,7 +514,7 @@ function normalizeCompletedItem(item, wrapper) {
     return { ...common, type: 'image_viewed', path: item.path || item.uri || item.file || '', call_id: item.id || '' };
   }
   if (type === 'usermessage') {
-    return { ...common, type: 'user_message', message: extractText(item.content || item.message || item.text || item), images: item.images || [] };
+    return { ...common, type: 'user_message', message: extractText(item.content || item.message || item.text || item), images: item.images || item.content || [] };
   }
   if (type === 'agentmessage') {
     return { ...common, type: 'agent_message', message: extractText(item.content || item.message || item.text || item), phase: item.phase || '' };
@@ -520,6 +556,40 @@ function imageCount(value) {
   let count = ['image', 'input_image', 'image_url', 'local_image', 'imageview'].includes(type) ? 1 : 0;
   for (const key of ['content', 'images', 'local_images', 'image_url', 'image']) count += imageCount(value[key]);
   return count;
+}
+
+function imageDescriptors(value, limit = 5) {
+  const images = [];
+  const seenObjects = new WeakSet();
+  const seenUrls = new Set();
+  function visit(item, name = '') {
+    if (!item || images.length >= limit) return;
+    if (Array.isArray(item)) { for (const part of item) visit(part, name); return; }
+    if (typeof item === 'string') {
+      const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/i.exec(item);
+      const safeName = path.basename(String(name || 'Image')).slice(0, 120) || 'Image';
+      if (match && item.length <= 12 * 1024 * 1024 && !seenUrls.has(item)) {
+        seenUrls.add(item);
+        images.push({ dataUrl: item, mimeType: match[1].toLowerCase(), name: safeName });
+      }
+      return;
+    }
+    if (typeof item !== 'object' || seenObjects.has(item)) return;
+    seenObjects.add(item);
+    const itemName = String(item.name || item.filename || name || 'Image');
+    const direct = item.dataUrl || item.data_url || item.url || item.image_url;
+    if (direct) visit(direct, itemName);
+    for (const key of ['images', 'local_images', 'content', 'image']) {
+      if (item[key]) visit(item[key], itemName);
+    }
+    if (!direct && !item.images && !item.local_images && !item.content && !item.image &&
+        ['image', 'input_image', 'local_image', 'image_url'].includes(String(item.type || '').toLowerCase()) &&
+        (item.path || item.file)) {
+      images.push({ name: path.basename(String(item.path || item.file)).slice(0, 120) || 'Image', unavailable: true });
+    }
+  }
+  visit(value);
+  return images.slice(0, limit);
 }
 
 function mcpLabel(payload) {
@@ -569,10 +639,15 @@ function activityFromItem(item, actor = {}) {
       return { ...base, kind: 'message', label: 'Dang tra loi', text: String(payload.message || ''), detail: compactText(payload.message || '', 220), heartbeat: true };
     case 'agent_message_content_delta':
       return { ...base, kind: 'message', label: 'Dang tra loi', text: String(payload.delta || payload.text || ''), detail: compactText(payload.delta || payload.text || '', 220), heartbeat: true };
-    case 'user_message':
-      return { ...base, kind: 'user', label: 'Nguoi dung gui', text: String(payload.message || ''), detail: compactText(payload.message || '', 220), heartbeat: true };
+    case 'user_message': {
+      const text = extractText(payload.message || payload.content || payload.text || '');
+      return { ...base, kind: 'user', label: 'Nguoi dung gui', text, detail: compactText(text, 220), images: imageDescriptors(payload.images || payload.local_images || payload.content), heartbeat: true };
+    }
     case 'message':
-      if (String(payload.role || '').toLowerCase() === 'user') return { ...base, kind: 'user', label: 'Nguoi dung gui', text: extractText(payload.content || payload.message || payload.text || ''), detail: compactText(extractText(payload.content || payload.message || payload.text || ''), 220), heartbeat: true };
+      if (String(payload.role || '').toLowerCase() === 'user') {
+        const text = extractText(payload.content || payload.message || payload.text || '');
+        return { ...base, kind: 'user', label: 'Nguoi dung gui', text, detail: compactText(text, 220), images: imageDescriptors(payload.images || payload.local_images || payload.content), heartbeat: true };
+      }
       return { ...base, kind: 'message', label: 'Da tra loi', text: extractText(payload.content || payload.message || payload.text || ''), detail: compactText(extractText(payload.content || payload.message || payload.text || ''), 220), heartbeat: true };
     case 'command_execution_completed': {
       const command = stringifyCommand(payload.command);
@@ -779,6 +854,7 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
   const activities = [];
   let latestUserText = '';
   let latestUserTextAt = 0;
+  let latestUserImages = [];
   let latestAssistantText = '';
   let latestAssistantTextAt = 0;
   let streamingAssistantText = '';
@@ -837,34 +913,15 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
     }
     if (activity) {
       activities.push(activity);
-      if (activity.kind === 'user' && activity.text) {
-        latestUserText = activity.text;
+      if (activity.kind === 'user' && (activity.text || activity.images && activity.images.length)) {
+        latestUserText = activity.text || '';
+        latestUserImages = activity.images || [];
         latestUserTextAt = Math.max(latestUserTextAt, messageTimestamp(item, payloadFromItem(item)), activity.at || 0);
       }
       if (activity.kind === 'message' && activity.text && activity.type !== 'agent_message_content_delta') {
         latestAssistantText = activity.text;
         latestAssistantTextAt = Math.max(latestAssistantTextAt, messageTimestamp(item, payloadFromItem(item)), activity.at || 0);
         streamingAssistantText = '';
-      }
-      const activityPayload = payloadFromItem(item);
-      const viewed = activityPayload && activityPayload.type === 'user_message'
-        ? imageCount(activityPayload.images || activityPayload.local_images || activityPayload.content)
-        : 0;
-      if (viewed > 0) {
-        activities.push({
-          at: activity.at,
-          type: 'image_viewed',
-          kind: 'image',
-          phase: 'end',
-          callId: '',
-          threadId: actor.threadId || '',
-          actor: actor.label || 'Root',
-          detail: `${viewed} image${viewed === 1 ? '' : 's'}`,
-          text: '',
-          terminal: false,
-          heartbeat: false,
-          label: viewed === 1 ? 'Da xem anh' : `Da xem ${viewed} anh`
-        });
       }
     }
   }
@@ -883,6 +940,7 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
     timeline,
     latestUserText,
     latestUserTextAt,
+    latestUserImages,
     latestAssistantText: streamingAssistantText || latestAssistantText,
     latestAssistantTextAt,
     latestReasoningText: streamingReasoningText || latestReasoningText,
@@ -1027,13 +1085,14 @@ function rootThreadForMeta(meta, byThread) {
   return '';
 }
 
-async function scanActiveSessions(options = {}) {
+async function scanConversationSessions(options = {}) {
   const sessionsDir = options.sessionsDir;
   const codexHome = options.codexHome || (sessionsDir ? path.dirname(sessionsDir) : '');
   const historyLimit = clampInt(options.historyLimit, 100, 10, 1000);
   const scanLimit = clampInt(options.scanLimit, 1200, 50, 10000);
   const includeNonVsCodeSessions = Boolean(options.includeNonVsCodeSessions);
-  if (!sessionsDir) return [];
+  const includeNonRunning = Boolean(options.includeNonRunning);
+  if (!sessionsDir) return { active: [], nonRunning: [] };
 
   const files = await listRolloutFiles(sessionsDir);
   const candidates = files.slice(0, Math.min(files.length, Math.max(scanLimit, historyLimit * 6)));
@@ -1075,7 +1134,9 @@ async function scanActiveSessions(options = {}) {
   }
 
   const active = [];
-  for (const rootId of activeRootIds) {
+  const nonRunning = [];
+  const rootIds = includeNonRunning ? new Set([...activeRootIds, ...rootNodes.keys()]) : activeRootIds;
+  for (const rootId of rootIds) {
     let rootMeta = byThread.get(rootId) || null;
     let summary = null;
     if (rootMeta) summary = await readSessionSummary(rootMeta.file, rootMeta);
@@ -1083,16 +1144,21 @@ async function scanActiveSessions(options = {}) {
     if (!summary || !isRootSession(summary)) continue;
     if (!includeNonVsCodeSessions && summary.source && summary.source !== 'vscode') continue;
     const stats = treeStats.get(rootId) || { latestMtime: summary.mtimeMs || 0, runningChildren: 0, runningCount: 1 };
-    active.push({
+    const running = activeRootIds.has(rootId);
+    const session = {
       ...summary,
       mtimeMs: Math.max(summary.mtimeMs || 0, stats.latestMtime || 0),
-      status: { kind: 'running', mtimeMs: Math.max(summary.mtimeMs || 0, stats.latestMtime || 0), runningChildren: stats.runningChildren, runningCount: stats.runningCount }
-    });
+      status: running
+        ? { kind: 'running', mtimeMs: Math.max(summary.mtimeMs || 0, stats.latestMtime || 0), runningChildren: stats.runningChildren, runningCount: stats.runningCount }
+        : { ...(rootNodes.get(rootId).status || { kind: 'idle' }), mtimeMs: Math.max(summary.mtimeMs || 0, stats.latestMtime || 0), runningChildren: 0, runningCount: 0 }
+    };
+    (running ? active : nonRunning).push(session);
   }
 
-  const names = await readThreadNames(codexHome, new Set(active.map(item => item.threadId)));
-  const stateTimes = readStateThreadActivity(codexHome, new Set(active.map(item => item.threadId)));
-  for (const session of active) {
+  const all = active.concat(nonRunning);
+  const names = await readThreadNames(codexHome, new Set(all.map(item => item.threadId)));
+  const stateTimes = readStateThreadActivity(codexHome, new Set(all.map(item => item.threadId)));
+  for (const session of all) {
     const indexed = names.get(session.threadId);
     if (indexed && indexed.name) {
       session.title = indexed.name;
@@ -1109,7 +1175,12 @@ async function scanActiveSessions(options = {}) {
     }
   }
   active.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
-  return active.slice(0, historyLimit);
+  nonRunning.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
+  return { active: active.slice(0, historyLimit), nonRunning: nonRunning.slice(0, historyLimit) };
+}
+
+async function scanActiveSessions(options = {}) {
+  return (await scanConversationSessions(options)).active;
 }
 
 async function attachStatuses(sessions) {
@@ -1277,6 +1348,24 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
     }
   }
   allTimeline.sort((a, b) => (b.at || 0) - (a.at || 0));
+  const latestVisibleAt = allTimeline.reduce((max, entry) => Math.max(max, entry.at || 0), 0);
+  const latestClockAt = Math.max(latestMtime, latestIndexedActivityMs);
+  let lastActivitySource = 'rollout-event';
+  if (latestClockAt > latestVisibleAt + 2000) {
+    lastActivitySource = latestIndexedActivityMs >= latestMtime ? 'codex-index' : 'rollout-file';
+    allTimeline.unshift({
+      at: latestClockAt,
+      type: 'metadata_update',
+      kind: 'sync',
+      label: 'Codex da cap nhat metadata',
+      detail: lastActivitySource === 'codex-index'
+        ? 'Thoi gian cap nhat tu chi muc Codex; chua co su kien rollout tuong ung.'
+        : 'Tep rollout da thay doi; chua co su kien hoat dong duoc hien thi tuong ung.',
+      actor: rootNode && rootNode.displayName || 'Main',
+      threadId: rootThreadId,
+      terminal: false
+    });
+  }
 
   const currentCandidates = runningNodes.map(node => ({ ...node.current, actor: node.displayName || actorLabel(node, rootThreadId), threadId: node.threadId, nodeStatus: node.status })).filter(Boolean);
   if (!currentCandidates.length && rootNode && rootNode.current) {
@@ -1286,9 +1375,9 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
   const current = currentCandidates.find(item => item.nodeStatus && item.nodeStatus.kind === 'running') || currentCandidates[0] || null;
 
   const latestAssistantNode = validNodes.filter(node => node.latestAssistantText).sort((a, b) => (b.latestAssistantTextAt || b.mtimeMs || 0) - (a.latestAssistantTextAt || a.mtimeMs || 0))[0];
-  const latestUserNode = rootNode && rootNode.latestUserText
+  const latestUserNode = rootNode && (rootNode.latestUserText || rootNode.latestUserImages && rootNode.latestUserImages.length)
     ? rootNode
-    : validNodes.filter(node => node.latestUserText).sort((a, b) => (b.latestUserTextAt || b.mtimeMs || 0) - (a.latestUserTextAt || a.mtimeMs || 0))[0];
+    : validNodes.filter(node => node.latestUserText || node.latestUserImages && node.latestUserImages.length).sort((a, b) => (b.latestUserTextAt || b.mtimeMs || 0) - (a.latestUserTextAt || a.mtimeMs || 0))[0];
 
   const activeNodes = runningNodes
     .slice()
@@ -1314,8 +1403,10 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
     latestAssistantTextAt: latestAssistantNode ? latestAssistantNode.latestAssistantTextAt || 0 : 0,
     latestUserText: latestUserNode ? latestUserNode.latestUserText : '',
     latestUserTextAt: latestUserNode ? latestUserNode.latestUserTextAt || 0 : 0,
+    latestUserImages: latestUserNode ? latestUserNode.latestUserImages || [] : [],
     latestMtime,
     latestIndexedActivityMs,
+    lastActivitySource,
     truncated: validNodes.some(node => node.truncated)
   };
 }
@@ -1367,6 +1458,7 @@ module.exports = {
   readLatestTaskEvent,
   readRecentActivity,
   scanSessions,
+  scanConversationSessions,
   scanActiveSessions,
   readThreadNames,
   readStateThreadActivity,

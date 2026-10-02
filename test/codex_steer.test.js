@@ -9,6 +9,7 @@ const THREAD_ID = 'root-thread';
 const OWNER_ID = 'owner-client';
 const CLIENT_MESSAGE_ID = '11111111-1111-4111-8111-111111111111';
 const VIETNAMESE = 'Dừng bước hiện tại, kiểm tra lại tệp tiếng Việt và giữ nguyên luồng đang chạy.';
+const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
 
 function responseFor(request, extra = {}) {
   if (request.method === 'initialize') {
@@ -93,6 +94,57 @@ function standardSteerOptions(connectImpl, extra = {}) {
     ...extra
   };
 }
+
+test('Extension IPC sends an image-only steer as image input', async () => {
+  await withIpcServer((request, socket) => writeFrame(socket, responseFor(request)), async ({ requests, connectImpl }) => {
+    const result = await codexSteer.steerViaExtensionIpc(standardSteerOptions(connectImpl, {
+      message: '',
+      images: [{ name: 'screenshot.png', mimeType: 'image/png', dataUrl: PNG_DATA_URL }]
+    }));
+    assert.equal(result.turnId, 'turn-99');
+    const steers = requests.filter(request => request.method === 'thread-follower-steer-turn');
+    assert.equal(steers.length, 1);
+    assert.deepEqual(steers[0].params.input, [{ type: 'image', url: PNG_DATA_URL }]);
+    assert.equal(steers[0].params.restoreMessage.text, '');
+  });
+});
+
+test('Extension IPC preserves text before attached images in a mixed steer', async () => {
+  await withIpcServer((request, socket) => writeFrame(socket, responseFor(request)), async ({ requests, connectImpl }) => {
+    await codexSteer.steerViaExtensionIpc(standardSteerOptions(connectImpl, {
+      images: [{ name: 'screenshot.png', mimeType: 'image/png', dataUrl: PNG_DATA_URL }]
+    }));
+    const input = requests.find(request => request.method === 'thread-follower-steer-turn').params.input;
+    assert.deepEqual(input, [
+      { type: 'text', text: VIETNAMESE, text_elements: [] },
+      { type: 'image', url: PNG_DATA_URL }
+    ]);
+  });
+});
+
+test('Extension IPC rejects invalid image attachments before connecting', async () => {
+  let connections = 0;
+  const connectImpl = () => { connections += 1; throw new Error('Unexpected IPC connection.'); };
+  const image = { name: 'screenshot.png', mimeType: 'image/png', dataUrl: PNG_DATA_URL };
+  const invalidCases = [
+    [{ ...image, mimeType: 'image/jpeg' }],
+    [{ ...image, dataUrl: PNG_DATA_URL.replace('image/png', 'image/svg+xml') }],
+    [{ ...image, dataUrl: 'data:image/png;base64,AAAA' }],
+    [{ ...image, dataUrl: 'data:image/png;base64,%%%' }],
+    Array(6).fill(image),
+    [{ ...image, dataUrl: 'data:image/png;base64,' + Buffer.concat([
+      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      Buffer.alloc(8 * 1024 * 1024)
+    ]).toString('base64') }]
+  ];
+  for (const images of invalidCases) {
+    await assert.rejects(codexSteer.steerViaExtensionIpc(standardSteerOptions(connectImpl, {
+      message: '',
+      images
+    })), /image|attach|8 MB|format|MIME/i);
+  }
+  assert.equal(connections, 0);
+});
 
 test('Extension IPC accepts a delayed acknowledgement beyond the old five second cutoff exactly once', async () => {
   const result = await withIpcServer((request, socket) => {

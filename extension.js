@@ -6,6 +6,7 @@ const fs = require('fs');
 const tracker = require('./tracker');
 const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
+const codexDelete = require('./codex_delete');
 
 let contextRef = null;
 let statusBar = null;
@@ -15,6 +16,10 @@ let selected = null;
 let selectedTree = [];
 let latestSnapshot = null;
 let activeChats = [];
+let nonRunningChats = [];
+let showNonRunning = false;
+let deleteBusy = false;
+let deleteNotice = null;
 let refreshingSelected = false;
 let refreshingActive = false;
 let lastTreeRescanAt = 0;
@@ -81,8 +86,10 @@ class TrackerViewProvider {
       if (message.command === 'selectChat' && message.threadId) await selectThread(String(message.threadId));
       if (message.command === 'refresh') await refreshAll(true);
       if (message.command === 'clear') await clearSelection();
-      if (message.command === 'queueMessage') await sendQueuedMessage(message.text);
-      if (message.command === 'steerMessage') await sendSteeredMessage(message.text);
+      if (message.command === 'queueMessage') await sendQueuedMessage(message.text, message.images);
+      if (message.command === 'steerMessage') await sendSteeredMessage(message.text, message.images);
+      if (message.command === 'setShowNonRunning') await setShowNonRunning(Boolean(message.enabled));
+      if (message.command === 'deleteChat' && message.threadId) await deleteChat(String(message.threadId));
       if (message.command === 'reprobeQueue' || message.command === 'reprobeCodex') { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }
     }, null, contextRef.subscriptions);
 
@@ -188,16 +195,19 @@ async function refreshActiveChats(force) {
   refreshingActive = true;
   lastActiveScanAt = Date.now();
   try {
-    activeChats = await tracker.scanActiveSessions({
+    const conversations = await tracker.scanConversationSessions({
       codexHome: cfg.codexHome,
       sessionsDir: cfg.sessionsDir,
       historyLimit: cfg.historyLimit,
       includeNonVsCodeSessions: cfg.includeNonVsCodeSessions,
-      scanLimit: cfg.treeScanLimit
+      scanLimit: cfg.treeScanLimit,
+      includeNonRunning: showNonRunning
     });
+    activeChats = conversations.active;
+    nonRunningChats = conversations.nonRunning;
 
     if (selected) {
-      const activeSelected = activeChats.find(chat => chat.threadId === selected.threadId);
+      const activeSelected = activeChats.concat(nonRunningChats).find(chat => chat.threadId === selected.threadId);
       if (activeSelected) {
         selected.title = activeSelected.title || selected.title;
         selected.cwd = activeSelected.cwd || selected.cwd;
@@ -217,8 +227,64 @@ async function refreshActiveChats(force) {
   }
 }
 
+async function setShowNonRunning(enabled) {
+  showNonRunning = enabled;
+  if (!enabled) nonRunningChats = [];
+  await refreshActiveChats(true);
+  postViewState();
+}
+
+async function deleteChat(threadId) {
+  if (deleteBusy) return;
+  deleteBusy = true;
+  deleteNotice = null;
+  postViewState();
+  try {
+    const cfg = config();
+    // A queued turn can make a listed chat active. Recheck all its nodes.
+    const conversations = await tracker.scanConversationSessions({
+      codexHome: cfg.codexHome,
+      sessionsDir: cfg.sessionsDir,
+      historyLimit: 1000,
+      includeNonVsCodeSessions: cfg.includeNonVsCodeSessions,
+      scanLimit: 10000,
+      includeNonRunning: true
+    });
+    const session = conversations.nonRunning.find(chat => chat.threadId === threadId);
+    if (!session) throw new Error(conversations.active.some(chat => chat.threadId === threadId)
+      ? 'Chat đang chạy, không thể xóa.' : 'Không tìm thấy chat không chạy này. Hãy làm mới danh sách.');
+    const snapshotOptions = { scanLimit: 10000, codexHome: cfg.codexHome, timelineLimit: 10, activityMaxBytes: 128 * 1024 };
+    const tree = await tracker.scanSessionTree(cfg.sessionsDir, session, { scanLimit: 10000 });
+    const snapshot = await tracker.buildSessionSnapshot(cfg.sessionsDir, session, { ...snapshotOptions, tree });
+    if (snapshot.overallStatus.kind === 'running') throw new Error('Chat vừa chạy lại, không thể xóa.');
+    const answer = await vscode.window.showWarningMessage(
+      `Xóa vĩnh viễn cuộc trò chuyện “${humanChatTitle(session)}” khỏi Codex?`,
+      { modal: true }, 'Xóa chat'
+    );
+    if (answer !== 'Xóa chat') return;
+    // The confirmation can stay open while a new turn starts.
+    const latestTree = await tracker.scanSessionTree(cfg.sessionsDir, session, { scanLimit: 10000 });
+    const latestSnapshot = await tracker.buildSessionSnapshot(cfg.sessionsDir, session, { ...snapshotOptions, tree: latestTree });
+    if (latestSnapshot.overallStatus.kind === 'running') throw new Error('Chat vừa chạy lại, không thể xóa.');
+    const resolved = await codexQueue.resolveCodexExecutable({
+      configuredPath: cfg.codexCliPath,
+      extensionRoots: openAiExtensionRoots()
+    });
+    if (!resolved.executable) throw new Error(resolved.error || 'Không tìm thấy Codex CLI để xóa chat.');
+    await codexDelete.deleteThread({ executable: resolved.executable, codexHome: cfg.codexHome, threadId });
+    if (selected && selected.threadId === threadId) await clearSelection();
+    deleteNotice = { kind: 'success', text: 'Đã xóa chat khỏi Codex.', at: Date.now() };
+    await refreshAll(true);
+  } catch (error) {
+    deleteNotice = { kind: 'error', text: friendlyError(error), at: Date.now() };
+  } finally {
+    deleteBusy = false;
+    postViewState();
+  }
+}
+
 async function selectThread(threadId) {
-  let session = activeChats.find(chat => chat.threadId === threadId) || null;
+  let session = activeChats.concat(nonRunningChats).find(chat => chat.threadId === threadId) || null;
   if (!session) {
     const cfg = config();
     session = await tracker.findLatestRolloutForThread(cfg.sessionsDir, threadId, { scanLimit: cfg.treeScanLimit });
@@ -423,8 +489,13 @@ async function refreshSteerCapability(force) {
   return steerCapability;
 }
 
-async function sendQueuedMessage(rawText) {
+async function sendQueuedMessage(rawText, rawImages) {
   const text = String(rawText || '').trim();
+  if (rawImages && (!Array.isArray(rawImages) || rawImages.length)) {
+    queueNotice = { kind: 'error', text: 'Gửi sau hiện chỉ hỗ trợ văn bản. Hãy dùng Steer ngay để gửi ảnh.', at: Date.now() };
+    postViewState();
+    return;
+  }
   if (!text) return;
   if (!selected) {
     queueNotice = { kind: 'error', text: 'Chưa chọn chat Codex.', at: Date.now() };
@@ -484,9 +555,16 @@ async function sendQueuedMessage(rawText) {
   }
 }
 
-async function sendSteeredMessage(rawText) {
+async function sendSteeredMessage(rawText, rawImages) {
   const text = String(rawText || '').trim();
-  if (!text || steerBusy || queueBusy) return;
+  let images;
+  try { images = codexSteer.normalizeImageAttachments(rawImages); }
+  catch (error) {
+    steerNotice = { kind: 'error', text: codexSteer.compactError(error), at: Date.now() };
+    postViewState();
+    return;
+  }
+  if ((!text && !images.length) || steerBusy || queueBusy) return;
   if (!selected) {
     steerNotice = { kind: 'error', text: 'Chưa chọn chat Codex.', at: Date.now() };
     postViewState();
@@ -505,6 +583,7 @@ async function sendSteeredMessage(rawText) {
   const steerArgs = () => ({
     threadId: selected.threadId,
     message: text,
+    images,
     codexHome: config().codexHome,
     cwd: selected.cwd || undefined
   });
@@ -546,6 +625,9 @@ function postViewState() {
     type: 'state',
     data: {
       activeChats: activeChats.map(serializeActiveChat),
+      nonRunningChats: nonRunningChats.map(serializeActiveChat),
+      showNonRunning,
+      deleteChat: { busy: deleteBusy, notice: deleteNotice },
       selectedThreadId: selected && selected.threadId || '',
       selected: selected && latestSnapshot ? serializeSnapshot(latestSnapshot) : (selected ? serializeSelectedShell() : null),
       queue: {
@@ -579,7 +661,9 @@ function serializeActiveChat(chat) {
     createdAt: parseDateMs(chat.createdAt),
     lastActivity: Math.max(chat.mtimeMs || 0, chat.indexedUpdatedAtMs || 0),
     runningChildren: chat.status && chat.status.runningChildren || 0,
-    runningCount: chat.status && chat.status.runningCount || 1
+    runningCount: chat.status && chat.status.runningCount || 0,
+    stateKind: chat.status && chat.status.kind || 'unknown',
+    state: displayState(chat.status || { kind: 'unknown' })
   };
 }
 
@@ -596,6 +680,7 @@ function serializeSelectedShell() {
     current: null,
     latestUserText: '',
     latestUserTextAt: 0,
+    latestUserImages: [],
     latestAssistantText: '',
     latestAssistantTextAt: 0,
     timeline: [],
@@ -619,6 +704,7 @@ function serializeSnapshot(snapshot) {
       label: localizeActivity(item.label),
       detail: String(item.detail || ''),
       text: String(item.text || ''),
+      images: Array.isArray(item.images) ? item.images : [],
       children: Array.isArray(item.children) ? item.children.slice(0, 100).map(child => ({
         label: String(child && child.label || ''),
         detail: String(child && child.detail || ''),
@@ -647,6 +733,7 @@ function serializeSnapshot(snapshot) {
       snapshot.latestIndexedActivityMs || 0,
       selected.indexedUpdatedAtMs || 0
     ),
+    lastActivitySource: snapshot.lastActivitySource || 'rollout-event',
     current: snapshot.current ? {
       label: localizeActivity(snapshot.current.label),
       detail: snapshot.current.detail || '',
@@ -656,6 +743,7 @@ function serializeSnapshot(snapshot) {
     } : null,
     latestUserText: snapshot.latestUserText || '',
     latestUserTextAt: Number(snapshot.latestUserTextAt) || 0,
+    latestUserImages: snapshot.latestUserImages || [],
     latestAssistantText: snapshot.latestAssistantText || '',
     latestAssistantTextAt: Number(snapshot.latestAssistantTextAt) || 0,
     timeline,

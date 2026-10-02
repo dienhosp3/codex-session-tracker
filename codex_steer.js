@@ -11,6 +11,44 @@ const IPC_DEFAULT_TIMEOUT_MS = 5_000;
 const IPC_STEER_TIMEOUT_MS = 15_000;
 const IPC_INITIALIZING_CLIENT = 'initializing-client';
 const IPC_MAX_FRAME_BYTES = 256 * 1024 * 1024;
+const MAX_IMAGE_ATTACHMENTS = 5;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+function imageMatchesMime(bytes, mimeType) {
+  if (mimeType === 'image/png') return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mimeType === 'image/jpeg') return bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  if (mimeType === 'image/webp') return bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+  if (mimeType === 'image/gif') return bytes.length >= 6 && /^GIF8[79]a$/.test(bytes.toString('ascii', 0, 6));
+  return false;
+}
+
+/** Accept only bounded browser image data URLs before they enter an IPC frame. */
+function normalizeImageAttachments(rawImages) {
+  if (rawImages == null) return [];
+  if (!Array.isArray(rawImages)) throw new Error('Image attachments must be a list.');
+  if (rawImages.length > MAX_IMAGE_ATTACHMENTS) throw new Error('Attach at most 5 images.');
+  return rawImages.map((image, index) => {
+    if (!image || typeof image !== 'object' || typeof image.dataUrl !== 'string') {
+      throw new Error('Image attachment is invalid.');
+    }
+    const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/i.exec(image.dataUrl);
+    if (!match) throw new Error('Image must be a PNG, JPEG, WebP, or GIF data URL.');
+    const mimeType = match[1].toLowerCase();
+    if (image.mimeType && String(image.mimeType).toLowerCase() !== mimeType) {
+      throw new Error('Image MIME type does not match its data URL.');
+    }
+    const encoded = match[2];
+    if (encoded.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4) throw new Error('Each image must be 8 MB or smaller.');
+    const bytes = Buffer.from(encoded, 'base64');
+    if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) throw new Error('Each image must be 8 MB or smaller.');
+    if (bytes.toString('base64') !== encoded || !imageMatchesMime(bytes, mimeType)) {
+      throw new Error('Image data does not match the declared format.');
+    }
+    const rawName = String(image.name || 'image-' + (index + 1)).split(/[\\/]/).pop();
+    const name = rawName.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120) || 'image';
+    return { name, mimeType, dataUrl: 'data:' + mimeType + ';base64,' + encoded };
+  });
+}
 
 /**
  * Codex Extension owns one app-server and exposes a local, user-scoped IPC
@@ -133,7 +171,8 @@ function createIpcClient(socket, options = {}) {
     if (!item) return;
     pending.delete(message.requestId);
     clearTimeout(item.timer);
-    if (message.method !== item.method) {
+    // Native error envelopes omit method; requestId still correlates them.
+    if ((message.resultType === 'success' || message.method !== undefined) && message.method !== item.method) {
       const error = new Error('Codex Extension IPC response method did not match the request.');
       error.code = 'EPROTO';
       item.reject(requestFailure(error, item));
@@ -146,7 +185,7 @@ function createIpcClient(socket, options = {}) {
       item.resolve(message);
     } else {
       const error = ipcError(message);
-      if (item.method === 'thread-follower-steer-turn') error.delivery = 'rejected';
+      if (item.method === 'thread-follower-steer-turn') error.delivery = /timeout|timed.out|client-disconnected/i.test(error.message) ? 'unknown' : 'rejected';
       item.reject(error);
     }
   };
@@ -259,8 +298,9 @@ async function probeExtensionIpcSupport(options = {}) {
 async function steerViaExtensionIpc(options = {}) {
   const conversationId = String(options.threadId || options.conversationId || '').trim();
   const text = String(options.message || '').trim();
+  const images = normalizeImageAttachments(options.images);
   if (!conversationId) throw new Error('No Codex conversation is selected.');
-  if (!text) throw new Error('Message is empty.');
+  if (!text && !images.length) throw new Error('Message is empty.');
   let client;
   let steerStarted = false;
   try {
@@ -273,7 +313,7 @@ async function steerViaExtensionIpc(options = {}) {
     const params = {
       conversationId,
       clientUserMessageId,
-      input: [{ type: 'text', text, text_elements: [] }],
+      input: [...(text ? [{ type: 'text', text, text_elements: [] }] : []), ...images.map(image => ({ type: 'image', url: image.dataUrl }))],
       attachments: [],
       restoreMessage: {
         id: clientUserMessageId,
@@ -584,6 +624,7 @@ function steerMessage(options = {}) {
 }
 
 module.exports = {
+  normalizeImageAttachments,
   compactError,
   controlSocketUnavailableReason,
   extensionIpcEndpoint,

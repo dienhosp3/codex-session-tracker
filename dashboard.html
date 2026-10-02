@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-__NONCE__';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'nonce-__NONCE__';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:var(--vscode-font-family);font-size:12px;line-height:1.4;color:var(--vscode-foreground);background:var(--vscode-panel-background,var(--vscode-editor-background))}.shell{display:grid;grid-template-columns:var(--sidebar-width,300px) minmax(0,1fr);height:100vh;min-height:250px;min-width:0}.sidebar{padding:10px;border-right:1px solid var(--vscode-panel-border);overflow:auto;background:var(--vscode-sideBar-background);min-width:0}.main{padding:12px 14px;overflow:auto;overflow-x:hidden;min-width:0}.bar{display:flex;align-items:center;gap:6px;margin-bottom:8px}.bar h2{font-size:12px;margin:0;flex:1;font-weight:650}.iconbtn,.linkbtn{border:0;border-radius:4px;padding:4px 7px;background:transparent;color:inherit;cursor:pointer}.iconbtn:hover,.linkbtn:hover{background:var(--vscode-toolbar-hoverBackground)}.search{width:100%;padding:6px 8px;margin-bottom:7px;border:1px solid var(--vscode-input-border);border-radius:4px;outline:0;background:var(--vscode-input-background);color:var(--vscode-input-foreground);font:inherit}.search:focus,.composer textarea:focus{border-color:var(--vscode-focusBorder)}.section-label,.card-title{color:var(--vscode-descriptionForeground);font-size:10px;letter-spacing:.04em;text-transform:uppercase}.section-label{margin:8px 1px 5px}.chat-list,.timeline,.workers{display:grid;gap:2px}.chat{padding:7px 8px;border:1px solid transparent;border-radius:5px;cursor:pointer}.chat:hover{background:var(--vscode-list-hoverBackground)}.chat.selected{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground);border-color:var(--vscode-focusBorder)}.titleline,.chat-meta,.timeline-label{display:flex;align-items:baseline;gap:6px;min-width:0}.chat-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.dot{width:7px;height:7px;border-radius:50%;background:var(--vscode-testing-iconPassed);display:inline-block;flex:0 0 auto}.chat-meta{justify-content:space-between;color:var(--vscode-descriptionForeground);font-size:10px;margin-top:3px;gap:8px}.chat.selected .chat-meta{color:inherit;opacity:.8}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.empty{padding:18px 8px;text-align:center;color:var(--vscode-descriptionForeground)}.head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:9px;border-bottom:1px solid var(--vscode-panel-border)}.head-left{min-width:0}.title{font-size:16px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sub{font-size:10px;color:var(--vscode-descriptionForeground)}.head .sub{margin-top:3px}.state{font-weight:650;white-space:nowrap}.running{color:var(--vscode-testing-iconPassed)}.stopped{color:var(--vscode-testing-iconFailed,var(--vscode-errorForeground))}.card{margin-top:9px;padding:9px 10px;border:1px solid var(--vscode-panel-border);border-radius:6px;min-width:0;overflow:hidden}.card-title{margin-bottom:6px}.summary-meta{font-size:10px;text-transform:none;letter-spacing:0}.message-time{margin-left:8px;font-size:10px;font-weight:400;letter-spacing:0;text-transform:none;color:var(--vscode-descriptionForeground);white-space:nowrap}.current-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;min-width:0}.current-label{font-weight:650;min-width:0;overflow-wrap:anywhere;word-break:break-word}.current-detail{margin-top:3px;color:var(--vscode-descriptionForeground);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.current-detail-expand{margin-top:3px;min-width:0;color:var(--vscode-descriptionForeground)}.current-detail-expand summary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.current-detail-expand pre{margin-top:5px}.event-time,.worker-time{font:10px var(--vscode-editor-font-family);color:var(--vscode-descriptionForeground);white-space:nowrap;text-align:right}.worker{border-top:1px solid var(--vscode-panel-border)}.worker:first-child,.timeline-item:first-child{border-top:0}.worker summary,.timeline-item summary{list-style:none;padding:6px 0}.worker summary::-webkit-details-marker,.timeline-item summary::-webkit-details-marker{display:none}.worker.has-detail summary,.timeline-item.has-detail summary{cursor:pointer}.worker-row,.timeline-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:7px;align-items:start}.worker-name{display:flex;gap:6px;align-items:center;font-weight:600;min-width:0}.worker-name span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.worker-action{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.muted{color:var(--vscode-descriptionForeground)}.worker-detail,.timeline-detail{padding:0 0 8px 27px;color:var(--vscode-descriptionForeground)}pre,.message-card{margin:5px 0 0;padding:8px;max-height:280px;max-width:100%;min-width:0;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;word-break:break-word;border-radius:4px;background:var(--vscode-textCodeBlock-background);font:11px var(--vscode-editor-font-family)}.history{min-width:0}.history-summary{display:grid;grid-template-columns:19px minmax(0,1fr) auto;gap:7px;align-items:start;padding:6px 0;cursor:pointer;list-style:none}.history-summary::-webkit-details-marker{display:none}.history-latest{display:grid;gap:2px;min-width:0}.history-latest b,.history-latest span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-latest span{color:var(--vscode-descriptionForeground);font-size:10px}.history-body{border-top:1px solid var(--vscode-panel-border);padding-top:2px}.timeline-item{border-top:1px solid var(--vscode-panel-border)}.timeline-icon{width:19px;height:19px;display:grid;place-items:center;color:var(--vscode-descriptionForeground);font:12px var(--vscode-editor-font-family)}.timeline-icon.command:before{content:'>';border:1px solid currentColor;border-radius:3px;padding:0 3px}.timeline-icon.patch:before{content:'\270E'}.timeline-icon.image:before{content:'\25A7'}.timeline-icon.message:before{content:'\2726'}.timeline-icon.user:before{content:'\25B6'}.timeline-icon.thinking:before{content:'\2026'}.timeline-icon.error:before{content:'!';border:1px solid currentColor;border-radius:50%;width:15px;height:15px;text-align:center}.timeline-label b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-actor,.event-type{font-size:10px;color:var(--vscode-descriptionForeground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.timeline-main{min-width:0}.timeline-detail .detail-label{font-size:10px;color:var(--vscode-descriptionForeground)}.timeline-inline{margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--vscode-descriptionForeground)}.child-list{display:grid;gap:4px}.child{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:6px;align-items:start;padding:5px 6px;border-radius:4px;background:var(--vscode-textCodeBlock-background);min-width:0;overflow:hidden}.child-label{font-weight:600;min-width:0;overflow-wrap:anywhere;word-break:break-word}.child-detail{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;color:var(--vscode-descriptionForeground)}.message-card.user{border-left:2px solid var(--vscode-textLink-foreground)}.message-card.assistant{border-left:2px solid var(--vscode-testing-iconPassed)}.truncated-note{margin-top:6px;color:var(--vscode-descriptionForeground);font-size:10px}.composer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:end;min-width:0}.composer-actions{display:grid;gap:5px;min-width:88px}.composer textarea{width:100%;min-height:55px;max-height:150px;resize:vertical;padding:7px 8px;border:1px solid var(--vscode-input-border);border-radius:5px;outline:0;background:var(--vscode-input-background);color:var(--vscode-input-foreground);font:inherit}.send{height:31px;padding:0 12px;border:1px solid var(--vscode-button-border);border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600;cursor:pointer}.send:hover:not(:disabled){background:var(--vscode-button-hoverBackground)}.send:disabled{opacity:.45;cursor:default}.queue-meta,.composer-meta{display:flex;gap:7px;align-items:center;min-height:16px;margin-top:5px;color:var(--vscode-descriptionForeground);font-size:10px;min-width:0}.composer-meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;align-items:start}.composer-meta .action-status{min-width:0;overflow-wrap:anywhere}.composer-meta .action-status b{font-weight:650}.composer-meta .action-status.ok{color:var(--vscode-testing-iconPassed)}.queue-meta .grow{flex:1;min-width:0;overflow-wrap:anywhere}.queue-meta .ok{color:var(--vscode-testing-iconPassed)}.queue-meta .err{color:var(--vscode-errorForeground)}.stopped-card{padding:9px;color:var(--vscode-descriptionForeground);border:1px solid var(--vscode-panel-border);border-radius:6px;min-width:0;overflow-wrap:anywhere}.resizer{width:5px;cursor:col-resize;background:transparent;transition:background .12s}.resizer:hover,.resizer.dragging{background:var(--vscode-focusBorder)}@media(max-width:700px){.shell{grid-template-columns:1fr;height:auto}.sidebar{max-height:190px;border-right:0;border-bottom:1px solid var(--vscode-panel-border)}.resizer{display:none}.timeline-row,.worker-row{grid-template-columns:20px minmax(0,1fr)}.event-time,.worker-time{grid-column:2;text-align:left}.current-card{grid-template-columns:1fr}}@media(max-width:470px){.composer{grid-template-columns:1fr}.composer-actions{grid-template-columns:1fr 1fr}.send{justify-self:end}.composer-meta{grid-template-columns:1fr}.composer-meta .linkbtn{justify-self:start}}
@@ -15,33 +15,329 @@
 .main .head{padding:7px 10px 9px;border-left:3px solid var(--vscode-textLink-foreground);background:color-mix(in srgb,var(--vscode-editor-background) 90%,var(--vscode-textLink-foreground) 10%)}
 .main .card{background:var(--vscode-editorWidget-background,var(--vscode-editor-background))}
 @media(max-width:700px){.shell{grid-template-columns:minmax(0,1fr)}.sidebar{border-bottom:3px solid var(--vscode-focusBorder)}.resizer{display:none}.main{border-left:0}}
+.chat-list{grid-template-columns:minmax(0,1fr);min-width:0}
+.chat{min-width:0;max-width:100%;overflow:hidden}
+.titleline,.chat-meta{width:100%;min-width:0}
+.chat-title,.chat-meta>span{min-width:0}
+.chat-meta>span:last-child{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0 0 7px}
+.chat-tab{min-width:0;padding:5px 7px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:transparent;color:var(--vscode-descriptionForeground);font:inherit;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-tab:hover{background:var(--vscode-list-hoverBackground)}
+.chat-tab[aria-selected="true"]{border-color:var(--vscode-focusBorder);background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground);font-weight:600}
+.age-now{color:var(--vscode-testing-iconPassed,#4ec9b0)!important;font-weight:650}
+.age-recent{color:var(--vscode-textLink-foreground,#3794ff)!important;font-weight:600}
+.age-today{color:var(--vscode-editorWarning-foreground,#cca700)!important}
+.age-old{color:var(--vscode-descriptionForeground)!important}
+@media(max-width:700px){
+  .shell{grid-template-columns:minmax(0,1fr);grid-template-rows:var(--sidebar-height,190px) 9px minmax(0,1fr);height:100vh;min-height:0}
+  .sidebar{min-height:0;max-height:none;overflow-x:hidden;border-right:0;border-bottom:1px solid var(--vscode-panel-border)}
+  .resizer{display:block;width:100%;height:9px;cursor:row-resize;border:0;border-top:2px solid var(--vscode-sideBar-background);border-bottom:2px solid var(--vscode-editor-background)}
+  .main{min-height:0;border-left:0;overflow:auto}
+}
+.chat-delete{flex:0 0 auto;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--vscode-descriptionForeground);font:16px/1 var(--vscode-font-family);cursor:pointer}
+.chat-delete:hover,.chat-delete:focus-visible{background:var(--vscode-toolbar-hoverBackground);color:var(--vscode-errorForeground)}
+.view-switch{display:flex;flex-wrap:wrap;gap:4px;margin:9px 0 0;min-width:0}
+.view-switch button{padding:4px 9px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:transparent;color:var(--vscode-descriptionForeground);font:inherit;cursor:pointer}
+.view-switch button:hover{background:var(--vscode-toolbar-hoverBackground)}
+.view-switch button[aria-pressed="true"],.view-switch button.active{border-color:var(--vscode-focusBorder);background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground)}
+.transcript{display:grid;gap:8px;min-width:0;margin-top:9px}
+.transcript-entry{min-width:0;max-width:100%;padding:9px 10px;border:1px solid var(--vscode-panel-border);border-radius:6px;background:var(--vscode-editorWidget-background,var(--vscode-editor-background));overflow-wrap:anywhere}
+.transcript-entry.user{border-left:3px solid var(--vscode-textLink-foreground)}
+.transcript-entry.assistant{border-left:3px solid var(--vscode-testing-iconPassed)}
+.transcript-entry-header,.transcript-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0;margin-bottom:5px;font-size:10px}
+.transcript-entry-header b,.transcript-head b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.transcript-entry .message-card,.transcript-entry pre,.transcript-text{max-width:100%;min-width:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+.transcript-entry img,.transcript-image{display:block;max-width:min(100%,340px);max-height:260px;object-fit:contain;border-radius:4px;cursor:zoom-in}
+.composer-image-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;margin-top:6px}
+.composer-image-tools input[type="file"]{display:none}
+.composer-image-tools button,.composer-image-tools label{padding:4px 7px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:transparent;color:var(--vscode-foreground);font:inherit;cursor:pointer}
+.composer-image-tools button:hover,.composer-image-tools label:hover{background:var(--vscode-toolbar-hoverBackground)}
+.image-preview{display:flex;flex-wrap:wrap;gap:6px;min-width:0;margin-top:6px}
+.image-thumb{position:relative;display:inline-flex;align-items:center;justify-content:center;width:72px;height:72px;padding:2px;border:1px solid var(--vscode-panel-border);border-radius:5px;background:var(--vscode-textCodeBlock-background);overflow:hidden}
+.image-thumb img{display:block;max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in}
+.image-thumb button{position:absolute;top:1px;right:1px;width:20px;height:20px;padding:0;border:0;border-radius:3px;background:var(--vscode-editor-background);color:var(--vscode-foreground);cursor:pointer}
+.image-dialog{max-width:min(90vw,1000px);max-height:90vh;padding:8px;border:1px solid var(--vscode-panel-border);border-radius:6px;background:var(--vscode-editor-background);color:var(--vscode-foreground)}
+.image-dialog::backdrop{background:rgba(0,0,0,.75)}
+.image-dialog img{display:block;max-width:calc(90vw - 30px);max-height:calc(90vh - 65px);object-fit:contain}
+.image-dialog button{display:block;margin:0 0 6px auto;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}
 </style>
 </head>
 <body>
-<div class="shell"><aside class="sidebar"><div class="bar"><h2>Cu&#7897;c tr&#242; chuy&#7879;n</h2><button class="iconbtn" id="refresh" title="L&#224;m m&#7899;i">&#8635;</button></div><input class="search" id="search" placeholder="L&#7885;c chat..."><div id="activeCount" class="section-label">&#272;ang t&#7843;i...</div><div id="chatList" class="chat-list"></div></aside><div class="resizer" id="sidebarResizer" role="separator" tabindex="0" aria-valuemin="190" aria-valuemax="520" aria-orientation="vertical" aria-label="K\u00e9o \u0111\u1ec3 \u0111\u1ed5i \u0111\u1ed9 r\u1ed9ng danh s\u00e1ch chat" title="K\u00e9o \u0111\u1ec3 \u0111\u1ed5i \u0111\u1ed9 r\u1ed9ng danh s\u00e1ch chat"></div><main class="main" id="main"><div class="empty">Ch&#7885;n m&#7897;t chat &#273;ang ch&#7841;y.</div></main></div>
+<div class="shell"><aside class="sidebar"><div class="bar"><h2>Cu&#7897;c tr&#242; chuy&#7879;n</h2><button class="iconbtn" id="refresh" title="L&#224;m m&#7899;i">&#8635;</button></div><input class="search" id="search" placeholder="L&#7885;c chat..."><div class="chat-tabs" role="tablist" aria-label="Trạng thái cuộc trò chuyện"><button class="chat-tab" id="runningTab" role="tab" aria-selected="true">Đang chạy</button><button class="chat-tab" id="nonRunningTab" role="tab" aria-selected="false">Không chạy</button></div><div id="activeCount" class="section-label">&#272;ang t&#7843;i...</div><div id="chatList" class="chat-list"></div></aside><div class="resizer" id="sidebarResizer" role="separator" tabindex="0" aria-valuemin="190" aria-valuemax="520" aria-orientation="vertical" aria-label="Kéo để đổi kích thước danh sách chat" title="Kéo để đổi kích thước danh sách chat"></div><main class="main" id="main"><div class="empty">Ch&#7885;n m&#7897;t chat &#273;ang ch&#7841;y.</div></main></div>
+<dialog id="imageDialog" class="image-dialog"><button id="closeImageDialog" class="iconbtn image-dialog-close" type="button" title="Đóng ảnh" aria-label="Đóng ảnh">×</button><img id="imageDialogImg" alt="Ảnh đính kèm"></dialog>
 <script nonce="__NONCE__">
 const vscode=acquireVsCodeApi(),chatList=document.getElementById('chatList'),activeCount=document.getElementById('activeCount'),main=document.getElementById('main'),search=document.getElementById('search');
-const savedUi=vscode.getState()||{};const minSidebarWidth=190,maxSidebarWidth=()=>Math.max(minSidebarWidth,window.innerWidth-9),clampSidebarWidth=n=>Math.max(minSidebarWidth,Math.min(maxSidebarWidth(),Math.round(n)));let sidebarWidth=clampSidebarWidth(Number(savedUi.sidebarWidth)||300);document.documentElement.style.setProperty('--sidebar-width',sidebarWidth+'px');let state={activeChats:[],selectedThreadId:'',selected:null,queue:{},steer:{}},draft='',lastNoticeAt=0;
+const savedUi=vscode.getState()||{};const minSidebarWidth=190,maxSidebarWidth=()=>Math.max(minSidebarWidth,window.innerWidth-229),clampSidebarWidth=n=>Math.max(minSidebarWidth,Math.min(maxSidebarWidth(),Math.round(n)));let sidebarWidth=clampSidebarWidth(Number(savedUi.sidebarWidth)||300);document.documentElement.style.setProperty('--sidebar-width',sidebarWidth+'px');const minSidebarHeight=100,maxSidebarHeight=()=>Math.max(minSidebarHeight,window.innerHeight-9-180),clampSidebarHeight=n=>Math.max(minSidebarHeight,Math.min(maxSidebarHeight(),Math.round(n)));let sidebarHeight=clampSidebarHeight(Number(savedUi.sidebarHeight)||190);document.documentElement.style.setProperty('--sidebar-height',sidebarHeight+'px');let state={activeChats:[],nonRunningChats:[],showNonRunning:false,selectedThreadId:'',selected:null,queue:{},steer:{},deleteChat:{}},draft='',draftImages=[],composerNotice='',imageSources=[],viewMode=savedUi.viewMode==='chronological'?'chronological':'summary',drafts={},currentDraftThreadId='',lastNoticeAt=0;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pad=n=>String(n).padStart(2,'0');
 const absTime=ms=>{if(!ms)return '--';const d=new Date(ms),now=new Date(),same=d.toDateString()===now.toDateString(),t=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());return same?t:pad(d.getDate())+'/'+pad(d.getMonth()+1)+' '+t};
 const relTime=ms=>{if(!ms)return '';const s=Math.max(0,Math.floor((Date.now()-ms)/1000));if(s<5)return '\u0076\u1eeba xong';if(s<60)return s+'s';const m=Math.floor(s/60);if(m<60)return m+'m';const h=Math.floor(m/60);if(h<24)return h+'h';return Math.floor(h/24)+'d'};
+const timeAgeClass=ms=>{const age=Date.now()-Number(ms||0);if(!Number.isFinite(age)||!ms)return 'age-old';if(age<5*60*1000)return 'age-now';if(age<60*60*1000)return 'age-recent';if(age<24*60*60*1000)return 'age-today';return 'age-old'};
 const short=(s,n=130)=>{s=String(s||'').replace(/\s+/g,' ').trim();return s.length>n?s.slice(0,n-1)+'…':s};
 const baseName=p=>String(p||'').replace(/[\\/]+$/,'').split(/[\\/]/).pop()||p||'';
-function renderChats(){const q=search.value.trim().toLowerCase();const chats=(state.activeChats||[]).slice().sort((a,b)=>(b.lastActivity||0)-(a.lastActivity||0)).filter(c=>!q||String(c.title||'').toLowerCase().includes(q)||String(c.cwd||'').toLowerCase().includes(q));activeCount.textContent=(state.activeChats||[]).length+' '+('\u0111ang ch\u1ea1y')+' · m\u1edbi nh\u1ea5t tr\u01b0\u1edbc';if(!chats.length){chatList.innerHTML='<div class="empty">Kh\u00f4ng c\u00f3 chat \u0111ang ch\u1ea1y.</div>';return}chatList.innerHTML=chats.map(c=>{const agents=c.runningCount>1?' · '+c.runningCount+' threads':'';return '<div class="chat '+(c.threadId===state.selectedThreadId?'selected':'')+'" data-id="'+esc(c.threadId)+'" title="'+esc(c.cwd||'')+'"><div class="titleline"><span class="dot"></span><span class="chat-title">'+esc(c.title||'Codex chat')+'</span></div><div class="chat-meta"><span class="ellipsis">'+esc(baseName(c.cwd)||'No workspace')+esc(agents)+'</span><span>'+esc(absTime(c.lastActivity))+' · '+esc(relTime(c.lastActivity))+'</span></div></div>'}).join('');for(const el of chatList.querySelectorAll('.chat'))el.onclick=()=>vscode.postMessage({command:'selectChat',threadId:el.dataset.id})}
-function steerInfo(){const x=state.steer||{};if(x.busy)return {cls:'',text:'\u0110ang steer v\u00e0o turn hi\u1ec7n t\u1ea1i...'};if(x.notice&&x.notice.text)return {cls:x.notice.kind==='success'?'ok':'err',text:x.notice.text};if(!x.checked)return {cls:'',text:'\u0110ang ki\u1ec3m tra kh\u1ea3 n\u0103ng steer...'};if(x.available)return {cls:'',text:'Owner IPC \u0111\u00e3 th\u1ea5y \u00b7 ch\u1edd x\u00e1c nh\u1eadn khi g\u1eedi'};return {cls:'err',text:x.reason||'Steer ch\u01b0a kh\u1ea3 d\u1ee5ng v\u1edbi owner hi\u1ec7n t\u1ea1i.'}}
-function queueInfo(){const x=state.queue||{};if(x.busy)return {cls:'',text:'\u0110ang x\u1ebfp tin nh\u1eafn v\u00e0o h\u00e0ng ch\u1edd...'};if(x.notice&&x.notice.text)return {cls:x.notice.kind==='success'?'ok':'err',text:x.notice.text};if(!x.checked)return {cls:'',text:'\u0110ang ki\u1ec3m tra kh\u1ea3 n\u0103ng g\u1eedi...'};if(x.available)return {cls:'',text:'G\u1eedi sau turn hi\u1ec7n t\u1ea1i \u00b7 gi\u1eef nguy\u00ean chat/model'};return {cls:'err',text:x.reason||'Kh\u00f4ng t\u00ecm th\u1ea5y Codex CLI c\u00f3 h\u1ed7 tr\u1ee3 queue.'}}
-function bindComposer(wasFocused,start,end){const ta=document.getElementById('composerInput'),steer=document.getElementById('steerBtn'),queue=document.getElementById('queueBtn'),reprobe=document.getElementById('reprobe');if(!ta||!steer||!queue)return;ta.value=draft;const update=()=>{draft=ta.value;const has=Boolean(String(draft).trim()),a=state.steer||{},q=state.queue||{};steer.disabled=!has||!a.available||Boolean(a.busy||q.busy);queue.disabled=!has||!q.available||Boolean(q.busy||a.busy)};ta.oninput=update;ta.onkeydown=e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();if(!steer.disabled)steer.click()}};steer.onclick=()=>{const text=String(draft||'').trim();if(text)vscode.postMessage({command:'steerMessage',text})};queue.onclick=()=>{const text=String(draft||'').trim();if(text)vscode.postMessage({command:'queueMessage',text})};if(reprobe)reprobe.onclick=()=>vscode.postMessage({command:'reprobeCodex'});update();if(wasFocused){ta.focus();try{ta.setSelectionRange(Math.min(start,ta.value.length),Math.min(end,ta.value.length))}catch{}}}
+function renderChats(){
+  const nonRunning=Boolean(state.showNonRunning);
+  const runningTab=document.getElementById('runningTab'),nonRunningTab=document.getElementById('nonRunningTab');
+  runningTab.setAttribute('aria-selected',String(!nonRunning));
+  nonRunningTab.setAttribute('aria-selected',String(nonRunning));
+  const all=nonRunning?(state.nonRunningChats||[]):(state.activeChats||[]);
+  const q=search.value.trim().toLowerCase();
+  const chats=all.slice().sort((a,b)=>(b.lastActivity||0)-(a.lastActivity||0)).filter(c=>!q||String(c.title||'').toLowerCase().includes(q)||String(c.cwd||'').toLowerCase().includes(q));
+  activeCount.textContent=all.length+(nonRunning?' không chạy':' đang chạy')+' · mới nhất trước';
+  const deletion=state.deleteChat||{};
+  const notice=deletion.notice&&deletion.notice.text?'<div class="action-status '+esc(deletion.notice.kind==='success'?'ok':'err')+'" role="status">'+esc(deletion.notice.text)+'</div>':'';
+  if(!chats.length){chatList.innerHTML=notice+'<div class="empty">'+(nonRunning?'Không có chat không chạy.':'Không có chat đang chạy.')+'</div>';return}
+  chatList.innerHTML=notice+chats.map(c=>{
+    const agents=c.runningCount>1?' · '+c.runningCount+' threads':'';
+    const at=Number(c.lastActivity)||0;
+    const deleteButton=nonRunning?'<button class="iconbtn chat-delete" type="button" data-delete="'+esc(c.threadId)+'" title="Xóa cuộc trò chuyện" aria-label="Xóa cuộc trò chuyện" '+(deletion.busy?'disabled':'')+'>&#128465;</button>':'';
+    return '<div class="chat '+(c.threadId===state.selectedThreadId?'selected':'')+'" data-id="'+esc(c.threadId)+'" title="'+esc(c.cwd||'')+'" role="button" tabindex="0"><div class="titleline"><span class="dot '+(nonRunning?'dot-stopped':'')+'"></span><span class="chat-title">'+esc(c.title||'Codex chat')+'</span>'+deleteButton+'</div><div class="chat-meta"><span class="ellipsis">'+esc(baseName(c.cwd)||'No workspace')+esc(agents)+'</span><span class="'+timeAgeClass(at)+'" title="'+esc(absTime(at))+'">'+esc(absTime(at))+' · '+esc(relTime(at))+'</span></div></div>';
+  }).join('');
+  for(const el of chatList.querySelectorAll('.chat')){
+    el.onclick=()=>vscode.postMessage({command:'selectChat',threadId:el.dataset.id});
+    el.onkeydown=e=>{if(e.target===el&&(e.key==='Enter'||e.key===' ')){e.preventDefault();el.click()}};
+  }
+  for(const el of chatList.querySelectorAll('[data-delete]'))el.onclick=e=>{e.stopPropagation();vscode.postMessage({command:'deleteChat',threadId:el.dataset.delete})};
+}
+function steerInfo(){
+  const x=state.steer||{};
+  if(x.busy)return {cls:'',text:'Đang gửi vào lượt hiện tại...'};
+  if(x.notice&&x.notice.text)return {cls:x.notice.kind==='success'?'ok':'err',text:x.notice.text};
+  if(!x.checked)return {cls:'',text:'Đang kiểm tra khả năng Steer...'};
+  if(!x.available)return {cls:'err',text:x.reason||'Steer chưa khả dụng.'};
+  return null;
+}
+function queueInfo(){
+  const x=state.queue||{};
+  if(x.busy)return {cls:'',text:'Đang xếp tin nhắn...'};
+  if(x.notice&&x.notice.text)return {cls:x.notice.kind==='success'?'ok':'err',text:x.notice.text};
+  if(!x.checked)return {cls:'',text:'Đang kiểm tra khả năng gửi sau...'};
+  if(!x.available)return {cls:'err',text:x.reason||'Gửi sau chưa khả dụng.'};
+  if(draftImages.length)return {cls:'err',text:'Gửi sau hiện chỉ hỗ trợ văn bản.'};
+  return null;
+}
+function bindComposer(wasFocused,start,end){
+  const ta=document.getElementById('composerInput'),steer=document.getElementById('steerBtn'),queue=document.getElementById('queueBtn'),reprobe=document.getElementById('reprobe'),picker=document.getElementById('imagePicker'),addImage=document.getElementById('addImageBtn');
+  if(!ta||!steer||!queue)return;
+  ta.value=draft;
+  const update=()=>{
+    draft=ta.value;
+    const hasText=Boolean(String(draft).trim()),hasImages=draftImages.length>0,a=state.steer||{},q=state.queue||{};
+    steer.disabled=!(hasText||hasImages)||!a.available||Boolean(a.busy||q.busy);
+    queue.disabled=!hasText||hasImages||!q.available||Boolean(q.busy||a.busy);
+  };
+  ta.oninput=update;
+  ta.onkeydown=e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();if(!steer.disabled)steer.click()}};
+  steer.onclick=()=>{if(!steer.disabled)vscode.postMessage({command:'steerMessage',text:String(draft||'').trim(),images:draftImages})};
+  queue.onclick=()=>{if(!queue.disabled)vscode.postMessage({command:'queueMessage',text:String(draft||'').trim()})};
+  if(reprobe)reprobe.onclick=()=>vscode.postMessage({command:'reprobeCodex'});
+  if(addImage&&picker)addImage.onclick=()=>picker.click();
+  if(picker)picker.onchange=()=>{addDraftImages(picker.files);picker.value=''};
+  ta.onpaste=e=>{const files=Array.from(e.clipboardData&&e.clipboardData.files||[]).filter(f=>f.type&&f.type.startsWith('image/'));if(files.length){e.preventDefault();addDraftImages(files)}};
+  ta.ondragover=e=>{if(e.dataTransfer&&Array.from(e.dataTransfer.types||[]).includes('Files'))e.preventDefault()};
+  ta.ondrop=e=>{const files=Array.from(e.dataTransfer&&e.dataTransfer.files||[]).filter(f=>f.type&&f.type.startsWith('image/'));if(files.length){e.preventDefault();addDraftImages(files)}};
+  for(const el of document.querySelectorAll('[data-remove-image]'))el.onclick=()=>{draftImages.splice(Number(el.dataset.removeImage),1);renderMain()};
+  update();
+  if(wasFocused){ta.focus();try{ta.setSelectionRange(Math.min(start,ta.value.length),Math.min(end,ta.value.length))}catch{}}
+}
+function addDraftImages(files){
+  const target=state.selectedThreadId;
+  const candidates=Array.from(files||[]);
+  if(draftImages.length+candidates.length>5){composerNotice='Tối đa 5 ảnh trong một tin nhắn.';renderMain();return}
+  if(candidates.some(file=>!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type)||file.size>8*1024*1024)){
+    composerNotice='Chỉ nhận PNG, JPEG, WebP hoặc GIF, tối đa 8 MB mỗi ảnh.';renderMain();return
+  }
+  Promise.all(candidates.map(file=>new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve({name:file.name||'Ảnh',mimeType:file.type,dataUrl:String(reader.result||'')});
+    reader.onerror=()=>reject(new Error('Không đọc được ảnh.'));
+    reader.readAsDataURL(file);
+  }))).then(images=>{
+    if(target!==state.selectedThreadId)return;
+    draftImages.push(...images);
+    composerNotice='';
+    renderMain();
+  }).catch(error=>{composerNotice=String(error.message||error);renderMain()});
+}
 function operation(item){return item&&['command','patch','image','tool','mcp','web','agent','hook'].includes(String(item.kind||''))}
 function groupTimeline(events){const groups=[];for(const item of events){if(!operation(item)){groups.push({items:[item],operation:false});continue}const prev=groups[groups.length-1];const same=prev&&prev.operation&&prev.items[0].actor===item.actor&&Math.abs((prev.items[prev.items.length-1].at||0)-(item.at||0))<5*60*1000;if(same)prev.items.push(item);else groups.push({items:[item],operation:true})}return groups}
 function groupLabel(group){const kinds=new Set(group.items.map(x=>String(x.kind||'')));if(kinds.has('image')&&kinds.size===1)return group.items.length===1?'\u0110\u00e3 xem 1 \u1ea3nh':'\u0110\u00e3 xem '+group.items.length+' \u1ea3nh';if(kinds.has('command')&&kinds.has('patch'))return '\u0110\u00e3 ch\u1ec9nh s\u1eeda c\u00e1c t\u1ec7p, \u0111\u00e3 ch\u1ea1y c\u00e1c l\u1ec7nh';if(kinds.has('patch'))return group.items.length===1?'\u0110\u00e3 ch\u1ec9nh s\u1eeda t\u1ec7p':'\u0110\u00e3 ch\u1ec9nh s\u1eeda c\u00e1c t\u1ec7p';if(kinds.has('command'))return group.items.length===1?(group.items[0].label||'\u0110\u00e3 ch\u1ea1y l\u1ec7nh'):'\u0110\u00e3 ch\u1ea1y c\u00e1c l\u1ec7nh';return group.items.length===1?(group.items[0].label||'Ho\u1ea1t \u0111\u1ed9ng'):'Ho\u1ea1t \u0111\u1ed9ng ('+group.items.length+')'}
-function childHtml(item){const at=Number(item.at)||0,children=Array.isArray(item.children)?item.children:[];if(children.length){return children.map(child=>{const childAt=Number(child&&child.at)||at;return '<div class="child"><span class="timeline-icon patch"></span><div><div class="child-label">'+esc(child&&child.label||'Tep da chinh sua')+'</div><div class="child-detail">'+esc(child&&child.detail||'')+'</div></div><span class="event-time">'+esc(childAt?absTime(childAt):'--')+'</span></div>'}).join('')};const detail=String(item.detail||'').trim();return '<div class="child"><span class="timeline-icon '+String(item.kind||'activity')+'"></span><div><div class="child-label">'+esc(item.label||item.type||'Hoat dong')+'</div>'+(detail?'<div class="child-detail">'+esc(detail)+'</div>':'')+'</div><span class="event-time">'+esc(at?absTime(at):'--')+'</span></div>'}
-function singleHtml(item,index){const detail=String(item.detail||'').trim(),text=String(item.text||'').trim(),has=Boolean(detail||text),at=Number(item.at)||0,label=item.label||item.type||'Ho\u1ea1t \u0111\u1ed9ng';const body=(detail?'<div class="detail-label">Chi ti\u1ebft</div><pre>'+esc(detail)+'</pre>':'')+(text?'<div class="detail-label">N\u1ed9i dung</div><pre class="message-card '+(item.kind==='user'?'user':'assistant')+'">'+esc(text)+'</pre>':'');const inline=detail?'<div class="timeline-inline">'+esc(short(detail))+'</div>':'';return '<details class="timeline-item '+(has?'has-detail':'')+'" data-state-key="timeline:'+esc(item.id||((item.threadId||'')+':'+(item.at||0)))+'"><summary><div class="timeline-row"><span class="timeline-icon '+String(item.kind||'activity')+'"></span><span class="timeline-main"><span class="timeline-label"><b>'+esc(label)+'</b><span class="timeline-actor">'+esc(item.actor||'Main')+'</span>'+(item.type?'<span class="event-type">'+esc(item.type)+'</span>':'')+'</span>'+inline+'</span><span class="event-time" title="'+esc(at?absTime(at):'--')+'">'+esc(at?(absTime(at)+' · '+relTime(at)):'--')+'</span></div></summary>'+(has?'<div class="timeline-detail">'+body+'</div>':'')+'</details>'}
-function renderTimeline(d){const events=(Array.isArray(d.timeline)?d.timeline:[]).filter(Boolean),groups=groupTimeline(events);if(!groups.length)return '<div class="sub">Ch\u01b0a c\u00f3 s\u1ef1 ki\u1ec7n chi ti\u1ebft.</div>';const html=groups.map((group,index)=>{if(!group.operation)return singleHtml(group.items[0],index);const first=group.items[0],at=Number(first.at)||0,has=group.items.some(x=>String(x.detail||'').trim()),children=group.items.map(childHtml).join('');return '<details class="timeline-item has-detail" data-state-key="timeline:'+esc(first.id||((first.threadId||'')+':'+(first.at||0)))+'"><summary><div class="timeline-row"><span class="timeline-icon '+String(first.kind||'activity')+'"></span><span class="timeline-main"><span class="timeline-label"><b>'+esc(groupLabel(group))+'</b><span class="timeline-actor">'+esc(first.actor||'Main')+'</span><span class="summary-meta"> · '+group.items.length+' m\u1ee5c</span></span><div class="timeline-inline">'+esc(short(group.items.map(x=>x.detail||x.label||'').join(' · '),150))+'</div></span><span class="event-time" title="'+esc(at?absTime(at):'--')+'">'+esc(at?(absTime(at)+' · '+relTime(at)):'--')+'</span></div></summary><div class="timeline-detail"><div class="child-list">'+children+'</div></div></details>'}).join('');return '<div class="timeline">'+html+'</div>'+(d.truncated?'<div class="truncated-note">Nh\u1eadt k\u00fd b\u1ecb gi\u1edbi h\u1ea1n theo dung l\u01b0\u1ee3ng c\u1ea5u h\u00ecnh; c\u00e1c m\u1ee5c c\u0169 h\u01a1n c\u00f3 th\u1ec3 kh\u00f4ng hi\u1ec7n.</div>':'')}
+function childHtml(item){
+  const at=Number(item.at)||0,children=Array.isArray(item.children)?item.children:[];
+  if(children.length)return children.map(child=>'<div class="child"><span class="timeline-icon patch"></span><div><div class="child-label">'+esc(child&&child.label||'Tệp đã chỉnh sửa')+'</div><div class="child-detail">'+esc(child&&child.detail||'')+'</div></div>'+timeHtml(child&&child.at||at)+'</div>').join('');
+  const detail=String(item.detail||'').trim(),images=imageMarkup(item.images);
+  return '<div class="child"><span class="timeline-icon '+esc(item.kind||'activity')+'"></span><div><div class="child-label">'+esc(item.label||item.type||'Hoạt động')+'</div>'+(detail?'<div class="child-detail">'+esc(detail)+'</div>':'')+images+'</div>'+timeHtml(at)+'</div>';
+}
+function singleHtml(item){
+  const detail=String(item.detail||'').trim(),text=String(item.text||'').trim(),images=imageMarkup(item.images),has=Boolean(detail||text||images),at=Number(item.at)||0,label=item.label||item.type||'Hoạt động';
+  const body=(detail?'<div class="detail-label">Chi tiết</div><pre>'+esc(detail)+'</pre>':'')+(text?'<div class="detail-label">Nội dung</div><pre class="message-card '+(item.kind==='user'?'user':'assistant')+'">'+esc(text)+'</pre>':'')+images;
+  const inline=detail?'<div class="timeline-inline">'+esc(short(detail))+'</div>':'';
+  return '<details class="timeline-item '+(has?'has-detail':'')+'" data-state-key="timeline:'+esc(item.id||((item.threadId||'')+':'+(item.at||0)))+'"><summary><div class="timeline-row"><span class="timeline-icon '+esc(item.kind||'activity')+'"></span><span class="timeline-main"><span class="timeline-label"><b>'+esc(label)+'</b><span class="timeline-actor">'+esc(item.actor||'Main')+'</span>'+(item.type?'<span class="event-type">'+esc(item.type)+'</span>':'')+'</span>'+inline+'</span>'+timeHtml(at)+'</div></summary>'+(has?'<div class="timeline-detail">'+body+'</div>':'')+'</details>';
+}
+function renderTimeline(d){
+  const events=(Array.isArray(d.timeline)?d.timeline:[]).filter(Boolean),groups=groupTimeline(events);
+  if(!groups.length)return '<div class="sub">Chưa có sự kiện chi tiết.</div>';
+  const html=groups.map(group=>{
+    if(!group.operation)return singleHtml(group.items[0]);
+    const first=group.items[0],at=Number(first.at)||0,children=group.items.map(childHtml).join('');
+    return '<details class="timeline-item has-detail" data-state-key="timeline:'+esc(first.id||((first.threadId||'')+':'+(first.at||0)))+'"><summary><div class="timeline-row"><span class="timeline-icon '+esc(first.kind||'activity')+'"></span><span class="timeline-main"><span class="timeline-label"><b>'+esc(groupLabel(group))+'</b><span class="timeline-actor">'+esc(first.actor||'Main')+'</span><span class="summary-meta"> · '+group.items.length+' mục</span></span><div class="timeline-inline">'+esc(short(group.items.map(x=>x.detail||x.label||'').join(' · '),150))+'</div></span>'+timeHtml(at)+'</div></summary><div class="timeline-detail"><div class="child-list">'+children+'</div></div></details>';
+  }).join('');
+  return '<div class="timeline">'+html+'</div>'+(d.truncated?'<div class="truncated-note">Nhật ký cũ hơn không có trong phần dữ liệu đang đọc.</div>':'');
+}
 function captureUiState(){const result={open:{},scrollTop:main.scrollTop};main.querySelectorAll('details[data-state-key]').forEach(el=>{result.open[el.dataset.stateKey]=el.open});return result}
 function restoreUiState(saved){if(!saved)return;main.querySelectorAll('details[data-state-key]').forEach(el=>{if(Object.prototype.hasOwnProperty.call(saved.open,el.dataset.stateKey))el.open=saved.open[el.dataset.stateKey]});main.scrollTop=Math.min(saved.scrollTop||0,Math.max(0,main.scrollHeight-main.clientHeight))}
-function renderMain(){const ui=captureUiState(),old=document.getElementById('composerInput'),wasFocused=old&&document.activeElement===old,start=old&&old.selectionStart||0,end=old&&old.selectionEnd||0,d=state.selected;if(!d){main.innerHTML='<div class="empty">Ch\u1ecdn m\u1ed9t chat \u0111ang ch\u1ea1y.</div>';return}const running=d.stateKind==='running';let html='<div class="head"><div class="head-left"><div class="section-label">Trong cu&#7897;c tr&#242; chuy&#7879;n</div><div class="title">'+esc(d.title||'Codex chat')+'</div><div class="sub" title="'+esc(d.cwd||'')+'">'+esc(baseName(d.cwd)||d.cwd||'')+' \u00b7 ho\u1ea1t \u0111\u1ed9ng '+esc(absTime(d.lastActivityMs))+' \u00b7 '+esc(relTime(d.lastActivityMs))+'</div></div><div class="state '+(running?'running':'stopped')+'">'+esc(d.state||'Unknown')+'</div></div>';if(!running)html+='<div class="stopped-card">Chat \u0111\u00e3 c\u00f3 tr\u1ea1ng th\u00e1i terminal. L\u1ecbch s\u1eed ho\u1ea1t \u0111\u1ed9ng v\u00e0 chi ti\u1ebft v\u1eabn \u0111\u01b0\u1ee3c gi\u1eef l\u1ea1i.</div>';if(d.current){const at=Number(d.current.at)||Number(d.lastActivityMs)||0,detail=String(d.current.detail||'').trim(),detailHtml=detail.length>140?'<details class="current-detail-expand" data-state-key="current"><summary title="'+esc(detail)+'">'+esc(short(detail,140))+'</summary><pre>'+esc(detail)+'</pre></details>':(detail?'<div class="current-detail" title="'+esc(detail)+'">'+esc(detail)+'</div>':'');html+='<section class="card"><div class="card-title">Ho\u1ea1t \u0111\u1ed9ng hi\u1ec7n t\u1ea1i</div><div class="current-card"><div><div class="current-label">'+esc(d.current.label||'\u0110ang x\u1eed l\u00fd')+' <span class="timeline-actor">'+esc(d.current.actor||'Main')+'</span></div>'+detailHtml+'</div><div class="event-time" title="'+esc(at?absTime(at):'--')+'">'+esc(at?(absTime(at)+' \u00b7 '+relTime(at)):'--')+'</div></div></section>'}const workers=(d.activeNodes||[]).slice().sort((a,b)=>(b.currentAt||b.updatedAt||0)-(a.currentAt||a.updatedAt||0));if(running){html+='<section class="card"><div class="card-title">\u0110ang ch\u1ea1y \u00b7 '+workers.length+' thread</div><div class="workers">';if(!workers.length)html+='<div class="sub">\u0110ang c\u1eadp nh\u1eadt tr\u1ea1ng th\u00e1i thread...</div>';else html+=workers.map(n=>{const detail=String(n.currentDetail||'').trim(),text=String(n.currentText||'').trim(),task=String(n.taskPreview||'').trim(),has=Boolean(detail||text||task),at=Number(n.currentAt)||Number(n.updatedAt)||0;return '<details class="worker '+(has?'has-detail':'')+'" data-state-key="worker:'+esc(n.threadId||n.actor||'')+'"><summary><div class="worker-row"><span class="dot"></span><div class="worker-action"><b>'+esc(n.actor||'Sub-agent')+'</b> \u00b7 '+esc(n.current||'\u0110ang x\u1eed l\u00fd')+(detail?' <span class="muted">\u00b7 '+esc(short(detail,100))+'</span>':'')+'</div><span class="worker-time" title="'+esc(at?absTime(at):'--')+'">'+esc(at?(absTime(at)+' \u00b7 '+relTime(at)):'--')+'</span></div></summary>'+(has?'<div class="worker-detail">'+(detail?'<div>Chi ti\u1ebft hi\u1ec7n t\u1ea1i</div><pre>'+esc(detail)+'</pre>':'')+(text?'<div>N\u1ed9i dung hi\u1ec7n t\u1ea1i</div><pre>'+esc(text)+'</pre>':'')+(!text&&!detail&&task?'<div>Nhi\u1ec7m v\u1ee5</div><pre>'+esc(task)+'</pre>':'')+'</div>':'')+'</details>'}).join('');html+='</div></section>'}const latest=(d.timeline||[])[0]||{},latestAt=Number(latest.at)||0,latestLabel=latest.label||latest.type||'Ho\u1ea1t \u0111\u1ed9ng';html+='<section class="card"><div class="card-title">L\u1ecbch s\u1eed ho\u1ea1t \u0111\u1ed9ng <span class="summary-meta">\u00b7 '+((d.timeline||[]).length)+' m\u1ee5c</span></div><details class="history" data-state-key="history"><summary class="history-summary"><span class="timeline-icon '+esc(latest.kind||'activity')+'"></span><span class="history-latest"><b>'+esc(latestLabel)+'</b><span>'+esc(latest.detail?short(latest.detail,160):'M\u1edf \u0111\u1ec3 xem c\u00e1c ho\u1ea1t \u0111\u1ed9ng chi ti\u1ebft')+'</span></span><span class="event-time" title="'+esc(latestAt?absTime(latestAt):'--')+'">'+esc(latestAt?(absTime(latestAt)+' \u00b7 '+relTime(latestAt)):'--')+'</span></summary><div class="history-body">'+renderTimeline(d)+'</div></details></section>';if(d.latestUserText){const userAt=Number(d.latestUserTextAt)||0;html+='<section class="card"><div class="card-title">Y\u00eau c\u1ea7u g\u1ea7n nh\u1ea5t <span class="message-time" title="'+esc(userAt?absTime(userAt):'--')+'">'+esc(userAt?(absTime(userAt)+' \u00b7 '+relTime(userAt)):'--')+'</span></div><div class="message-card user">'+esc(d.latestUserText)+'</div></section>'}if(d.latestAssistantText){const assistantAt=Number(d.latestAssistantTextAt)||0;html+='<section class="card"><div class="card-title">Ph\u1ea3n h\u1ed3i g\u1ea7n nh\u1ea5t <span class="message-time" title="'+esc(assistantAt?absTime(assistantAt):'--')+'">'+esc(assistantAt?(absTime(assistantAt)+' \u00b7 '+relTime(assistantAt)):'--')+'</span></div><div class="message-card assistant">'+esc(d.latestAssistantText)+'</div></section>'}if(!running){main.innerHTML=html;restoreUiState(ui);return}const si=steerInfo(),qi=queueInfo();html+='<section class="card"><div class="card-title">Nh\u1eafn v\u00e0o chat n\u00e0y</div><div class="composer"><textarea id="composerInput" placeholder="Ctrl+Enter \u0111\u1ec3 Steer ngay khi kh\u1ea3 d\u1ee5ng \u00b7 ho\u1eb7c ch\u1ecdn G\u1eedi sau \u0111\u1ec3 x\u1ebfp queue."></textarea><div class="composer-actions"><button class="send steer" id="steerBtn" title="Ch\u00e8n tin nh\u1eafn v\u00e0o turn \u0111ang ch\u1ea1y">Steer ngay</button><button class="send queue" id="queueBtn" title="X\u1ebfp tin nh\u1eafn cho turn k\u1ebf ti\u1ebfp">G\u1eedi sau</button></div></div><div class="composer-meta"><div class="action-status '+esc(si.cls)+'"><b>Steer ngay:</b> '+esc(si.text)+'</div><div class="action-status '+esc(qi.cls)+'"><b>G\u1eedi sau:</b> '+esc(qi.text)+'</div><button class="linkbtn" id="reprobe">Ki\u1ec3m tra l\u1ea1i</button></div></section>';main.innerHTML=html;bindComposer(wasFocused,start,end);restoreUiState(ui)}
-function render(){renderChats();renderMain()}search.addEventListener('input',renderChats);document.getElementById('refresh').onclick=()=>vscode.postMessage({command:'refresh'});const resizer=document.getElementById('sidebarResizer');if(resizer){let dragging=false,resizerStartX=0,resizerStartWidth=sidebarWidth;const setWidth=width=>{sidebarWidth=clampSidebarWidth(width);document.documentElement.style.setProperty('--sidebar-width',sidebarWidth+'px');resizer.setAttribute('aria-valuemax',String(maxSidebarWidth()));resizer.setAttribute('aria-valuenow',String(sidebarWidth));vscode.setState({...vscode.getState(),sidebarWidth})};resizer.addEventListener('pointerdown',e=>{dragging=true;resizerStartX=e.clientX;resizerStartWidth=sidebarWidth;resizer.classList.add('dragging');resizer.setPointerCapture?.(e.pointerId);e.preventDefault()});resizer.addEventListener('pointermove',e=>{if(dragging)setWidth(resizerStartWidth+e.clientX-resizerStartX)});resizer.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();setWidth(e.key==='Home'?minSidebarWidth:e.key==='End'?maxSidebarWidth():sidebarWidth+(e.key==='ArrowRight'?20:-20))}});const stop=()=>{dragging=false;resizer.classList.remove('dragging')};resizer.addEventListener('pointerup',stop);resizer.addEventListener('pointercancel',stop);resizer.setAttribute('aria-valuemax',String(maxSidebarWidth()));resizer.setAttribute('aria-valuenow',String(sidebarWidth));window.addEventListener('resize',()=>setWidth(sidebarWidth))}window.addEventListener('message',e=>{const m=e.data;if(m.type==='state'){state=m.data||state;const notices=[state.queue&&state.queue.notice,state.steer&&state.steer.notice].filter(Boolean),n=notices.sort((a,b)=>(b.at||0)-(a.at||0))[0];if(n&&n.at&&n.at!==lastNoticeAt){lastNoticeAt=n.at;if(n.kind==='success')draft=''}render()}else if(m.type==='error'){main.innerHTML='<div class="stopped">'+esc(m.message)+'</div>'}});render();
+function safeImageSrc(image){
+  const src=typeof image==='string'?image:String(image&&image.dataUrl||'');
+  return /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(src)?src:'';
+}
+function imageMarkup(images,removable=false){
+  const list=Array.isArray(images)?images:[];
+  if(!list.length)return '';
+  const cards=list.map((image,index)=>{
+    const src=safeImageSrc(image),name=String(image&&image.name||'Ảnh '+(index+1));
+    if(!src)return '<span class="image-unavailable">'+esc(name)+' (không xem được)</span>';
+    const imageIndex=imageSources.push(src)-1;
+    return '<span class="image-preview"><button class="image-thumb" type="button" data-image-index="'+imageIndex+'" title="Xem ảnh '+esc(name)+'"><img alt="'+esc(name)+'"></button>'+(removable?'<button type="button" class="iconbtn image-remove" data-remove-image="'+index+'" title="Bỏ ảnh" aria-label="Bỏ ảnh '+esc(name)+'">×</button>':'')+'</span>';
+  });
+  return '<div class="image-gallery">'+cards.join('')+'</div>';
+}
+function bindImageViewer(){
+  const dialog=document.getElementById('imageDialog'),full=document.getElementById('imageDialogImg');
+  if(!dialog||!full)return;
+  for(const el of main.querySelectorAll('[data-image-index]')){
+    const src=imageSources[Number(el.dataset.imageIndex)],thumb=el.querySelector('img');
+    if(thumb&&src)thumb.src=src;
+    el.onclick=()=>{if(!src)return;full.src=src;dialog.showModal()};
+  }
+  const close=document.getElementById('closeImageDialog');
+  if(close)close.onclick=()=>dialog.close();
+  dialog.onclick=e=>{if(e.target===dialog)dialog.close()};
+  dialog.onclose=()=>{full.removeAttribute('src')};
+}
+function timeHtml(ms,cls='event-time'){
+  const at=Number(ms)||0;
+  return '<span class="'+cls+' '+timeAgeClass(at)+'" title="'+esc(at?absTime(at):'--')+'">'+esc(at?(absTime(at)+' · '+relTime(at)):'--')+'</span>';
+}
+function renderTranscript(d){
+  const events=(Array.isArray(d.timeline)?d.timeline:[]).filter(Boolean).slice().reverse();
+  if(!events.length)return '<div class="card empty">Chưa có hoạt động chi tiết.</div>';
+  const rows=events.map(item=>{
+    const kind=String(item.kind||'activity'),isMessage=kind==='user'||kind==='message';
+    const label=kind==='user'?'Bạn':kind==='message'?'Codex':String(item.label||item.type||'Hoạt động');
+    const detail=String(item.detail||'').trim(),body=String(item.text||'').trim(),images=imageMarkup(item.images);
+    const actor=item.actor&&item.actor!=='Root'&&item.actor!=='Main'?' · '+esc(item.actor):'';
+    if(isMessage)return '<article class="transcript-entry '+(kind==='user'?'from-user':'from-assistant')+'"><div class="transcript-heading"><b>'+esc(label)+actor+'</b>'+timeHtml(item.at)+'</div>'+(body?'<div class="message-card '+(kind==='user'?'user':'assistant')+'">'+esc(body)+'</div>':(detail?'<div class="message-card">'+esc(detail)+'</div>':''))+images+'</article>';
+    const children=Array.isArray(item.children)?item.children:[];
+    const extra=children.length?'<div class="child-list">'+children.map(child=>'<div class="child"><span class="timeline-icon patch"></span><span class="child-detail">'+esc(child.label||'Tệp')+' · '+esc(child.detail||'')+'</span>'+timeHtml(child.at||item.at)+'</div>').join('')+'</div>':'';
+    return '<article class="transcript-entry activity"><details data-state-key="flow:'+esc(item.id||((item.threadId||'')+':'+(item.at||0)+':'+kind))+'"><summary class="transcript-heading"><b><span class="timeline-icon '+esc(kind)+'"></span>'+esc(label)+actor+'</b>'+timeHtml(item.at)+'</summary>'+(detail?'<pre>'+esc(detail)+'</pre>':'')+(body?'<pre>'+esc(body)+'</pre>':'')+extra+images+'</details></article>';
+  });
+  const current=d.current&&d.stateKind==='running'?'<div class="transcript-entry transcript-current"><div class="transcript-heading"><b>'+esc(d.current.label||'Đang xử lý')+'</b>'+timeHtml(d.current.at||d.lastActivityMs)+'</div>'+(d.current.detail?'<div class="sub">'+esc(d.current.detail)+'</div>':'')+'</div>':'';
+  return '<div class="transcript">'+rows.join('')+current+'</div>'+(d.truncated?'<div class="truncated-note">Nhật ký cũ hơn không có trong phần dữ liệu đang đọc.</div>':'');
+}
+function renderCurrent(d){
+  if(!d.current)return '';
+  const at=Number(d.current.at)||Number(d.lastActivityMs)||0,detail=String(d.current.detail||'').trim();
+  const detailHtml=detail.length>140?'<details class="current-detail-expand" data-state-key="current"><summary title="'+esc(detail)+'">'+esc(short(detail,140))+'</summary><pre>'+esc(detail)+'</pre></details>':(detail?'<div class="current-detail" title="'+esc(detail)+'">'+esc(detail)+'</div>':'');
+  return '<section class="card"><div class="card-title">Hoạt động hiện tại</div><div class="current-card"><div><div class="current-label">'+esc(d.current.label||'Đang xử lý')+' <span class="timeline-actor">'+esc(d.current.actor||'Main')+'</span></div>'+detailHtml+'</div>'+timeHtml(at)+'</div></section>';
+}
+function renderWorkers(d){
+  if(d.stateKind!=='running')return '';
+  const workers=(d.activeNodes||[]).slice().sort((a,b)=>(b.currentAt||b.updatedAt||0)-(a.currentAt||a.updatedAt||0));
+  let html='<section class="card"><div class="card-title">Đang chạy · '+workers.length+' thread</div><div class="workers">';
+  if(!workers.length)html+='<div class="sub">Đang cập nhật trạng thái thread...</div>';
+  else html+=workers.map(n=>{
+    const detail=String(n.currentDetail||'').trim(),text=String(n.currentText||'').trim(),task=String(n.taskPreview||'').trim(),has=Boolean(detail||text||task),at=Number(n.currentAt)||Number(n.updatedAt)||0;
+    return '<details class="worker '+(has?'has-detail':'')+'" data-state-key="worker:'+esc(n.threadId||n.actor||'')+'"><summary><div class="worker-row"><span class="dot"></span><div class="worker-action"><b>'+esc(n.actor||'Sub-agent')+'</b> · '+esc(n.current||'Đang xử lý')+(detail?' <span class="muted">· '+esc(short(detail,100))+'</span>':'')+'</div>'+timeHtml(at,'worker-time')+'</div></summary>'+(has?'<div class="worker-detail">'+(detail?'<div>Chi tiết hiện tại</div><pre>'+esc(detail)+'</pre>':'')+(text?'<div>Nội dung hiện tại</div><pre>'+esc(text)+'</pre>':'')+(!text&&!detail&&task?'<div>Nhiệm vụ</div><pre>'+esc(task)+'</pre>':'')+'</div>':'')+'</details>';
+  }).join('');
+  return html+'</div></section>';
+}
+function renderHistory(d){
+  const latest=(d.timeline||[])[0]||{},latestAt=Number(latest.at)||0,latestLabel=latest.label||latest.type||'Hoạt động';
+  return '<section class="card"><div class="card-title">Lịch sử hoạt động <span class="summary-meta">· '+((d.timeline||[]).length)+' mục</span></div><details class="history" data-state-key="history"><summary class="history-summary"><span class="timeline-icon '+esc(latest.kind||'activity')+'"></span><span class="history-latest"><b>'+esc(latestLabel)+'</b><span>'+esc(latest.detail?short(latest.detail,160):'Mở để xem các hoạt động chi tiết')+'</span></span>'+timeHtml(latestAt)+'</summary><div class="history-body">'+renderTimeline(d)+'</div></details></section>';
+}
+function renderLatest(d){
+  let html='';
+  if(d.latestUserText||Array.isArray(d.latestUserImages)&&d.latestUserImages.length){
+    const at=Number(d.latestUserTextAt)||0;
+    html+='<section class="card"><div class="card-title">Yêu cầu gần nhất '+timeHtml(at,'message-time')+'</div>'+(d.latestUserText?'<div class="message-card user">'+esc(d.latestUserText)+'</div>':'')+imageMarkup(d.latestUserImages)+'</section>';
+  }
+  if(d.latestAssistantText){
+    const at=Number(d.latestAssistantTextAt)||0;
+    html+='<section class="card"><div class="card-title">Phản hồi gần nhất '+timeHtml(at,'message-time')+'</div><div class="message-card assistant">'+esc(d.latestAssistantText)+'</div></section>';
+  }
+  return html;
+}
+function renderComposer(){
+  const si=steerInfo(),qi=queueInfo();
+  const statuses=[si&&'<div class="action-status '+esc(si.cls)+'" role="status"><b>Steer ngay:</b> '+esc(si.text)+'</div>',qi&&'<div class="action-status '+esc(qi.cls)+'" role="status"><b>Gửi sau:</b> '+esc(qi.text)+'</div>',composerNotice&&'<div class="action-status err" role="alert">'+esc(composerNotice)+'</div>'].filter(Boolean).join('');
+  return '<section class="card composer-card"><div class="composer"><textarea id="composerInput" placeholder="Nhập tin nhắn hoặc dán ảnh..." aria-label="Tin nhắn cho chat này"></textarea><div class="composer-actions"><button class="send steer" id="steerBtn" title="Gửi vào lượt đang chạy">Steer ngay</button><button class="send queue" id="queueBtn" title="Xếp tin nhắn gửi sau lượt hiện tại">Gửi sau</button></div></div><div class="composer-image-tools"><button class="iconbtn" type="button" id="addImageBtn" title="Thêm ảnh" aria-label="Thêm ảnh">▧ Ảnh</button><input id="imagePicker" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>'+imageMarkup(draftImages,true)+'</div><div class="composer-meta">'+statuses+'<button class="iconbtn" type="button" id="reprobe" title="Kiểm tra lại khả năng gửi" aria-label="Kiểm tra lại khả năng gửi">↻</button></div></section>';
+}
+function renderMain(){
+  const ui=captureUiState(),old=document.getElementById('composerInput'),wasFocused=old&&document.activeElement===old,start=old&&old.selectionStart||0,end=old&&old.selectionEnd||0,d=state.selected;
+  imageSources=[];
+  if(!d){main.innerHTML='<div class="empty">Chọn một chat để xem.</div>';return}
+  const running=d.stateKind==='running',at=Number(d.lastActivityMs)||0;
+  let html='<div class="head"><div class="head-left"><div class="title">'+esc(d.title||'Codex chat')+'</div><div class="sub" title="'+esc(d.cwd||'')+'">'+esc(baseName(d.cwd)||d.cwd||'')+' · hoạt động '+timeHtml(at,'head-time')+'</div></div><div class="state '+(running?'running':'stopped')+'">'+esc(d.state||'Unknown')+'</div></div>';
+  html+='<div class="view-switch" role="tablist" aria-label="Cách xem lịch sử"><button type="button" id="summaryView" role="tab" aria-selected="'+String(viewMode==='summary')+'">Tổng quan</button><button type="button" id="chronologicalView" role="tab" aria-selected="'+String(viewMode==='chronological')+'">Theo thứ tự</button></div>';
+  if(viewMode==='chronological')html+=renderTranscript(d);
+  else html+=renderCurrent(d)+renderWorkers(d)+renderHistory(d)+renderLatest(d);
+  if(running)html+=renderComposer();
+  main.innerHTML=html;
+  const setMode=mode=>{viewMode=mode;vscode.setState({...vscode.getState(),viewMode});renderMain()};
+  document.getElementById('summaryView').onclick=()=>setMode('summary');
+  document.getElementById('chronologicalView').onclick=()=>setMode('chronological');
+  if(running)bindComposer(wasFocused,start,end);
+  bindImageViewer();
+  restoreUiState(ui);
+}
+function render(){renderChats();renderMain()}search.addEventListener('input',renderChats);document.getElementById('refresh').onclick=()=>vscode.postMessage({command:'refresh'});const resizer=document.getElementById('sidebarResizer');
+if(resizer){
+  let dragging=false,dragVertical=false,startPosition=0,startSize=0;
+  const stacked=()=>window.matchMedia('(max-width:700px)').matches;
+  const updateResizer=()=>{const vertical=stacked();resizer.setAttribute('aria-orientation',vertical?'horizontal':'vertical');resizer.setAttribute('aria-valuemin',String(vertical?minSidebarHeight:minSidebarWidth));resizer.setAttribute('aria-valuemax',String(vertical?maxSidebarHeight():maxSidebarWidth()));resizer.setAttribute('aria-valuenow',String(vertical?sidebarHeight:sidebarWidth));resizer.setAttribute('aria-label',vertical?'Resize chat list height':'Resize chat list width');resizer.title=resizer.getAttribute('aria-label')};
+  const setSize=(size,vertical=stacked())=>{if(vertical){sidebarHeight=clampSidebarHeight(size);document.documentElement.style.setProperty('--sidebar-height',sidebarHeight+'px')}else{sidebarWidth=clampSidebarWidth(size);document.documentElement.style.setProperty('--sidebar-width',sidebarWidth+'px')}updateResizer();vscode.setState({...vscode.getState(),sidebarWidth,sidebarHeight})};
+  resizer.addEventListener('pointerdown',e=>{dragging=true;dragVertical=stacked();startPosition=dragVertical?e.clientY:e.clientX;startSize=dragVertical?sidebarHeight:sidebarWidth;resizer.classList.add('dragging');resizer.setPointerCapture?.(e.pointerId);e.preventDefault()});
+  resizer.addEventListener('pointermove',e=>{if(dragging)setSize(startSize+(dragVertical?e.clientY:e.clientX)-startPosition,dragVertical)});
+  resizer.addEventListener('keydown',e=>{const vertical=stacked(),back=vertical?'ArrowUp':'ArrowLeft',forward=vertical?'ArrowDown':'ArrowRight';if([back,forward,'Home','End'].includes(e.key)){e.preventDefault();const current=vertical?sidebarHeight:sidebarWidth;setSize(e.key==='Home'?(vertical?minSidebarHeight:minSidebarWidth):e.key==='End'?(vertical?maxSidebarHeight():maxSidebarWidth()):current+(e.key===forward?20:-20),vertical)}});
+  const stop=()=>{dragging=false;resizer.classList.remove('dragging')};resizer.addEventListener('pointerup',stop);resizer.addEventListener('pointercancel',stop);
+  updateResizer();window.addEventListener('resize',()=>setSize(stacked()?sidebarHeight:sidebarWidth));
+}
+function switchDraftThread(threadId){
+  const id=String(threadId||'');
+  if(id===currentDraftThreadId)return;
+  if(currentDraftThreadId)drafts[currentDraftThreadId]={text:draft,images:draftImages};
+  const saved=drafts[id]||{};
+  draft=String(saved.text||'');
+  draftImages=Array.isArray(saved.images)?saved.images:[];
+  currentDraftThreadId=id;
+  composerNotice='';
+}
+function setChatTab(nonRunning){
+  state.showNonRunning=nonRunning;
+  renderChats();
+  vscode.postMessage({command:'setShowNonRunning',enabled:nonRunning});
+}
+document.getElementById('runningTab').onclick=()=>setChatTab(false);
+document.getElementById('nonRunningTab').onclick=()=>setChatTab(true);
+window.addEventListener('message',e=>{
+  const m=e.data;
+  if(m.type==='state'){
+    state=m.data||state;
+    switchDraftThread(state.selectedThreadId||'');
+    const notices=[state.queue&&state.queue.notice,state.steer&&state.steer.notice].filter(Boolean);
+    const n=notices.sort((a,b)=>(b.at||0)-(a.at||0))[0];
+    if(n&&n.at&&n.at!==lastNoticeAt){
+      lastNoticeAt=n.at;
+      if(n.kind==='success'){
+        draft='';
+        draftImages=[];
+        delete drafts[currentDraftThreadId];
+      }
+    }
+    render();
+  }else if(m.type==='error')main.innerHTML='<div class="stopped">'+esc(m.message)+'</div>';
+});
+render();
 </script>
 </body>
 </html>

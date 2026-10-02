@@ -2,7 +2,7 @@
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
   "description": "Compact Codex activity tracker with lifecycle-accurate details, expandable activity cards, and safe queue/steer delivery when the owner transport is available.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -69,7 +69,7 @@
           "default": 100,
           "minimum": 10,
           "maximum": 1000,
-          "description": "Maximum number of active root Codex chats shown in the tracker panel."
+          "description": "Maximum number of root Codex chats shown per running or non-running view in the tracker panel."
         },
         "codexSessionTracker.includeNonVsCodeSessions": {
           "type": "boolean",
@@ -154,6 +154,7 @@
     "tracker.js",
     "codex_queue.js",
     "codex_steer.js",
+    "codex_delete.js",
     "dashboard.html",
     "media/tracker.svg",
     "README.md",
