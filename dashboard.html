@@ -306,7 +306,9 @@ function gatewaySettingsValue(){
 function trafficLabel(e){
   if(e.type==='ws_frame')return 'WS '+(e.direction==='out'?'Codex → server':'server → Codex')+' · opcode '+String(e.opcode??'');
   if(e.type==='http_upstream'){
+    if(e.stage==='UPSTREAM_REQUEST_CHUNK')return 'HTTP request chunk';
     if(e.stage==='UPSTREAM_BODY_FINISHED')return 'HTTP request body';
+    if(e.stage==='UPSTREAM_RESPONSE_CHUNK')return 'HTTP response chunk';
     if(e.stage==='UPSTREAM_FINISHED')return 'HTTP response body';
     return 'HTTP '+(e.stage||'');
   }
