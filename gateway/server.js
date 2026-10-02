@@ -119,7 +119,7 @@ class GatewayServer {
 
   async record(event) {
     if(this.trace) await this.trace.append(event).catch(()=>{});
-    if(this.onNetworkEvent && event && (event.type === 'http_upstream' || event.type === 'ws_connection')) await this.onNetworkEvent(event).catch(()=>{});
+    if(this.onNetworkEvent && event && ['http_upstream','ws_connection','connect_tunnel','tunnel_bytes'].includes(event.type)) await this.onNetworkEvent(event).catch(()=>{});
   }
 
   authorized(req) {
@@ -136,8 +136,8 @@ class GatewayServer {
         return json(res,200,{
           running:true,version:this.version,uptimeMs:Date.now()-this.startedAt,
           listen:{host:this.address().host,port:this.address().port},modelProxyConfigured:this.modelProxyEnabled,
-          modelProxyEnabled:Boolean(this.modelProxyEnabled&&this.upstreamBaseUrl),
-          websocketProxy:Boolean(this.modelProxyEnabled&&this.upstreamBaseUrl),captureContent:this.captureContent,captureMaxBytes:this.captureMaxBytes,...this.diagnostics()
+          modelProxyEnabled:Boolean(this.modelProxyEnabled),
+          websocketProxy:Boolean(this.modelProxyEnabled),captureContent:this.captureContent,captureMaxBytes:this.captureMaxBytes,...this.diagnostics()
         });
       }
       if(req.method==='GET'&&pathOnly==='/diagnostics') {
