@@ -160,7 +160,8 @@ class GatewayServer {
     const requestCapture=new ContentCapture({
       enabled:this.captureContent,
       maxBytes:this.captureMaxBytes,
-      contentType:req.headers['content-type'] || ''
+      contentType:req.headers['content-type'] || '',
+      contentEncoding:req.headers['content-encoding'] || ''
     });
     let requestBytes=0;
     let responseBytes=0;
@@ -181,7 +182,8 @@ class GatewayServer {
         const responseCapture=new ContentCapture({
           enabled:this.captureContent,
           maxBytes:this.captureMaxBytes,
-          contentType:upstreamRes.headers['content-type'] || ''
+          contentType:upstreamRes.headers['content-type'] || '',
+          contentEncoding:upstreamRes.headers['content-encoding'] || ''
         });
         this.record({...eventBase,stage:'UPSTREAM_RESPONSE_HEADERS',at:headersAt,statusCode:upstreamRes.statusCode||0,headers:redactHeaders(upstreamRes.headers)}).catch(()=>{});
         res.writeHead(upstreamRes.statusCode||502,upstreamRes.headers);
@@ -192,7 +194,8 @@ class GatewayServer {
             const liveCapture=new ContentCapture({
               enabled:true,
               maxBytes:this.captureMaxBytes,
-              contentType:upstreamRes.headers['content-type'] || ''
+              contentType:upstreamRes.headers['content-type'] || '',
+              contentEncoding:upstreamRes.headers['content-encoding'] || ''
             });
             liveCapture.add(chunk);
             this.record({...eventBase,stage:'UPSTREAM_RESPONSE_CHUNK',at:Date.now(),responseBytes:chunk.length,contentCapture:liveCapture.finish()}).catch(()=>{});
@@ -232,7 +235,8 @@ class GatewayServer {
               const liveCapture=new ContentCapture({
                 enabled:true,
                 maxBytes:this.captureMaxBytes,
-                contentType:req.headers['content-type'] || ''
+                contentType:req.headers['content-type'] || '',
+                contentEncoding:req.headers['content-encoding'] || ''
               });
               liveCapture.add(chunk);
               await this.record({...eventBase,stage:'UPSTREAM_REQUEST_CHUNK',at:Date.now(),requestBytes:chunk.length,contentCapture:liveCapture.finish()});
