@@ -1,8 +1,30 @@
-# Codex Session Tracker 0.10.1
+# Codex Session Tracker 0.10.2
 
 A VS Code tracker for Codex sessions with lifecycle-accurate local control, a loopback Codex Gateway, reversible Windows/VS Code routing, and optional full request/response inspection. Gateway settings are persisted by the Tracker UI itself; the extension no longer writes Gateway values into VS Code User Settings.
 
 This build is designed for the user's current environment: **Codex inside VS Code on Windows 10**. It does not require manually editing `config.toml` for normal Gateway use.
+
+
+## 0.10.2 transport fix
+
+The previous diagnostic mode rewrote `chatgpt_base_url` to an HTTP localhost origin. That was the wrong layer for ChatGPT-authenticated Codex: workspace routing validates the backend as an HTTPS origin, so replacing the application backend origin could break account/workspace bootstrap.
+
+0.10.2 keeps Codex's original HTTPS URLs unchanged and routes outbound traffic through an ordinary local forward proxy instead:
+
+```text
+VS Code Codex
+  -> HTTP CONNECT 127.0.0.1:8765
+  -> original https://... backend
+```
+
+The Tracker injects the proxy environment into the extension host before Codex starts and reloads VS Code when the proxy/port changes. Legacy `chatgpt_base_url` overrides created by 0.10.0/0.10.1 are reverted automatically when the new one-click proxy mode is enabled.
+
+This pass-through design preserves login/workspace routing and records connection timing plus IN/OUT byte flow. HTTPS CONNECT payloads remain encrypted at this layer; the UI does not mislabel encrypted tunnel bytes as plaintext API bodies.
+
+### Dedicated Traffic Monitor
+
+Use **Codex Tracker: Open Traffic Monitor** or the **Mở Traffic Monitor** button. The monitor has independent visual pause controls for ALL/OUT/IN, direction filtering, host/API filtering when the path is visible, text search, and per-event details. Pause freezes only the monitor presentation; it never blocks live Codex network traffic.
+
 
 ## What 0.10.0 changes
 
@@ -231,13 +253,13 @@ bash ./build-vsix.sh
 Expected artifact:
 
 ```text
-codex-session-tracker-0.10.1.vsix
+codex-session-tracker-0.10.2.vsix
 ```
 
 Install from PowerShell:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.10.0.vsix --force
+code --install-extension .\codex-session-tracker-0.10.2.vsix --force
 ```
 
 Then run **Developer: Reload Window** once after installing a new VSIX.
