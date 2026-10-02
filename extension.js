@@ -39,7 +39,7 @@ let gateway = null;
 let gatewayStatus = { enabled: false, running: false, error: '', address: null };
 let gatewayManagedState = { active: false, managed: false, drifted: false };
 let gatewayActionNotice = null;
-let gatewaySettingsApplying = false;
+const GATEWAY_SETTINGS_KEY = 'codexSessionTracker.gatewaySettings.v1';
 
 function activate(context) {
   contextRef = context;
@@ -65,9 +65,8 @@ function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }),
     vscode.commands.registerCommand('codexSessionTracker.exportGatewayDiagnostics', exportGatewayDiagnostics),
     vscode.workspace.onDidChangeConfiguration(event => {
-      if (!event.affectsConfiguration('codexSessionTracker') || gatewaySettingsApplying) return;
+      if (!event.affectsConfiguration('codexSessionTracker')) return;
       restartPolling();
-      restartGateway().catch(() => {});
       refreshAll(true);
     })
   );
@@ -122,9 +121,24 @@ class TrackerViewProvider {
   }
 }
 
+function storedGatewaySettings() {
+  const value = contextRef && contextRef.globalState.get(GATEWAY_SETTINGS_KEY);
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    enabled: source.enabled !== undefined ? Boolean(source.enabled) : true,
+    port: Number(source.port || 8765),
+    modelProxyEnabled: Boolean(source.modelProxyEnabled),
+    upstreamBaseUrl: String(source.upstreamBaseUrl || ''),
+    captureContent: Boolean(source.captureContent),
+    captureMaxMb: Number(source.captureMaxMb || 16),
+    traceMaxMb: Number(source.traceMaxMb || 64)
+  };
+}
+
 function config() {
   const cfg = vscode.workspace.getConfiguration('codexSessionTracker');
   const codexHome = tracker.getCodexHome(cfg.get('codexHome', ''));
+  const gatewaySettings = storedGatewaySettings();
   return {
     codexHome,
     sessionsDir: path.join(codexHome, 'sessions'),
@@ -137,13 +151,13 @@ function config() {
     activityTailMb: cfg.get('activityTailMb', 6),
     timelineLimit: cfg.get('timelineLimit', 50),
     codexCliPath: cfg.get('codexCliPath', ''),
-    gatewayEnabled: cfg.get('gateway.enabled', true),
-    gatewayPort: cfg.get('gateway.port', 8765),
-    gatewayModelProxyEnabled: cfg.get('gateway.modelProxyEnabled', false),
-    gatewayUpstreamBaseUrl: cfg.get('gateway.upstreamBaseUrl', ''),
-    gatewayCaptureContent: cfg.get('gateway.captureContent', false),
-    gatewayCaptureMaxMb: cfg.get('gateway.captureMaxMb', 16),
-    gatewayTraceMaxMb: cfg.get('gateway.traceMaxMb', 64)
+    gatewayEnabled: gatewaySettings.enabled,
+    gatewayPort: gatewaySettings.port,
+    gatewayModelProxyEnabled: gatewaySettings.modelProxyEnabled,
+    gatewayUpstreamBaseUrl: gatewaySettings.upstreamBaseUrl,
+    gatewayCaptureContent: gatewaySettings.captureContent,
+    gatewayCaptureMaxMb: gatewaySettings.captureMaxMb,
+    gatewayTraceMaxMb: gatewaySettings.traceMaxMb
   };
 }
 
@@ -238,17 +252,11 @@ function gatewaySettingsSnapshot(cfg = config()) {
   };
 }
 
-async function setGatewaySetting(key, value) {
-  await vscode.workspace.getConfiguration('codexSessionTracker').update('gateway.' + key, value, vscode.ConfigurationTarget.Global);
-}
-
 async function applyGatewaySettings(values) {
-  gatewaySettingsApplying = true;
-  try {
-    for (const [key, value] of Object.entries(values || {})) await setGatewaySetting(key, value);
-  } finally {
-    gatewaySettingsApplying = false;
-  }
+  if (!contextRef) throw new Error('Extension context chưa sẵn sàng.');
+  const next = validateGatewaySettings({ ...storedGatewaySettings(), ...(values || {}) });
+  await contextRef.globalState.update(GATEWAY_SETTINGS_KEY, next);
+  return next;
 }
 
 function validateGatewaySettings(input = {}) {
