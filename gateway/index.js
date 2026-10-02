@@ -4,6 +4,7 @@ const { randomUUID } = require('crypto');
 const { DeliveryState } = require('./state_machine');
 const { TraceStore } = require('./trace_store');
 const { GatewayServer } = require('./server');
+const { HttpHookServer } = require('./http_hook_server');
 const { observeRolloutEvidence, correlateNetwork } = require('./correlation');
 
 class CodexGateway {
@@ -18,6 +19,7 @@ class CodexGateway {
     this.networkFingerprints = new Map();
     this.lastModelNetworkAt = 0;
     this.lastTransportNetworkAt = 0;
+    this.lastHttpHookAt = 0;
     this.handlers = options.handlers || {};
     this.server = new GatewayServer({
       port: options.port,
@@ -35,26 +37,48 @@ class CodexGateway {
         interrupt: body => this.interrupt(body)
       }
     });
+    const requestedHookPort = Number(options.httpHookPort || 0);
+    const fallbackHookPort = Math.min(65535, Math.max(1, Number(options.port || 8765) + 2));
+    this.httpHook = new HttpHookServer({
+      port: requestedHookPort || fallbackHookPort,
+      captureMaxBytes: options.captureMaxBytes,
+      mutationEnabled: Boolean(options.httpHookMutationEnabled),
+      filterRequest: options.httpHookFilterRequest,
+      record: event => this.recordHttpHookEvent(event)
+    });
   }
 
   async start() {
     await this.trace.init();
     this.seedFromTrace();
-    return this.server.start();
+    await this.httpHook.start();
+    try {
+      return await this.server.start();
+    } catch (error) {
+      await this.httpHook.stop().catch(() => {});
+      throw error;
+    }
   }
 
   async stop() {
-    return this.server.stop();
+    await Promise.allSettled([
+      this.server.stop(),
+      this.httpHook.stop()
+    ]);
   }
 
   seedFromTrace() {
     this.lastModelNetworkAt = 0;
     this.lastTransportNetworkAt = 0;
+    this.lastHttpHookAt = 0;
     this.networkFingerprints.clear();
     for (const event of this.trace.recent(this.trace.memoryLimit)) {
       if (!event) continue;
       if (['http_upstream','ws_connection','connect_tunnel','tunnel_bytes'].includes(event.type)) {
         this.lastTransportNetworkAt = Math.max(this.lastTransportNetworkAt, Number(event.at || 0));
+      }
+      if (event.type === 'http_hook') {
+        this.lastHttpHookAt = Math.max(this.lastHttpHookAt, Number(event.at || 0));
       }
       const isModel = event.kind === 'MODEL_REQUEST' || event.kind === 'MODEL_STREAM';
       if (!isModel) continue;
@@ -286,6 +310,13 @@ class CodexGateway {
     }
   }
 
+  async recordHttpHookEvent(event) {
+    if (!event) return null;
+    this.lastHttpHookAt = Math.max(this.lastHttpHookAt, Number(event.at || Date.now()));
+    const stored = await this.trace.append(event).catch(() => null);
+    return stored || event;
+  }
+
   async onNetworkEvent(event) {
     if (!event) return;
     const at = Number(event.at || Date.now());
@@ -349,7 +380,7 @@ class CodexGateway {
 
   trafficIndex(limit = 80) {
     return this.trace.recent(Math.max(20, Math.min(250, Number(limit || 80))))
-      .filter(event => event && ['http_upstream', 'ws_connection', 'ws_frame', 'connect_tunnel', 'tunnel_bytes', 'gateway_error', 'ws_upgrade_rejected'].includes(event.type))
+      .filter(event => event && ['http_upstream', 'ws_connection', 'ws_frame', 'connect_tunnel', 'tunnel_bytes', 'http_hook', 'gateway_error', 'ws_upgrade_rejected'].includes(event.type))
       .map(event => ({
         traceId: event.traceId,
         type: event.type,
@@ -374,6 +405,9 @@ class CodexGateway {
         clientToServerBytes: event.clientToServerBytes || 0,
         serverToClientBytes: event.serverToClientBytes || 0,
         inspected: Boolean(event.inspected),
+        hookPlaintext: Boolean(event.hookPlaintext),
+        hookLogical: Boolean(event.hookLogical),
+        hookMutationApplied: Boolean(event.hookMutationApplied),
         hasContent: Boolean(event.contentCapture),
         capturedBytes: event.contentCapture && event.contentCapture.capturedBytes || 0,
         totalContentBytes: event.contentCapture && event.contentCapture.totalBytes || 0,
@@ -416,6 +450,11 @@ class CodexGateway {
       statusCode: event.statusCode || 0,
       headers: event.headers || null,
       bodySha256: event.bodySha256 || '',
+      targetHost: event.targetHost || '',
+      url: event.url || '',
+      hookPlaintext: Boolean(event.hookPlaintext),
+      hookLogical: Boolean(event.hookLogical),
+      hookMutationApplied: Boolean(event.hookMutationApplied),
       contentCapture: capture
     };
   }
@@ -425,7 +464,8 @@ class CodexGateway {
       'type', 'stage', 'at', 'kind', 'method', 'path', 'requestId', 'connectionId',
       'statusCode', 'requestBytes', 'responseBytes', 'totalMs', 'bodySha256',
       'direction', 'opcode', 'size', 'wireBytes', 'oversized', 'error', 'elapsedMs',
-      'frameSize', 'confidence', 'source', 'detail', 'classification'
+      'frameSize', 'confidence', 'source', 'detail', 'classification',
+      'targetHost', 'url', 'hookPlaintext', 'hookLogical', 'hookMutationApplied'
     ]);
     const events = this.trace.recent(2000).map(event => {
       const output = {};
@@ -454,6 +494,9 @@ class CodexGateway {
       transportTrafficObserved: Boolean(this.lastTransportNetworkAt),
       lastTransportNetworkAt: this.lastTransportNetworkAt,
       websocketProxyReady: Boolean(this.server.modelProxyEnabled && this.server.server),
+      httpHookTrafficObserved: Boolean(this.lastHttpHookAt),
+      lastHttpHookAt: this.lastHttpHookAt,
+      ...this.httpHook.diagnostics(),
       captureContent: Boolean(this.server.captureContent),
       captureMaxBytes: Number(this.server.captureMaxBytes || 0),
       recentCommands: Array.from(this.commands.values())
