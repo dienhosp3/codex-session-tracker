@@ -28,7 +28,6 @@
     "onCommand:codexSessionTracker.refresh",
     "onCommand:codexSessionTracker.clearSelection",
     "onCommand:codexSessionTracker.reprobeCodexCli",
-    "onCommand:codexSessionTracker.copyGatewayConfig",
     "onCommand:codexSessionTracker.exportGatewayDiagnostics"
   ],
   "contributes": {
@@ -56,10 +55,6 @@
       {
         "command": "codexSessionTracker.reprobeCodexCli",
         "title": "Codex Tracker: Re-detect Codex CLI"
-      },
-      {
-        "command": "codexSessionTracker.copyGatewayConfig",
-        "title": "Codex Tracker: Copy Gateway Codex Config"
       },
       {
         "command": "codexSessionTracker.exportGatewayDiagnostics",
