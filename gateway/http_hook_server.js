@@ -57,7 +57,8 @@ function eventHost(url) {
 class HttpHookServer {
   constructor(options = {}) {
     this.host = '127.0.0.1';
-    this.port = Math.max(1, Math.min(65535, Number(options.port || 8767)));
+    const requestedPort = options.port === 0 ? 0 : Number(options.port || 8767);
+    this.port = requestedPort === 0 ? 0 : Math.max(1, Math.min(65535, requestedPort));
     this.token = String(options.token || randomUUID());
     this.captureMaxBytes = Math.max(1024, Number(options.captureMaxBytes || 16 * 1024 * 1024));
     this.record = typeof options.record === 'function' ? options.record : async () => {};
