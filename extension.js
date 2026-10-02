@@ -958,9 +958,15 @@ function postViewState() {
           modelProxyReady: false,
           modelTrafficObserved: false,
           lastModelNetworkAt: 0,
-          websocketProxyReady: false
+          websocketProxyReady: false,
+          captureContent: false,
+          captureMaxBytes: 0
         }),
         commands: gatewayThreadDiagnostics(),
+        traffic: gateway ? gateway.trafficIndex(100) : [],
+        settings: gatewaySettingsSnapshot(),
+        managedConfig: gatewayManagedState,
+        actionNotice: gatewayActionNotice,
         extensionRuntime: (() => { const runtime = openAiExtensionRuntime(); return { id: runtime.id, version: runtime.version }; })(),
         cliVersion: queueCapability.version || ''
       },
