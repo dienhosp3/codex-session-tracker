@@ -8,6 +8,7 @@ const { classifyRequest } = require('./classifier');
 const { redactHeaders, sanitizePath, sha256, safeError } = require('./redaction');
 const { proxyWebSocket } = require('./websocket_proxy');
 const { ContentCapture } = require('./content_capture');
+const { tunnelConnect } = require('./forward_proxy');
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -20,6 +21,12 @@ function json(res, status, value) {
   const body = Buffer.from(JSON.stringify(value), 'utf8');
   res.writeHead(status, { 'content-type':'application/json; charset=utf-8', 'content-length': body.length });
   res.end(body);
+}
+
+function absoluteProxyTarget(value) {
+  const raw = String(value || '');
+  if (!/^https?:\/\//i.test(raw)) return null;
+  try { return new URL(raw); } catch { return null; }
 }
 
 async function readJson(req, maxBytes = 10 * 1024 * 1024) {
@@ -56,6 +63,22 @@ class GatewayServer {
   async start() {
     if (this.server) return this.address();
     this.server = http.createServer((req,res)=>this.handle(req,res));
+    this.server.on('connect', (req, socket, head) => {
+      if (!isLoopback(req)) {
+        socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+        return;
+      }
+      if (!this.modelProxyEnabled) {
+        socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+        return;
+      }
+      try {
+        tunnelConnect(req, socket, head, { record: event => this.record(event) });
+      } catch (error) {
+        this.record({ type:'gateway_error', stage:'CONNECT_ERROR', at:Date.now(), error:safeError(error) }).catch(()=>{});
+        try { socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n'); } catch {}
+      }
+    });
     this.server.on('upgrade', (req, socket, head) => {
       if (!isLoopback(req)) {
         socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
@@ -106,6 +129,8 @@ class GatewayServer {
   async handle(req,res) {
     if(!isLoopback(req)) return json(res,403,{error:'loopback only'});
     try {
+      const absolute = absoluteProxyTarget(req.url);
+      if (this.modelProxyEnabled && absolute) return this.proxyAbsoluteHttp(req, res, absolute);
       const pathOnly=sanitizePath(req.url);
       if(req.method==='GET'&&pathOnly==='/health') {
         return json(res,200,{
@@ -136,25 +161,43 @@ class GatewayServer {
     }
   }
 
-  async proxyHttp(req,res) {
+
+  async proxyAbsoluteHttp(req, res, target) {
+    const originalUrl = req.url;
+    req.url = target.pathname + target.search;
+    try {
+      return await this.proxyHttpToTarget(req, res, target, {
+        targetHost: target.hostname,
+        targetPort: Number(target.port || (target.protocol === 'https:' ? 443 : 80)),
+        connectionId: String(req.socket.remotePort || '')
+      });
+    } finally {
+      req.url = originalUrl;
+    }
+  }
+
+  async proxyHttpToTarget(req, res, target, extra = {}) {
     const started=Date.now();
     const requestId=randomUUID();
-    const base=new URL(this.upstreamBaseUrl);
-    const incoming=new URL(String(req.url||'/'),'http://gateway.invalid');
-    const prefix=base.pathname==='/'?'':base.pathname.replace(/\/$/,'');
-    const incomingPath=incoming.pathname||'/';
-    const targetPath=prefix&&!(incomingPath===prefix||incomingPath.startsWith(prefix+'/'))
-      ? prefix+(incomingPath.startsWith('/')?incomingPath:'/'+incomingPath)
-      : incomingPath;
-    const target=new URL(targetPath+incoming.search,base.origin);
-    const kind=classifyRequest({method:req.method,path:req.url,upgrade:false});
-    const connectionId=String(req.socket.remotePort||'');
-    const eventBase={type:'http_upstream',requestId,connectionId,kind,method:req.method,path:sanitizePath(req.url),requestStartAt:started};
+    const kind=classifyRequest({method:req.method,path:target.pathname+target.search,upgrade:false});
+    const connectionId=String(extra.connectionId||req.socket.remotePort||'');
+    const eventBase={
+      type:'http_upstream',
+      requestId,
+      connectionId,
+      kind,
+      method:req.method,
+      path:sanitizePath(target.pathname+target.search),
+      targetHost:extra.targetHost||target.hostname,
+      targetPort:Number(extra.targetPort||target.port||(target.protocol==='https:'?443:80)),
+      requestStartAt:started
+    };
     await this.record({...eventBase,stage:'UPSTREAM_REQUEST_OPENED',at:started,headers:redactHeaders(req.headers)});
 
     const headers={...req.headers,host:target.host};
     delete headers.connection;
     delete headers['proxy-connection'];
+    delete headers['proxy-authorization'];
     const transport=target.protocol==='http:'?http:https;
     const hash=createHash('sha256');
     const requestCapture=new ContentCapture({
@@ -172,8 +215,7 @@ class GatewayServer {
     const finishResponse=(resolve,error)=>{
       if(settled)return;
       settled=true;
-      if(error)resolve({error});
-      else resolve({});
+      resolve(error?{error}:{});
     };
 
     const result=await new Promise(resolve=>{
@@ -256,13 +298,7 @@ class GatewayServer {
             bodySha256,
             ...(this.captureContent?{contentCapture:requestCapture.finish()}: {})
           });
-          if(bodySha256) await this.record({
-            ...eventBase,
-            stage:'UPSTREAM_BODY_FINGERPRINT',
-            at:Date.now(),
-            requestBytes,
-            bodySha256
-          });
+          if(bodySha256) await this.record({...eventBase,stage:'UPSTREAM_BODY_FINGERPRINT',at:Date.now(),requestBytes,bodySha256});
           upstream.end();
         }catch(error){
           try{upstream.destroy(error);}catch{}
@@ -277,6 +313,18 @@ class GatewayServer {
       else res.destroy();
     }
   }
+
+  async proxyHttp(req,res) {
+    const base=new URL(this.upstreamBaseUrl);
+    const incoming=new URL(String(req.url||'/'),'http://gateway.invalid');
+    const prefix=base.pathname==='/'?'':base.pathname.replace(/\/$/,'');
+    const incomingPath=incoming.pathname||'/';
+    const targetPath=prefix&&!(incomingPath===prefix||incomingPath.startsWith(prefix+'/'))
+      ? prefix+(incomingPath.startsWith('/')?incomingPath:'/'+incomingPath)
+      : incomingPath;
+    const target=new URL(targetPath+incoming.search,base.origin);
+    return this.proxyHttpToTarget(req,res,target,{targetHost:target.hostname,targetPort:Number(target.port||(target.protocol==='https:'?443:80))});
+  }
 }
 
-module.exports={GatewayServer,isLoopback,readJson};
+module.exports={GatewayServer,isLoopback,readJson,absoluteProxyTarget};
