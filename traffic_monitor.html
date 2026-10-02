@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-__NONCE__';">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Codex Traffic Monitor</title>
+<style>
+:root{color-scheme:light dark}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--vscode-font-family);font-size:12px;color:var(--vscode-foreground);background:var(--vscode-editor-background);overflow:hidden}
+button,select,input{font:inherit}
+.toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;border-bottom:1px solid var(--vscode-panel-border);background:var(--vscode-sideBar-background)}
+button{border:1px solid var(--vscode-button-border);border-radius:4px;padding:5px 9px;background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);cursor:pointer}
+button.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+button.active{outline:1px solid var(--vscode-focusBorder);background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground)}
+select,input{border:1px solid var(--vscode-input-border);border-radius:4px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);padding:5px 7px}
+input{min-width:220px;flex:1}
+.status{padding:5px 8px;border-bottom:1px solid var(--vscode-panel-border);color:var(--vscode-descriptionForeground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grid{display:grid;grid-template-columns:minmax(520px,1fr) minmax(360px,.8fr);height:calc(100vh - 79px);min-height:0}
+.list-wrap{overflow:auto;border-right:1px solid var(--vscode-panel-border)}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{position:sticky;top:0;z-index:2;background:var(--vscode-sideBar-background);text-align:left;font-weight:600;padding:6px;border-bottom:1px solid var(--vscode-panel-border)}
+td{padding:5px 6px;border-bottom:1px solid color-mix(in srgb,var(--vscode-panel-border) 65%,transparent);vertical-align:top;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr[data-id]{cursor:pointer}
+tr[data-id]:hover{background:var(--vscode-list-hoverBackground)}
+tr.selected{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground)}
+.dir{font-weight:700;text-align:center}.out{color:var(--vscode-textLink-foreground)}.in{color:var(--vscode-testing-iconPassed)}.neutral{color:var(--vscode-descriptionForeground)}
+.mono{font-family:var(--vscode-editor-font-family);font-size:11px}
+.detail{overflow:auto;padding:10px;min-width:0}
+.detail h2{font-size:13px;margin:0 0 8px}
+.meta{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 8px;margin-bottom:10px}
+.meta .k{color:var(--vscode-descriptionForeground)}
+pre{margin:8px 0 0;padding:9px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:var(--vscode-textCodeBlock-background);white-space:pre-wrap;word-break:break-word;max-height:58vh;overflow:auto}
+.note{color:var(--vscode-descriptionForeground);line-height:1.45}
+.warn{color:var(--vscode-editorWarning-foreground)}
+.bad{color:var(--vscode-errorForeground)}
+.count{margin-left:auto;color:var(--vscode-descriptionForeground)}
+@media(max-width:900px){.grid{grid-template-columns:1fr}.detail{display:none}.list-wrap{border-right:0}.toolbar input{min-width:140px}}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button id="pauseAll">⏸ ALL</button>
+  <button id="pauseOut">⏸ OUT</button>
+  <button id="pauseIn">⏸ IN</button>
+  <select id="direction">
+    <option value="all">All direction</option>
+    <option value="out">OUT</option>
+    <option value="in">IN</option>
+    <option value="neutral">Control/CONNECT</option>
+  </select>
+  <select id="api"><option value="">All API</option></select>
+  <input id="search" placeholder="Lọc host, API, stage, kind, request id...">
+  <button id="refresh">↻</button>
+  <span class="count" id="count"></span>
+</div>
+<div class="status" id="status">Đang chờ Gateway...</div>
+<div class="grid">
+  <div class="list-wrap">
+    <table>
+      <thead><tr><th style="width:82px">Time</th><th style="width:42px">Dir</th><th style="width:145px">Host</th><th>API / Event</th><th style="width:92px">Size</th><th style="width:90px">Status</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="detail" id="detail"><div class="note">Chọn một event để xem chi tiết.</div></div>
+</div>
+<script nonce="__NONCE__">
+const vscode=acquireVsCodeApi();
+let state={traffic:[],gateway:{}},payload=null,selectedId=0;
+let pauseOut=false,pauseIn=false,freezeOut=Infinity,freezeIn=Infinity;
+
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtTime=ms=>{const d=new Date(Number(ms)||0);return d.toLocaleTimeString('vi-VN',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',fractionalSecondDigits:3})};
+const fmtBytes=n=>{n=Number(n)||0;if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(2)+' MB'};
+
+function eventDir(e){
+  if(e.type==='tunnel_bytes'||e.type==='ws_frame')return e.direction==='out'?'out':e.direction==='in'?'in':'neutral';
+  if(e.type==='http_upstream'){
+    if(['UPSTREAM_REQUEST_CHUNK','UPSTREAM_BODY_FINISHED','UPSTREAM_BODY_FINGERPRINT','UPSTREAM_BYTES_SENT','UPSTREAM_REQUEST_OPENED'].includes(e.stage))return 'out';
+    if(['UPSTREAM_RESPONSE_CHUNK','UPSTREAM_FINISHED','UPSTREAM_RESPONSE_HEADERS','UPSTREAM_FIRST_EVENT'].includes(e.stage))return 'in';
+  }
+  return 'neutral';
+}
+function apiName(e){
+  const host=e.targetHost||'';
+  const p=e.path||'';
+  if(host&&p)return host+p;
+  if(host)return host;
+  if(p)return p;
+  return e.kind||e.type||'';
+}
+function eventTitle(e){
+  if(e.type==='tunnel_bytes')return 'TLS tunnel bytes';
+  if(e.type==='connect_tunnel')return e.stage||'CONNECT';
+  if(e.type==='ws_frame')return 'WebSocket frame opcode '+String(e.opcode??'');
+  return e.stage||e.type||'event';
+}
+function eventBytes(e){
+  return e.totalContentBytes||e.requestBytes||e.responseBytes||e.size||e.clientToServerBytes||e.serverToClientBytes||0;
+}
+function visibleByPause(e){
+  const id=Number(e.traceId)||0,d=eventDir(e);
+  if(d==='out'&&pauseOut&&id>freezeOut)return false;
+  if(d==='in'&&pauseIn&&id>freezeIn)return false;
+  return true;
+}
+function maxTraceFor(dir){
+  let max=0;
+  for(const e of state.traffic||[])if(eventDir(e)===dir)max=Math.max(max,Number(e.traceId)||0);
+  return max;
+}
+function syncPauseButtons(){
+  $('pauseOut').classList.toggle('active',pauseOut);
+  $('pauseIn').classList.toggle('active',pauseIn);
+  $('pauseAll').classList.toggle('active',pauseOut&&pauseIn);
+  $('pauseOut').textContent=pauseOut?'▶ OUT':'⏸ OUT';
+  $('pauseIn').textContent=pauseIn?'▶ IN':'⏸ IN';
+  $('pauseAll').textContent=pauseOut&&pauseIn?'▶ ALL':'⏸ ALL';
+}
+function toggleDir(which){
+  if(which==='out'){
+    if(!pauseOut){freezeOut=maxTraceFor('out');pauseOut=true}else pauseOut=false;
+  }else if(which==='in'){
+    if(!pauseIn){freezeIn=maxTraceFor('in');pauseIn=true}else pauseIn=false;
+  }else{
+    const pausing=!(pauseOut&&pauseIn);
+    if(pausing){
+      freezeOut=maxTraceFor('out');freezeIn=maxTraceFor('in');pauseOut=true;pauseIn=true;
+    }else{pauseOut=false;pauseIn=false}
+  }
+  syncPauseButtons();render();
+}
+function rebuildApis(){
+  const old=$('api').value,values=[...new Set((state.traffic||[]).map(apiName).filter(Boolean))].sort();
+  $('api').innerHTML='<option value="">All API</option>'+values.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+  if(values.includes(old))$('api').value=old;
+}
+function filtered(){
+  const dir=$('direction').value,api=$('api').value,q=$('search').value.trim().toLowerCase();
+  return (state.traffic||[]).filter(visibleByPause).filter(e=>{
+    const d=eventDir(e);if(dir!=='all'&&d!==dir)return false;
+    if(api&&apiName(e)!==api)return false;
+    if(q){
+      const hay=[e.targetHost,e.path,e.stage,e.kind,e.requestId,e.connectionId,e.type,e.method].join(' ').toLowerCase();
+      if(!hay.includes(q))return false;
+    }
+    return true;
+  });
+}
+function renderRows(){
+  const events=filtered().slice().reverse();
+  $('count').textContent=events.length+' / '+(state.traffic||[]).length;
+  $('rows').innerHTML=events.map(e=>{
+    const d=eventDir(e),id=Number(e.traceId)||0;
+    const st=e.statusCode?('HTTP '+e.statusCode):(e.error?'ERROR':'');
+    return '<tr data-id="'+id+'" class="'+(id===selectedId?'selected':'')+'"><td class="mono">'+esc(fmtTime(e.at))+'</td><td class="dir '+d+'">'+(d==='out'?'↑':d==='in'?'↓':'•')+'</td><td title="'+esc(e.targetHost||'')+'">'+esc(e.targetHost||'')+'</td><td title="'+esc(apiName(e))+'"><b>'+esc(eventTitle(e))+'</b><div class="mono">'+esc(e.path||e.kind||'')+'</div></td><td>'+esc(fmtBytes(eventBytes(e)))+'</td><td>'+esc(st)+'</td></tr>';
+  }).join('');
+  for(const row of document.querySelectorAll('tr[data-id]'))row.onclick=()=>{
+    selectedId=Number(row.dataset.id)||0;payload=null;
+    vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:0});
+    renderRows();renderDetail();
+  };
+}
+function renderDetail(){
+  const e=(state.traffic||[]).find(x=>Number(x.traceId)===selectedId);
+  if(!e){$('detail').innerHTML='<div class="note">Chọn một event để xem chi tiết.</div>';return}
+  const meta={
+    traceId:e.traceId,time:fmtTime(e.at),direction:eventDir(e),type:e.type,stage:e.stage,kind:e.kind,
+    host:e.targetHost,port:e.targetPort,method:e.method,path:e.path,status:e.statusCode,
+    requestId:e.requestId,connectionId:e.connectionId,size:eventBytes(e),error:e.error
+  };
+  let html='<h2>'+esc(eventTitle(e))+'</h2><div class="meta">'+Object.entries(meta).filter(([,v])=>v!==''&&v!==0&&v!==undefined).map(([k,v])=>'<div class="k">'+esc(k)+'</div><div class="mono">'+esc(v)+'</div>').join('')+'</div>';
+  if(e.type==='tunnel_bytes'||e.type==='connect_tunnel'){
+    html+='<div class="note">Đây là HTTPS CONNECT pass-through. Origin HTTPS thật của Codex được giữ nguyên nên login/workspace routing không bị đổi. Payload TLS ở event này là encrypted transport bytes; UI không giả vờ đây là plaintext API body.</div>';
+  }else if(payload&&Number(payload.traceId)===selectedId&&payload.contentCapture){
+    const c=payload.contentCapture;
+    html+='<div class="note">'+esc([c.contentType,c.encoding,c.truncated?'truncated':''].filter(Boolean).join(' · '))+'</div><pre>'+esc(c.content||'')+'</pre>';
+    if(!c.complete)html+='<button id="more">Tải thêm</button>';
+  }else if(e.hasContent){
+    html+='<div class="note">Đang tải nội dung capture...</div>';
+  }else{
+    html+='<div class="note">Event này không có plaintext body được capture.</div>';
+  }
+  $('detail').innerHTML=html;
+  const more=$('more');if(more&&payload&&payload.contentCapture)more.onclick=()=>vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:Number(payload.contentCapture.nextOffset||0)});
+}
+function renderStatus(){
+  const g=state.gateway||{};
+  const proxy=g.modelProxyReady?'proxy READY':'proxy OFF';
+  const env=g.proxyEnvironmentApplied?'env proxy APPLIED':'env proxy NOT APPLIED';
+  const seen=g.transportTrafficObserved?'traffic SEEN':'no traffic yet';
+  $('status').textContent='Gateway '+(g.running?'RUNNING':'STOPPED')+' · '+proxy+' · '+env+' · '+seen+' · PAUSE chỉ đóng băng màn hình, không chặn network thật';
+}
+function render(){renderStatus();rebuildApis();renderRows();renderDetail()}
+window.addEventListener('message',ev=>{
+  const m=ev.data||{};
+  if(m.type==='trafficState'){state=m.data||state;render()}
+  if(m.type==='trafficPayload'){
+    const next=m.payload||null;
+    if(next&&payload&&next.traceId===payload.traceId&&next.contentCapture&&payload.contentCapture&&Number(next.contentCapture.offset||0)>0){
+      next.contentCapture.content=String(payload.contentCapture.content||'')+String(next.contentCapture.content||'');
+    }
+    payload=next;renderDetail();
+  }
+});
+$('pauseAll').onclick=()=>toggleDir('all');$('pauseOut').onclick=()=>toggleDir('out');$('pauseIn').onclick=()=>toggleDir('in');
+$('direction').onchange=render;$('api').onchange=render;$('search').oninput=render;
+$('refresh').onclick=()=>vscode.postMessage({command:'refreshTraffic'});
+syncPauseButtons();vscode.postMessage({command:'refreshTraffic'});
+</script>
+</body>
+</html>
