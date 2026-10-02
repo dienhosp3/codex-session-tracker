@@ -125,6 +125,7 @@ async function getManagedState(codexHome, storageDir) {
     managed: Boolean(relevant && relevant.active && relevant.managedHash === currentHash),
     drifted: Boolean(relevant && relevant.active && relevant.managedHash && relevant.managedHash !== currentHash),
     originalHash: relevant && relevant.originalHash || '',
+    originalRootLine: relevant && relevant.originalRootLine || '',
     managedHash: relevant && relevant.managedHash || '',
     appliedAt: relevant && relevant.appliedAt || '',
     revertedAt: relevant && relevant.revertedAt || '',
