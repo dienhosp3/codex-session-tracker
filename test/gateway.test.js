@@ -333,7 +333,7 @@ test('HTTP model proxy streams request bytes, preserves backend prefix, and reda
   assert.match(finishedResponse.contentCapture.content, /data: first/);
   assert.match(finishedResponse.contentCapture.content, /data: done/);
   const opened = events.find(event => event.stage === 'UPSTREAM_REQUEST_OPENED');
-  assert.equal(opened.path, '/codex/responses');
+  assert.equal(opened.path, '/backend-api/codex/responses');
   assert.equal(opened.headers.authorization, '[REDACTED]');
   assert.equal(opened.headers.cookie, '[REDACTED]');
 });
@@ -355,20 +355,30 @@ test('non-model gateway traffic never advances steer upstream state', async () =
   assert.equal(gateway.diagnostics().modelTrafficObserved, false);
 });
 
-test('model proxy readiness is distinct from observed model traffic', async () => {
+test('model proxy readiness is distinct from observed model traffic', async t => {
   const gateway = new CodexGateway({
     port: 0,
     modelProxyEnabled: true,
     upstreamBaseUrl: 'http://127.0.0.1:65534/backend-api'
   });
+
+  assert.equal(gateway.diagnostics().modelProxyConfigured, true);
+  assert.equal(gateway.diagnostics().modelProxyReady, false);
+  assert.equal(gateway.diagnostics().modelTrafficObserved, false);
+
+  await gateway.start();
+  t.after(() => gateway.stop());
+
   assert.equal(gateway.diagnostics().modelProxyReady, true);
   assert.equal(gateway.diagnostics().modelTrafficObserved, false);
+
   await gateway.onNetworkEvent({
     type: 'http_upstream',
     kind: 'MODEL_REQUEST',
     stage: 'UPSTREAM_REQUEST_OPENED',
     at: 12345
   });
+
   assert.equal(gateway.diagnostics().modelTrafficObserved, true);
   assert.equal(gateway.diagnostics().lastModelNetworkAt, 12345);
 });
