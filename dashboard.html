@@ -331,8 +331,8 @@ function renderGateway(){
   const g=state.gateway||{},commands=Array.isArray(g.commands)?g.commands:[],cmd=commands[0],settings=gatewaySettingsValue(),managed=g.managedConfig||{},traffic=Array.isArray(g.traffic)?g.traffic:[];
   const status=g.running?'Gateway chạy '+esc((g.address&&g.address.host||'127.0.0.1')+':'+(g.address&&g.address.port||'')):(g.enabled?'Gateway lỗi: '+esc(g.error||'không chạy'):'Gateway tắt');
   const runtime=[g.extensionRuntime&&g.extensionRuntime.version?'Extension '+g.extensionRuntime.version:'',g.cliVersion?'CLI '+g.cliVersion:''].filter(Boolean).join(' · ');
-  const proxy=g.modelProxyReady?(g.modelTrafficObserved?'model proxy: ĐÃ THẤY TRAFFIC':'model proxy: SẴN SÀNG, CHƯA THẤY TRAFFIC'):(g.modelProxyConfigured?'model proxy: THIẾU UPSTREAM':'model proxy: TẮT');
-  const managedText=managed.active?(managed.managed?'Codex config: đang được Tracker quản lý':managed.drifted?'Codex config: đã thay đổi sau khi bật Gateway':'Codex config: trạng thái không khớp'):'Codex config: chưa route qua Gateway';
+  const proxy=g.modelProxyReady?(g.transportTrafficObserved?'forward proxy: ĐÃ THẤY TRAFFIC':'forward proxy: READY, CHƯA THẤY TRAFFIC'):(g.modelProxyConfigured?'forward proxy: CHƯA SẴN SÀNG':'forward proxy: TẮT');
+  const managedText=managed.active?(managed.managed?'Legacy route: Tracker còn quản lý chatgpt_base_url':managed.drifted?'Legacy route: config đã đổi sau lần route cũ':'Legacy route: trạng thái không khớp'):'Codex HTTPS origin: giữ nguyên, không rewrite chatgpt_base_url';
   const originalLine=managed.active?(managed.originalRootLine?(' · gốc: '+managed.originalRootLine):' · gốc: không có chatgpt_base_url override'):(managed.currentRootLine?(' · hiện tại: '+managed.currentRootLine):' · hiện tại: dùng backend mặc định');
   let html='<section class="card"><div class="card-title">Trạng thái giao tiếp</div><div class="gateway-meta">'+status+' · '+proxy+(g.websocketProxyReady?' · WS proxy sẵn sàng':'')+(g.lastModelNetworkAt?' · traffic '+esc(relTime(g.lastModelNetworkAt)):'')+(runtime?' · '+esc(runtime):'')+'</div><div class="gateway-meta" style="margin-top:3px">'+esc(managedText)+esc(originalLine)+(managed.configPath?' · '+esc(managed.configPath):'')+'</div>';
 
@@ -350,28 +350,21 @@ function renderGateway(){
   html+='<div class="gateway-settings">'+
     '<label class="gateway-check"><input id="gwEnabled" type="checkbox" '+(settings.enabled?'checked':'')+'> Chạy Gateway local</label>'+
     '<div class="gateway-setting"><label>Port</label><input id="gwPort" type="number" min="1" max="65535" value="'+esc(settings.port||8765)+'"></div>'+
-    '<label class="gateway-check"><input id="gwProxy" type="checkbox" '+(settings.modelProxyEnabled?'checked':'')+'> Proxy traffic Codex ↔ backend</label>'+
-    '<div class="gateway-setting wide"><label>Upstream gốc</label><input id="gwUpstream" type="text" value="'+esc(settings.upstreamBaseUrl||'https://chatgpt.com/backend-api')+'"></div>'+
-    '<label class="gateway-check"><input id="gwCapture" type="checkbox" '+(settings.captureContent?'checked':'')+'> Capture và cho xem nội dung đầy đủ request/response (có thể chứa prompt, file, secret trong body)</label>'+
-    '<div class="gateway-setting"><label>Giới hạn nội dung / body hoặc frame (MiB)</label><input id="gwCaptureMax" type="number" min="1" max="64" value="'+esc(settings.captureMaxMb||16)+'"></div>'+
+    '<label class="gateway-check"><input id="gwProxy" type="checkbox" '+(settings.modelProxyEnabled?'checked':'')+'> Route Codex qua local forward proxy, giữ nguyên HTTPS origin thật</label>'+
+    '<label class="gateway-check"><input id="gwCapture" type="checkbox" '+(settings.captureContent?'checked':'')+'> Lưu plaintext khi transport cung cấp; HTTPS CONNECT pass-through chỉ có byte/timing</label>'+
+    '<div class="gateway-setting"><label>Giới hạn content capture (MiB)</label><input id="gwCaptureMax" type="number" min="1" max="64" value="'+esc(settings.captureMaxMb||16)+'"></div>'+
     '<div class="gateway-setting"><label>Trace local trước khi rotate (MiB)</label><input id="gwTraceMax" type="number" min="8" max="512" value="'+esc(settings.traceMaxMb||64)+'"></div>'+
-    '<div class="gateway-actions"><button id="gwSave">Lưu cài đặt</button><button id="gwEnableFull" class="primary">Bật bắt toàn bộ + backup config + Reload</button>'+
-      (managed.active?'<button id="gwRevert">Revert an toàn + Reload</button><button id="gwForceRestore" class="danger">Khôi phục snapshot gốc + Reload</button>':'')+
+    '<div class="gateway-actions"><button id="gwSave">Lưu cài đặt</button><button id="gwEnableFull" class="primary">Bật forward proxy + Reload</button><button id="gwTraffic">Mở Traffic Monitor</button>'+
+      (settings.modelProxyEnabled||managed.active?'<button id="gwRevert">Tắt proxy + khôi phục route + Reload</button>':'')+
+      (managed.active?'<button id="gwForceRestore" class="danger">Khôi phục snapshot config cũ + Reload</button>':'')+
     '</div>'+
     (g.actionNotice&&g.actionNotice.text?'<div class="gateway-notice '+(g.actionNotice.kind==='success'?'ok':'err')+'">'+esc(g.actionNotice.text)+'</div>':'')+
-    '<div class="gateway-meta wide">Tracker lưu snapshot config.toml gốc trước khi route. Revert an toàn chỉ khôi phục key do Tracker quản lý nếu config đã bị sửa thêm; snapshot gốc chỉ dùng khi mày chủ động chọn.</div>'+
+    '<div class="gateway-meta wide">Forward proxy không đổi chatgpt_base_url, nên account/workspace vẫn nhìn thấy HTTPS origin thật. Pause trong Traffic Monitor chỉ đóng băng màn hình, không chặn network.</div>'+
   '</div>';
 
   html+='<div style="margin-top:9px;padding-top:8px;border-top:1px solid var(--vscode-panel-border)"><div class="card-title">Traffic Codex ↔ backend</div>'+
-    '<div class="gateway-meta">Capture nội dung: '+(g.captureContent?'BẬT':'TẮT')+' · '+(g.captureMaxBytes?Math.round(g.captureMaxBytes/1048576)+' MiB/event':'--')+'. Đang hiển thị tối đa 250 event gần nhất; header auth/cookie vẫn bị che, body được giữ nguyên khi capture bật.</div>';
-  if(!traffic.length) html+='<div class="sub" style="margin-top:5px">Chưa có traffic đi qua Gateway.</div>';
-  else html+='<div class="traffic-list">'+traffic.slice().reverse().map(e=>{
-    const dir=e.type==='ws_frame'?(e.direction==='out'?'out':'in'):(e.stage==='UPSTREAM_BODY_FINISHED'?'out':e.stage==='UPSTREAM_FINISHED'?'in':'');
-    const bytes=e.totalContentBytes||e.requestBytes||e.responseBytes||e.size||0;
-    const meta=[e.kind,e.method,e.path,bytes?bytes+' B':'',e.statusCode?('HTTP '+e.statusCode):'',e.totalMs?e.totalMs+' ms':''].filter(Boolean).join(' · ');
-    return '<div class="traffic-event"><span class="dir '+dir+'">'+(dir==='out'?'↑':dir==='in'?'↓':'•')+'</span><div class="traffic-main"><b>'+esc(trafficLabel(e))+'</b><div class="traffic-small">'+esc(meta)+' · '+esc(absTime(e.at))+(e.truncated?' · truncated capture':'')+'</div></div>'+(e.hasContent?'<button data-gw-trace="'+esc(e.traceId)+'">Xem</button>':'')+'</div>';
-  }).join('')+'</div>';
-  html+=renderGatewayPayload()+'</div></section>';
+    '<div class="gateway-meta">'+(g.transportTrafficObserved?'Đã thấy transport traffic qua Gateway.':'Chưa thấy transport traffic qua Gateway.')+' HTTPS CONNECT pass-through giữ chat ổn định nhưng payload TLS vẫn mã hóa ở tầng proxy.</div>'+
+    '<div class="gateway-actions" style="margin-top:7px"><button id="gwTrafficInline" class="primary">Mở Traffic Monitor</button></div></div></section>';
   return html;
 }
 function readGatewaySettingsFromUi(){
@@ -379,18 +372,20 @@ function readGatewaySettingsFromUi(){
     enabled:Boolean(document.getElementById('gwEnabled')&&document.getElementById('gwEnabled').checked),
     port:Number(document.getElementById('gwPort')&&document.getElementById('gwPort').value||8765),
     modelProxyEnabled:Boolean(document.getElementById('gwProxy')&&document.getElementById('gwProxy').checked),
-    upstreamBaseUrl:String(document.getElementById('gwUpstream')&&document.getElementById('gwUpstream').value||'').trim(),
+    upstreamBaseUrl:'',
     captureContent:Boolean(document.getElementById('gwCapture')&&document.getElementById('gwCapture').checked),
     captureMaxMb:Number(document.getElementById('gwCaptureMax')&&document.getElementById('gwCaptureMax').value||16),
     traceMaxMb:Number(document.getElementById('gwTraceMax')&&document.getElementById('gwTraceMax').value||64)
   };
 }
 function bindGatewayUi(){
-  const ids=['gwEnabled','gwPort','gwProxy','gwUpstream','gwCapture','gwCaptureMax','gwTraceMax'];
+  const ids=['gwEnabled','gwPort','gwProxy','gwCapture','gwCaptureMax','gwTraceMax'];
   const updateDraft=()=>{gatewaySettingsDraft=readGatewaySettingsFromUi()};
   for(const id of ids){const el=document.getElementById(id);if(el){el.oninput=updateDraft;el.onchange=updateDraft}}
   const save=document.getElementById('gwSave');if(save)save.onclick=()=>{const value=readGatewaySettingsFromUi();gatewaySettingsDraft=value;vscode.postMessage({command:'saveGatewaySettings',settings:value})};
   const enable=document.getElementById('gwEnableFull');if(enable)enable.onclick=()=>vscode.postMessage({command:'enableGatewayFullCapture',settings:readGatewaySettingsFromUi()});
+  const traffic=document.getElementById('gwTraffic');if(traffic)traffic.onclick=()=>vscode.postMessage({command:'openTrafficMonitor'});
+  const trafficInline=document.getElementById('gwTrafficInline');if(trafficInline)trafficInline.onclick=()=>vscode.postMessage({command:'openTrafficMonitor'});
   const revert=document.getElementById('gwRevert');if(revert)revert.onclick=()=>vscode.postMessage({command:'revertGatewayManaged'});
   const force=document.getElementById('gwForceRestore');if(force)force.onclick=()=>vscode.postMessage({command:'forceRestoreGatewayManaged'});
   for(const btn of document.querySelectorAll('[data-gw-trace]'))btn.onclick=()=>{
