@@ -1,6 +1,6 @@
-# Codex Session Tracker 0.10.0
+# Codex Session Tracker 0.10.1
 
-A VS Code tracker for Codex sessions with lifecycle-accurate local control, a loopback Codex Gateway, reversible Windows/VS Code routing, and optional full request/response inspection.
+A VS Code tracker for Codex sessions with lifecycle-accurate local control, a loopback Codex Gateway, reversible Windows/VS Code routing, and optional full request/response inspection. Gateway settings are persisted by the Tracker UI itself; the extension no longer writes Gateway values into VS Code User Settings.
 
 This build is designed for the user's current environment: **Codex inside VS Code on Windows 10**. It does not require manually editing `config.toml` for normal Gateway use.
 
@@ -231,7 +231,7 @@ bash ./build-vsix.sh
 Expected artifact:
 
 ```text
-codex-session-tracker-0.10.0.vsix
+codex-session-tracker-0.10.1.vsix
 ```
 
 Install from PowerShell:
