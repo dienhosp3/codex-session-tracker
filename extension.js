@@ -337,8 +337,8 @@ async function enableGatewayFullCapture() {
       modelProxyEnabled: true,
       upstreamBaseUrl: upstream,
       captureContent: true,
-      captureMaxMb: Math.max(16, Number(cfg.gatewayCaptureMaxMb || 16)),
-      traceMaxMb: Math.max(64, Number(cfg.gatewayTraceMaxMb || 64))
+      captureMaxMb: 64,
+      traceMaxMb: Math.max(256, Number(cfg.gatewayTraceMaxMb || 64))
     });
     await refreshGatewayManagedState();
     gatewayActionNotice = { kind: 'success', text: 'Đã backup cấu hình gốc, route Codex qua Gateway và bật bắt nội dung đầy đủ. Đang reload VS Code...', at: Date.now() };
