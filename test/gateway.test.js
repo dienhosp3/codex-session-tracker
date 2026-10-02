@@ -6,6 +6,7 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const zlib = require('zlib');
 const { DeliveryState } = require('../gateway/state_machine');
 const { classifyRequest } = require('../gateway/classifier');
 const { redactHeaders, sanitizePath, sha256 } = require('../gateway/redaction');
@@ -400,6 +401,24 @@ test('content capture is bounded without truncating forwarded transport', () => 
   assert.equal(result.capturedBytes, 5);
   assert.equal(result.totalBytes, 9);
   assert.equal(result.truncated, true);
+});
+
+
+test('content capture decodes a complete gzip JSON body without changing wire bytes', () => {
+  const plain = Buffer.from('{"response":"hello"}');
+  const wire = zlib.gzipSync(plain);
+  const capture = new ContentCapture({
+    enabled: true,
+    maxBytes: wire.length,
+    contentType: 'application/json',
+    contentEncoding: 'gzip'
+  });
+  capture.add(wire);
+  const result = capture.finish();
+  assert.equal(result.decoded, true);
+  assert.equal(result.wireContentEncoding, 'gzip');
+  assert.equal(result.encoding, 'utf8');
+  assert.equal(result.content, plain.toString('utf8'));
 });
 
 test('websocket parser can expose decoded masked text only when content capture is enabled', () => {
