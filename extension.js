@@ -123,15 +123,27 @@ class TrackerViewProvider {
 
 function storedGatewaySettings() {
   const value = contextRef && contextRef.globalState.get(GATEWAY_SETTINGS_KEY);
-  const source = value && typeof value === 'object' ? value : {};
+  if (value && typeof value === 'object') {
+    return {
+      enabled: value.enabled !== undefined ? Boolean(value.enabled) : true,
+      port: Number(value.port || 8765),
+      modelProxyEnabled: Boolean(value.modelProxyEnabled),
+      upstreamBaseUrl: String(value.upstreamBaseUrl || ''),
+      captureContent: Boolean(value.captureContent),
+      captureMaxMb: Number(value.captureMaxMb || 16),
+      traceMaxMb: Number(value.traceMaxMb || 64)
+    };
+  }
+
+  const legacy = vscode.workspace.getConfiguration('codexSessionTracker');
   return {
-    enabled: source.enabled !== undefined ? Boolean(source.enabled) : true,
-    port: Number(source.port || 8765),
-    modelProxyEnabled: Boolean(source.modelProxyEnabled),
-    upstreamBaseUrl: String(source.upstreamBaseUrl || ''),
-    captureContent: Boolean(source.captureContent),
-    captureMaxMb: Number(source.captureMaxMb || 16),
-    traceMaxMb: Number(source.traceMaxMb || 64)
+    enabled: legacy.get('gateway.enabled', true),
+    port: legacy.get('gateway.port', 8765),
+    modelProxyEnabled: legacy.get('gateway.modelProxyEnabled', false),
+    upstreamBaseUrl: legacy.get('gateway.upstreamBaseUrl', ''),
+    captureContent: legacy.get('gateway.captureContent', false),
+    captureMaxMb: legacy.get('gateway.captureMaxMb', 16),
+    traceMaxMb: legacy.get('gateway.traceMaxMb', 64)
   };
 }
 
