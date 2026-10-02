@@ -63,7 +63,6 @@ function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.refresh', () => refreshAll(true)),
     vscode.commands.registerCommand('codexSessionTracker.clearSelection', clearSelection),
     vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }),
-    vscode.commands.registerCommand('codexSessionTracker.copyGatewayConfig', copyGatewayConfig),
     vscode.commands.registerCommand('codexSessionTracker.exportGatewayDiagnostics', exportGatewayDiagnostics),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (!event.affectsConfiguration('codexSessionTracker') || gatewaySettingsApplying) return;
@@ -704,27 +703,6 @@ function openAiExtensionRuntime() {
     }
   }
   return { id: '', version: '', path: '' };
-}
-
-async function copyGatewayConfig() {
-  const cfg = config();
-  const activeGateway = gateway || await startGateway();
-  const diagnostics = activeGateway && activeGateway.diagnostics();
-  if (!diagnostics || !diagnostics.modelProxyReady) {
-    vscode.window.showWarningMessage(
-      'Model proxy chưa sẵn sàng. Hãy bật codexSessionTracker.gateway.modelProxyEnabled và đặt gateway.upstreamBaseUrl trước khi route Codex qua Gateway.'
-    );
-    return;
-  }
-  const port = gatewayStatus.address && gatewayStatus.address.port || cfg.gatewayPort || 8765;
-  const snippet = [
-    '# Codex Session Tracker Gateway diagnostic routing',
-    `chatgpt_base_url = "http://127.0.0.1:${port}/backend-api"`
-  ].join('\n');
-  await vscode.env.clipboard.writeText(snippet);
-  vscode.window.showInformationMessage(
-    'Đã copy cấu hình Gateway. Dán vào config.toml cấp CODEX_HOME rồi khởi động lại Codex owner để áp dụng. Không đặt trong project-local config.'
-  );
 }
 
 async function exportGatewayDiagnostics() {
