@@ -39,6 +39,7 @@ let gateway = null;
 let gatewayStatus = { enabled: false, running: false, error: '', address: null };
 let gatewayManagedState = { active: false, managed: false, drifted: false };
 let gatewayActionNotice = null;
+let gatewaySettingsApplying = false;
 
 function activate(context) {
   contextRef = context;
@@ -65,7 +66,7 @@ function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.copyGatewayConfig', copyGatewayConfig),
     vscode.commands.registerCommand('codexSessionTracker.exportGatewayDiagnostics', exportGatewayDiagnostics),
     vscode.workspace.onDidChangeConfiguration(event => {
-      if (!event.affectsConfiguration('codexSessionTracker')) return;
+      if (!event.affectsConfiguration('codexSessionTracker') || gatewaySettingsApplying) return;
       restartPolling();
       restartGateway().catch(() => {});
       refreshAll(true);
@@ -242,6 +243,15 @@ async function setGatewaySetting(key, value) {
   await vscode.workspace.getConfiguration('codexSessionTracker').update('gateway.' + key, value, vscode.ConfigurationTarget.Global);
 }
 
+async function applyGatewaySettings(values) {
+  gatewaySettingsApplying = true;
+  try {
+    for (const [key, value] of Object.entries(values || {})) await setGatewaySetting(key, value);
+  } finally {
+    gatewaySettingsApplying = false;
+  }
+}
+
 function validateGatewaySettings(input = {}) {
   const port = Math.round(Number(input.port || 8765));
   const captureMaxMb = Math.round(Number(input.captureMaxMb || 16));
@@ -265,13 +275,7 @@ function validateGatewaySettings(input = {}) {
 async function saveGatewaySettings(input) {
   try {
     const next = validateGatewaySettings(input);
-    await setGatewaySetting('enabled', next.enabled);
-    await setGatewaySetting('port', next.port);
-    await setGatewaySetting('modelProxyEnabled', next.modelProxyEnabled);
-    await setGatewaySetting('upstreamBaseUrl', next.upstreamBaseUrl);
-    await setGatewaySetting('captureContent', next.captureContent);
-    await setGatewaySetting('captureMaxMb', next.captureMaxMb);
-    await setGatewaySetting('traceMaxMb', next.traceMaxMb);
+    await applyGatewaySettings(next);
     gatewayActionNotice = { kind: 'success', text: 'Đã lưu toàn bộ cài đặt Gateway trên giao diện.', at: Date.now() };
     await restartGateway();
     await refreshGatewayManagedState();
@@ -299,13 +303,15 @@ async function enableGatewayFullCapture() {
       baseUrl: localBase,
       originalTrackerSettings
     });
-    await setGatewaySetting('enabled', true);
-    await setGatewaySetting('port', port);
-    await setGatewaySetting('modelProxyEnabled', true);
-    await setGatewaySetting('upstreamBaseUrl', upstream);
-    await setGatewaySetting('captureContent', true);
-    await setGatewaySetting('captureMaxMb', Math.max(16, Number(cfg.gatewayCaptureMaxMb || 16)));
-    await setGatewaySetting('traceMaxMb', Math.max(64, Number(cfg.gatewayTraceMaxMb || 64)));
+    await applyGatewaySettings({
+      enabled: true,
+      port,
+      modelProxyEnabled: true,
+      upstreamBaseUrl: upstream,
+      captureContent: true,
+      captureMaxMb: Math.max(16, Number(cfg.gatewayCaptureMaxMb || 16)),
+      traceMaxMb: Math.max(64, Number(cfg.gatewayTraceMaxMb || 64))
+    });
     await refreshGatewayManagedState();
     gatewayActionNotice = { kind: 'success', text: 'Đã backup cấu hình gốc, route Codex qua Gateway và bật bắt nội dung đầy đủ. Đang reload VS Code...', at: Date.now() };
     postViewState();
@@ -320,9 +326,11 @@ async function enableGatewayFullCapture() {
 
 async function restoreTrackerGatewaySettings(saved) {
   if (!saved || typeof saved !== 'object') return;
+  const values = {};
   for (const key of ['enabled','port','modelProxyEnabled','upstreamBaseUrl','captureContent','captureMaxMb','traceMaxMb']) {
-    if (Object.prototype.hasOwnProperty.call(saved, key)) await setGatewaySetting(key, saved[key]);
+    if (Object.prototype.hasOwnProperty.call(saved, key)) values[key] = saved[key];
   }
+  await applyGatewaySettings(values);
 }
 
 async function revertGatewayManaged(forceExact) {
