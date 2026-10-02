@@ -13,6 +13,7 @@ class TraceStore {
     this.file = this.dir ? path.join(this.dir, 'gateway-trace.jsonl') : '';
     this.ready = false;
     this.seq = 0;
+    this.writeChain = Promise.resolve();
   }
 
   async loadRecentFromFile() {
@@ -75,8 +76,11 @@ class TraceStore {
     this.events.push(safe);
     if (this.events.length > this.memoryLimit) this.events.splice(0, this.events.length - this.memoryLimit);
     if (!this.file) return safe;
-    await this.rotateIfNeeded();
-    await fsp.appendFile(this.file, JSON.stringify(safe) + '\n', 'utf8');
+    this.writeChain = this.writeChain.then(async () => {
+      await this.rotateIfNeeded();
+      await fsp.appendFile(this.file, JSON.stringify(safe) + '\n', 'utf8');
+    });
+    await this.writeChain;
     return safe;
   }
 
