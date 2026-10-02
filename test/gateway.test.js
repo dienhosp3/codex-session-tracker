@@ -526,6 +526,32 @@ test('TraceStore reloads recent persisted events and keeps trace ids monotonic',
   assert.ok(second.recent(1)[0].traceId > firstId);
 });
 
+
+test('large captured payloads are paged for the webview without losing content', async () => {
+  const gateway = new CodexGateway({ port: 0 });
+  const content = 'x'.repeat(700 * 1024);
+  const event = await gateway.trace.append({
+    type: 'http_upstream',
+    stage: 'UPSTREAM_FINISHED',
+    at: Date.now(),
+    kind: 'MODEL_REQUEST',
+    contentCapture: {
+      contentType: 'application/json',
+      encoding: 'utf8',
+      content,
+      capturedBytes: content.length,
+      totalBytes: content.length,
+      truncated: false
+    }
+  });
+  const first = gateway.payloadByTraceId(event.traceId, { offset: 0, limit: 512 * 1024 });
+  assert.equal(first.contentCapture.content.length, 512 * 1024);
+  assert.equal(first.contentCapture.complete, false);
+  const second = gateway.payloadByTraceId(event.traceId, { offset: first.contentCapture.nextOffset, limit: 512 * 1024 });
+  assert.equal(first.contentCapture.content + second.contentCapture.content, content);
+  assert.equal(second.contentCapture.complete, true);
+});
+
 test('dashboard contains UI-only gateway settings, managed revert and traffic body viewer controls', async () => {
   const html = await fs.promises.readFile(path.join(__dirname, '..', 'dashboard.html'), 'utf8');
   assert.match(html, /Bật bắt toàn bộ \+ backup config \+ Reload/);
