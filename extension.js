@@ -985,7 +985,7 @@ function postViewState() {
           captureMaxBytes: 0
         }),
         commands: gatewayThreadDiagnostics(),
-        traffic: gateway ? gateway.trafficIndex(100) : [],
+        traffic: gateway ? gateway.trafficIndex(250) : [],
         settings: gatewaySettingsSnapshot(),
         managedConfig: gatewayManagedState,
         actionNotice: gatewayActionNotice,
