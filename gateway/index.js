@@ -94,6 +94,8 @@ class CodexGateway {
       connectionId:event.connectionId||'',
       direction:event.direction||'',
       opcode:event.opcode,
+      statusCode:event.statusCode||0,
+      headers:event.headers||null,
       bodySha256:event.bodySha256||'',
       contentCapture:event.contentCapture||null
     };
