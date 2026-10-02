@@ -14,6 +14,8 @@ const { GatewayServer, isLoopback } = require('../gateway/server');
 const { correlateNetwork, observeRolloutEvidence } = require('../gateway/correlation');
 const { frameParser, upstreamTarget } = require('../gateway/websocket_proxy');
 const { CodexGateway } = require('../gateway');
+const gatewayConfig = require('../gateway/config_manager');
+const { ContentCapture } = require('../gateway/content_capture');
 
 function requestJson(port, path, options = {}) {
   return new Promise((resolve, reject) => {
@@ -283,6 +285,8 @@ test('HTTP model proxy streams request bytes, preserves backend prefix, and reda
     port: 0,
     trace,
     modelProxyEnabled: true,
+    captureContent: true,
+    captureMaxBytes: 1024 * 1024,
     upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}/backend-api`
   });
   await gateway.start();
@@ -320,6 +324,11 @@ test('HTTP model proxy streams request bytes, preserves backend prefix, and reda
   assert.ok(events.some(event => event.stage === 'UPSTREAM_FIRST_EVENT'));
   const finishedBody = events.find(event => event.stage === 'UPSTREAM_BODY_FINISHED');
   assert.equal(finishedBody.bodySha256, sha256(payload));
+  assert.equal(finishedBody.contentCapture.encoding, 'utf8');
+  assert.equal(finishedBody.contentCapture.content, payload.toString('utf8'));
+  const finishedResponse = events.find(event => event.stage === 'UPSTREAM_FINISHED');
+  assert.match(finishedResponse.contentCapture.content, /data: first/);
+  assert.match(finishedResponse.contentCapture.content, /data: done/);
   const opened = events.find(event => event.stage === 'UPSTREAM_REQUEST_OPENED');
   assert.equal(opened.path, '/codex/responses');
   assert.equal(opened.headers.authorization, '[REDACTED]');
@@ -379,6 +388,113 @@ test('diagnostic export omits headers and raw message content', async () => {
   assert.equal(snapshot.events.length, 1);
   assert.equal(Object.hasOwn(snapshot.events[0], 'headers'), false);
   assert.equal(Object.hasOwn(snapshot.events[0], 'rawBody'), false);
+});
+
+
+test('content capture is bounded without truncating forwarded transport', () => {
+  const capture = new ContentCapture({ enabled: true, maxBytes: 5, contentType: 'application/json' });
+  capture.add(Buffer.from('1234'));
+  capture.add(Buffer.from('56789'));
+  const result = capture.finish();
+  assert.equal(result.content, '12345');
+  assert.equal(result.capturedBytes, 5);
+  assert.equal(result.totalBytes, 9);
+  assert.equal(result.truncated, true);
+});
+
+test('websocket parser can expose decoded masked text only when content capture is enabled', () => {
+  const payload = Buffer.from('{"type":"input","text":"hello"}');
+  const key = Buffer.from([9, 8, 7, 6]);
+  const masked = Buffer.alloc(payload.length);
+  for (let i = 0; i < payload.length; i++) masked[i] = payload[i] ^ key[i & 3];
+  const frame = Buffer.concat([Buffer.from([0x81, 0x80 | payload.length]), key, masked]);
+
+  const hidden = [];
+  frameParser('out', item => hidden.push(item))(frame);
+  assert.equal(hidden[0].contentCapture, undefined);
+
+  const visible = [];
+  frameParser('out', item => visible.push(item), { captureContent: true, captureMaxBytes: 1024 })(frame);
+  assert.equal(visible[0].contentCapture.encoding, 'utf8');
+  assert.equal(visible[0].contentCapture.content, payload.toString('utf8'));
+});
+
+test('managed Codex config creates an exact backup and exact revert when unchanged', async t => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gateway-config-'));
+  t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, '.codex');
+  const storageDir = path.join(root, 'storage');
+  await fs.promises.mkdir(codexHome, { recursive: true });
+  const original = 'model = "gpt-test"\r\nchatgpt_base_url = "https://old.example/backend-api"\r\n[features]\r\nresponses_websockets = true\r\n';
+  await fs.promises.writeFile(path.join(codexHome, 'config.toml'), original, 'utf8');
+
+  const applied = await gatewayConfig.applyManagedConfig({
+    codexHome,
+    storageDir,
+    baseUrl: 'http://127.0.0.1:8765/backend-api',
+    originalTrackerSettings: { enabled: true, port: 8765 }
+  });
+  assert.equal(applied.active, true);
+  assert.equal(applied.managed, true);
+  const managedText = await fs.promises.readFile(path.join(codexHome, 'config.toml'), 'utf8');
+  assert.match(managedText, /chatgpt_base_url = "http:\/\/127\.0\.0\.1:8765\/backend-api"/);
+  assert.match(managedText, /\[features\]/);
+
+  const reverted = await gatewayConfig.revertManagedConfig({ codexHome, storageDir });
+  assert.equal(reverted.reverted, true);
+  assert.equal(reverted.mode, 'exact');
+  assert.equal(await fs.promises.readFile(path.join(codexHome, 'config.toml'), 'utf8'), original);
+  assert.deepEqual(reverted.originalTrackerSettings, { enabled: true, port: 8765 });
+});
+
+test('managed Codex config merge-revert preserves unrelated edits after routing', async t => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gateway-config-drift-'));
+  t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, '.codex');
+  const storageDir = path.join(root, 'storage');
+  await fs.promises.mkdir(codexHome, { recursive: true });
+  const original = 'model = "before"\n[features]\nresponses_websockets = true\n';
+  const file = path.join(codexHome, 'config.toml');
+  await fs.promises.writeFile(file, original, 'utf8');
+  await gatewayConfig.applyManagedConfig({
+    codexHome,
+    storageDir,
+    baseUrl: 'http://127.0.0.1:8765/backend-api'
+  });
+  let changed = await fs.promises.readFile(file, 'utf8');
+  changed = changed.replace('model = "before"', 'model = "after"');
+  await fs.promises.writeFile(file, changed, 'utf8');
+
+  const beforeRevert = await gatewayConfig.getManagedState(codexHome, storageDir);
+  assert.equal(beforeRevert.drifted, true);
+  const reverted = await gatewayConfig.revertManagedConfig({ codexHome, storageDir });
+  assert.equal(reverted.mode, 'merge');
+  const finalText = await fs.promises.readFile(file, 'utf8');
+  assert.match(finalText, /model = "after"/);
+  assert.doesNotMatch(finalText, /chatgpt_base_url/);
+});
+
+test('TraceStore reloads recent persisted events and keeps trace ids monotonic', async t => {
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gateway-trace-'));
+  t.after(() => fs.promises.rm(dir, { recursive: true, force: true }));
+  const first = new TraceStore({ dir, maxBytes: 1024 * 1024, memoryLimit: 100 });
+  await first.append({ type: 'http_upstream', at: 1, kind: 'MODEL_REQUEST', bodySha256: 'abc' });
+  const firstId = first.recent(1)[0].traceId;
+
+  const second = new TraceStore({ dir, maxBytes: 1024 * 1024, memoryLimit: 100 });
+  await second.init();
+  assert.equal(second.recent(1)[0].traceId, firstId);
+  await second.append({ type: 'http_upstream', at: 2, kind: 'MODEL_REQUEST' });
+  assert.ok(second.recent(1)[0].traceId > firstId);
+});
+
+test('dashboard contains UI-only gateway settings, managed revert and traffic body viewer controls', async () => {
+  const html = await fs.promises.readFile(path.join(__dirname, '..', 'dashboard.html'), 'utf8');
+  assert.match(html, /Bật bắt toàn bộ \+ backup config \+ Reload/);
+  assert.match(html, /Revert an toàn \+ Reload/);
+  assert.match(html, /Khôi phục snapshot gốc \+ Reload/);
+  assert.match(html, /Capture và cho xem nội dung đầy đủ request\/response/);
+  assert.match(html, /data-gw-trace/);
 });
 
 test('loopback predicate rejects non-loopback clients', () => {
