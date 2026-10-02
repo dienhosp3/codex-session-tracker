@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -29,6 +30,7 @@ use std::sync::mpsc::TrySendError;
 use std::sync::mpsc::sync_channel;
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -47,11 +49,13 @@ use serde_json::json;
 
 const CONFIG_FILE: &str = "codex-session-tracker-http-hook.json";
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(80);
-const PREFLIGHT_TIMEOUT: Duration = Duration::from_millis(250);
+const PREFLIGHT_TIMEOUT: Duration = Duration::from_millis(50);
+const CONFIG_CACHE_TTL: Duration = Duration::from_millis(250);
 const EVENT_QUEUE_CAPACITY: usize = 2048;
 
 static REQUEST_SEQ: AtomicU64 = AtomicU64::new(1);
 static EMITTER: OnceLock<SyncSender<QueuedEvent>> = OnceLock::new();
+static CONFIG_CACHE: OnceLock<Mutex<ConfigCache>> = OnceLock::new();
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,8 +173,15 @@ fn config_path() -> Option<PathBuf> {
     Some(home.join(CONFIG_FILE))
 }
 
-fn load_config() -> Option<TapConfig> {
-    let path = config_path()?;
+#[derive(Default)]
+struct ConfigCache {
+    checked_at: Option<Instant>,
+    path: Option<PathBuf>,
+    modified: Option<SystemTime>,
+    config: Option<TapConfig>,
+}
+
+fn parse_config(path: &PathBuf) -> Option<TapConfig> {
     let text = fs::read_to_string(path).ok()?;
     let mut config: TapConfig = serde_json::from_str(&text).ok()?;
     if !config.enabled
@@ -184,6 +195,34 @@ fn load_config() -> Option<TapConfig> {
         .max_body_bytes
         .clamp(1024, 64 * 1024 * 1024);
     Some(config)
+}
+
+fn load_config() -> Option<TapConfig> {
+    let path = config_path()?;
+    let now = Instant::now();
+    let cache = CONFIG_CACHE.get_or_init(|| Mutex::new(ConfigCache::default()));
+    let mut cache = cache.lock().ok()?;
+
+    if cache
+        .checked_at
+        .is_some_and(|checked| now.duration_since(checked) < CONFIG_CACHE_TTL)
+        && cache.path.as_ref() == Some(&path)
+    {
+        return cache.config.clone();
+    }
+
+    let modified = fs::metadata(&path).and_then(|meta| meta.modified()).ok();
+    if cache.path.as_ref() == Some(&path) && cache.modified == modified {
+        cache.checked_at = Some(now);
+        return cache.config.clone();
+    }
+
+    let config = parse_config(&path);
+    cache.checked_at = Some(now);
+    cache.path = Some(path);
+    cache.modified = modified;
+    cache.config = config.clone();
+    config
 }
 
 fn now_ms() -> u128 {
