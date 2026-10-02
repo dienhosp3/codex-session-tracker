@@ -256,6 +256,13 @@ class GatewayServer {
             bodySha256,
             ...(this.captureContent?{contentCapture:requestCapture.finish()}: {})
           });
+          if(bodySha256) await this.record({
+            ...eventBase,
+            stage:'UPSTREAM_BODY_FINGERPRINT',
+            at:Date.now(),
+            requestBytes,
+            bodySha256
+          });
           upstream.end();
         }catch(error){
           try{upstream.destroy(error);}catch{}
