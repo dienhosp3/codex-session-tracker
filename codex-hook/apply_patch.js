@@ -25,8 +25,7 @@ function write(file, content) {
   fs.writeFileSync(file, content.replace(/\r?\n/g, '\n'), 'utf8');
 }
 
-function run(root) {
-  root = path.resolve(root || '');
+function patchHttpClient(root) {
   const crate = path.join(root, 'codex-rs', 'http-client');
   const cargoFile = path.join(crate, 'Cargo.toml');
   const libFile = path.join(crate, 'src', 'lib.rs');
@@ -51,7 +50,20 @@ function run(root) {
 
   let lib = read(libFile);
   if (!/^mod tap;$/m.test(lib)) {
-    lib = replaceOnce(lib, 'mod tls_backend_fallback;\n', 'mod tls_backend_fallback;\nmod tap;\n', 'http-client tap module');
+    lib = replaceOnce(
+      lib,
+      'mod tls_backend_fallback;\n',
+      'mod tls_backend_fallback;\nmod tap;\n',
+      'http-client tap module'
+    );
+  }
+  if (!lib.includes('tracker_intercept_websocket_text')) {
+    lib = replaceOnce(
+      lib,
+      'pub use crate::route_aware_client_pool::RouteAwareClientPool;\n',
+      '#[doc(hidden)]\npub use crate::tap::tracker_intercept_websocket_binary;\n#[doc(hidden)]\npub use crate::tap::tracker_intercept_websocket_text;\n#[doc(hidden)]\npub use crate::tap::tracker_observe_websocket_binary;\n#[doc(hidden)]\npub use crate::tap::tracker_observe_websocket_text;\npub use crate::route_aware_client_pool::RouteAwareClientPool;\n',
+      'http-client hidden websocket hook exports'
+    );
   }
   write(libFile, lib);
 
@@ -64,6 +76,7 @@ function run(root) {
       'client tap import'
     );
   }
+
   const oldExecute = `    pub(crate) async fn execute_without_request_logging(
         &self,
         mut request: reqwest::Request,
@@ -72,6 +85,7 @@ function run(root) {
         request.headers_mut().extend(trace_headers());
         self.inner.execute(request).await
     }`;
+
   const newExecute = `    pub(crate) async fn execute_without_request_logging(
         &self,
         mut request: reqwest::Request,
@@ -80,8 +94,8 @@ function run(root) {
         request.headers_mut().extend(trace_headers());
 
         // Tracker hook runs after Codex has finalized the request but before reqwest
-        // hands it to TLS. It is fail-open: observation/mutation can never make the
-        // Tracker a hard dependency for normal Codex networking.
+        // hands it to TLS. Observation is non-blocking; mutation is fail-open and
+        // bounded to a short loopback preflight.
         let tap_context = tap::intercept_outbound(&mut request);
         match self.inner.execute(request).await {
             Ok(mut response) => {
@@ -98,6 +112,7 @@ function run(root) {
             }
         }
     }`;
+
   if (!client.includes('tap::intercept_outbound(&mut request)')) {
     client = replaceOnce(client, oldExecute, newExecute, 'TransportClient execute hook');
   }
@@ -111,6 +126,36 @@ function run(root) {
       'use crate::NetworkPolicy;\nuse crate::tap;\n',
       'response tap import'
     );
+  }
+
+  const oldIntoHttp = `    pub fn into_http_response(
+        self,
+    ) -> http::Response<impl http_body::Body<Data = Bytes, Error = HttpError> + Send> {
+        let response: http::Response<reqwest::Body> = self.inner.into();
+        let revoked = self.permit.clone();
+        response.map(|body| PolicyBody {
+            body: Some(Box::pin(body)),
+            permit: self.permit,
+            revoked: async move { revoked.revoked().await }.boxed(),
+        })
+    }`;
+
+  const newIntoHttp = `    pub fn into_http_response(
+        self,
+    ) -> http::Response<impl http_body::Body<Data = Bytes, Error = HttpError> + Send> {
+        let tap_context = tap::response_context(&self.inner);
+        let response: http::Response<reqwest::Body> = self.inner.into();
+        let revoked = self.permit.clone();
+        response.map(|body| PolicyBody {
+            body: Some(Box::pin(body)),
+            permit: self.permit,
+            revoked: async move { revoked.revoked().await }.boxed(),
+            tap_context,
+        })
+    }`;
+
+  if (!response.includes('tap_context,\n        })')) {
+    response = replaceOnce(response, oldIntoHttp, newIntoHttp, 'HttpResponse into_http_response hook');
   }
 
   const oldBytes = `    pub async fn bytes(self) -> Result<Bytes, HttpError> {
@@ -211,20 +256,183 @@ function run(root) {
   if (!response.includes('(Box::pin(self.inner.bytes_stream()), self.permit, tap_context)')) {
     response = replaceOnce(response, oldStream, newStream, 'HttpResponse stream hook');
   }
-  write(responseFile, response);
 
+  const oldPolicyBody = `struct PolicyBody<B> {
+    body: Option<Pin<Box<B>>>,
+    permit: NetworkPermit,
+    revoked: BoxFuture<'static, ()>,
+}`;
+  const newPolicyBody = `struct PolicyBody<B> {
+    body: Option<Pin<Box<B>>>,
+    permit: NetworkPermit,
+    revoked: BoxFuture<'static, ()>,
+    tap_context: Option<tap::TapContext>,
+}`;
+  if (!response.includes('tap_context: Option<tap::TapContext>')) {
+    response = replaceOnce(response, oldPolicyBody, newPolicyBody, 'PolicyBody tap context');
+  }
+
+  const oldPolicyPoll = `        inner
+            .as_mut()
+            .poll_frame(cx)
+            .map(|frame| frame.map(|frame| frame.map_err(HttpError::from)))`;
+
+  const newPolicyPoll = `        match inner.as_mut().poll_frame(cx) {
+            Poll::Ready(Some(Ok(frame))) => {
+                if let Some(context) = body.tap_context.as_ref()
+                    && let Some(bytes) = frame.data_ref()
+                {
+                    tap::emit_response_chunk(context, bytes);
+                }
+                Poll::Ready(Some(Ok(frame)))
+            }
+            Poll::Ready(Some(Err(error))) => {
+                if let Some(context) = body.tap_context.as_ref() {
+                    tap::emit_request_error(context, &error.to_string());
+                    tap::emit_response_end(context);
+                }
+                Poll::Ready(Some(Err(HttpError::from(error))))
+            }
+            Poll::Ready(None) => {
+                if let Some(context) = body.tap_context.as_ref() {
+                    tap::emit_response_end(context);
+                }
+                body.body = None;
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }`;
+
+  if (!response.includes('frame.data_ref()')) {
+    response = replaceOnce(response, oldPolicyPoll, newPolicyPoll, 'PolicyBody poll_frame hook');
+  }
+
+  write(responseFile, response);
   fs.copyFileSync(path.join(__dirname, 'src', 'tap.rs'), tapTarget);
+
+  return [cargoFile, libFile, clientFile, responseFile, tapTarget];
+}
+
+function patchWebsocketClient(root) {
+  const file = path.join(root, 'codex-rs', 'websocket-client', 'src', 'lib.rs');
+  if (!fs.existsSync(file)) fail('Expected Codex websocket source file not found: ' + file);
+  let source = read(file);
+
+  if (!source.includes('tracker_intercept_websocket_text')) {
+    source = replaceOnce(
+      source,
+      'use codex_http_client::OutboundProxyRoute;\n',
+      'use codex_http_client::OutboundProxyRoute;\nuse codex_http_client::tracker_intercept_websocket_binary;\nuse codex_http_client::tracker_intercept_websocket_text;\nuse codex_http_client::tracker_observe_websocket_binary;\nuse codex_http_client::tracker_observe_websocket_text;\n',
+      'websocket tracker hook imports'
+    );
+  }
+
+  if (!source.includes('WebSocketConnection::new(inner, permit, uri.to_string())')) {
+    source = replaceOnce(
+      source,
+      'Ok((WebSocketConnection::new(inner, permit), response))',
+      'Ok((WebSocketConnection::new(inner, permit, uri.to_string()), response))',
+      'websocket connection URL'
+    );
+  }
+
+  if (!source.includes('hook_url: String,')) {
+    source = replaceOnce(
+      source,
+      '    read_terminated: bool,\n}',
+      '    read_terminated: bool,\n    hook_url: String,\n}',
+      'websocket hook URL field'
+    );
+  }
+
+  if (!source.includes('fn new(inner: ConnectionInner, permit: NetworkPermit, hook_url: String)')) {
+    source = replaceOnce(
+      source,
+      '    fn new(inner: ConnectionInner, permit: NetworkPermit) -> Self {',
+      '    fn new(inner: ConnectionInner, permit: NetworkPermit, hook_url: String) -> Self {',
+      'websocket connection constructor'
+    );
+    source = replaceOnce(
+      source,
+      '            read_terminated: false,\n        }',
+      '            read_terminated: false,\n            hook_url,\n        }',
+      'websocket constructor hook URL'
+    );
+  }
+
+  const oldPollTail = `        if matches!(&next, Poll::Ready(None)) {
+            connection.read_terminated = true;
+        }
+        next`;
+  const newPollTail = `        match &next {
+            Poll::Ready(Some(Ok(Message::Text(text)))) => {
+                tracker_observe_websocket_text(&connection.hook_url, text.as_ref());
+            }
+            Poll::Ready(Some(Ok(Message::Binary(bytes)))) => {
+                tracker_observe_websocket_binary(&connection.hook_url, bytes.as_ref());
+            }
+            _ => {}
+        }
+        if matches!(&next, Poll::Ready(None)) {
+            connection.read_terminated = true;
+        }
+        next`;
+  if (!source.includes('tracker_observe_websocket_text(&connection.hook_url')) {
+    source = replaceOnce(source, oldPollTail, newPollTail, 'websocket inbound plaintext hook');
+  }
+
+  const oldStartSend = `    fn start_send(self: Pin<&mut Self>, message: Message) -> Result<(), Self::Error> {
+        let connection = self.get_mut();
+        if let Err(error) = connection.permit.check() {
+            connection.inner = None;
+            return Err(policy_error(error));
+        }
+        match &mut connection.inner {
+            Some(stream) => Pin::new(stream).start_send(message),
+            None => Err(WebSocketError::ConnectionClosed),
+        }
+    }`;
+
+  const newStartSend = `    fn start_send(self: Pin<&mut Self>, message: Message) -> Result<(), Self::Error> {
+        let connection = self.get_mut();
+        if let Err(error) = connection.permit.check() {
+            connection.inner = None;
+            return Err(policy_error(error));
+        }
+        let message = match message {
+            Message::Text(text) => Message::Text(
+                tracker_intercept_websocket_text(&connection.hook_url, text.to_string()).into(),
+            ),
+            Message::Binary(bytes) => Message::Binary(
+                tracker_intercept_websocket_binary(&connection.hook_url, bytes.as_ref()).into(),
+            ),
+            other => other,
+        };
+        match &mut connection.inner {
+            Some(stream) => Pin::new(stream).start_send(message),
+            None => Err(WebSocketError::ConnectionClosed),
+        }
+    }`;
+
+  if (!source.includes('tracker_intercept_websocket_text(&connection.hook_url')) {
+    source = replaceOnce(source, oldStartSend, newStartSend, 'websocket outbound plaintext hook');
+  }
+
+  write(file, source);
+  return [file];
+}
+
+function run(root) {
+  root = path.resolve(root || '');
+  const patched = [
+    ...patchHttpClient(root),
+    ...patchWebsocketClient(root)
+  ];
 
   return {
     expectedTag: EXPECTED_TAG,
     expectedCommit: EXPECTED_COMMIT,
-    patched: [
-      path.relative(root, cargoFile),
-      path.relative(root, libFile),
-      path.relative(root, clientFile),
-      path.relative(root, responseFile),
-      path.relative(root, tapTarget)
-    ]
+    patched: patched.map(file => path.relative(root, file))
   };
 }
 
