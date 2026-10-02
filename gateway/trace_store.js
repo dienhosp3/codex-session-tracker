@@ -21,7 +21,7 @@ class TraceStore {
     try {
       const stat = await fsp.stat(this.file);
       if (!stat.size) return;
-      const maxRead = Math.min(stat.size, Math.max(4 * 1024 * 1024, Math.min(this.maxBytes, 32 * 1024 * 1024)));
+      const maxRead = Math.min(stat.size, Math.max(4 * 1024 * 1024, Math.min(this.maxBytes, 72 * 1024 * 1024)));
       const start = Math.max(0, stat.size - maxRead);
       const handle = await fsp.open(this.file, 'r');
       let text = '';
