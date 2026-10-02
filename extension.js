@@ -40,9 +40,15 @@ let gatewayStatus = { enabled: false, running: false, error: '', address: null }
 let gatewayManagedState = { active: false, managed: false, drifted: false };
 let gatewayActionNotice = null;
 const GATEWAY_SETTINGS_KEY = 'codexSessionTracker.gatewaySettings.v1';
+const ORIGINAL_PROXY_ENV = Object.fromEntries(
+  ['HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY','http_proxy','https_proxy','all_proxy','no_proxy']
+    .map(key => [key, process.env[key]])
+);
+let gatewayProxyEnvApplied = false;
 
 function activate(context) {
   contextRef = context;
+  applyGatewayProcessEnvironment();
 
   const provider = new TrackerViewProvider();
   context.subscriptions.push(
@@ -145,6 +151,42 @@ function storedGatewaySettings() {
     captureMaxMb: legacy.get('gateway.captureMaxMb', 16),
     traceMaxMb: legacy.get('gateway.traceMaxMb', 64)
   };
+}
+
+function applyGatewayProcessEnvironment() {
+  const settings = storedGatewaySettings();
+  if (!settings.modelProxyEnabled || !settings.enabled) {
+    restoreOriginalProxyEnvironment();
+    return false;
+  }
+  const proxy = 'http://127.0.0.1:' + Number(settings.port || 8765);
+  process.env.HTTP_PROXY = proxy;
+  process.env.HTTPS_PROXY = proxy;
+  process.env.ALL_PROXY = proxy;
+  process.env.http_proxy = proxy;
+  process.env.https_proxy = proxy;
+  process.env.all_proxy = proxy;
+
+  const noProxyParts = new Set(
+    String(ORIGINAL_PROXY_ENV.NO_PROXY || ORIGINAL_PROXY_ENV.no_proxy || '')
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean)
+  );
+  noProxyParts.add('127.0.0.1');
+  noProxyParts.add('localhost');
+  process.env.NO_PROXY = Array.from(noProxyParts).join(',');
+  process.env.no_proxy = process.env.NO_PROXY;
+  gatewayProxyEnvApplied = true;
+  return true;
+}
+
+function restoreOriginalProxyEnvironment() {
+  for (const [key, value] of Object.entries(ORIGINAL_PROXY_ENV)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  gatewayProxyEnvApplied = false;
 }
 
 function config() {
@@ -294,38 +336,29 @@ function validateGatewaySettings(input = {}) {
 async function saveGatewaySettings(input) {
   try {
     const before = gatewaySettingsSnapshot();
-    const next = validateGatewaySettings(input);
-    let reloadRequired = false;
-    if (gatewayManagedState.active) {
-      if (next.enabled && next.modelProxyEnabled && next.upstreamBaseUrl) {
-        const localBase = `http://127.0.0.1:${next.port}/backend-api`;
-        await gatewayConfig.applyManagedConfig({
-          codexHome: config().codexHome,
-          storageDir: gatewayStorageDir(),
-          baseUrl: localBase,
-          originalTrackerSettings: gatewayManagedState.originalTrackerSettings || before
-        });
-        reloadRequired = next.port !== before.port;
-      } else {
-        await gatewayConfig.revertManagedConfig({
-          codexHome: config().codexHome,
-          storageDir: gatewayStorageDir()
-        });
-        reloadRequired = true;
-      }
-    }
+    const next = validateGatewaySettings({ ...input, upstreamBaseUrl: '' });
+    const transportChanged =
+      before.enabled !== next.enabled
+      || before.modelProxyEnabled !== next.modelProxyEnabled
+      || before.port !== next.port;
+
     await applyGatewaySettings(next);
+    applyGatewayProcessEnvironment();
+
     gatewayActionNotice = {
       kind: 'success',
-      text: reloadRequired ? 'Đã lưu cài đặt và cập nhật route Codex. Đang reload VS Code...' : 'Đã lưu toàn bộ cài đặt Gateway trên giao diện.',
+      text: transportChanged
+        ? 'Đã lưu proxy transport. Đang reload VS Code để Codex nhận proxy mới...'
+        : 'Đã lưu toàn bộ cài đặt Gateway trên giao diện.',
       at: Date.now()
     };
-    await refreshGatewayManagedState();
-    if (reloadRequired) {
+
+    if (transportChanged) {
       postViewState();
       await vscode.commands.executeCommand('workbench.action.reloadWindow');
       return;
     }
+
     await restartGateway();
   } catch (error) {
     gatewayActionNotice = { kind: 'error', text: friendlyError(error), at: Date.now() };
@@ -339,58 +372,57 @@ async function enableGatewayFullCapture(input = {}) {
     postViewState();
     return;
   }
-  const cfg = config();
-  const originalTrackerSettings = gatewaySettingsSnapshot(cfg);
+
+  const originalTrackerSettings = gatewaySettingsSnapshot();
   const requested = validateGatewaySettings({
     ...originalTrackerSettings,
     ...input,
     enabled: true,
     modelProxyEnabled: true,
+    upstreamBaseUrl: '',
     captureContent: true
   });
-  const port = requested.port;
-  const upstream = requested.upstreamBaseUrl || 'https://chatgpt.com/backend-api';
-  const localBase = `http://127.0.0.1:${port}/backend-api`;
-  let configApplied = false;
+
   try {
+    await refreshGatewayManagedState();
+
+    if (gatewayManagedState.active) {
+      await gatewayConfig.revertManagedConfig({
+        codexHome: config().codexHome,
+        storageDir: gatewayStorageDir(),
+        forceExact: false
+      });
+      await refreshGatewayManagedState();
+    }
+
     await applyGatewaySettings({
       enabled: true,
-      port,
+      port: requested.port,
       modelProxyEnabled: true,
-      upstreamBaseUrl: upstream,
+      upstreamBaseUrl: '',
       captureContent: true,
-      captureMaxMb: 64,
+      captureMaxMb: Math.max(16, Number(requested.captureMaxMb || 16)),
       traceMaxMb: Math.max(256, Number(requested.traceMaxMb || 64))
     });
+
+    applyGatewayProcessEnvironment();
     const activeGateway = await restartGateway();
     const diagnostics = activeGateway && activeGateway.diagnostics();
     if (!activeGateway || !diagnostics || !diagnostics.modelProxyReady) {
-      throw new Error('Gateway proxy chưa sẵn sàng nên Tracker không sửa Codex config.');
+      throw new Error('Gateway forward proxy chưa sẵn sàng.');
     }
 
-    await gatewayConfig.applyManagedConfig({
-      codexHome: cfg.codexHome,
-      storageDir: gatewayStorageDir(),
-      baseUrl: localBase,
-      originalTrackerSettings
-    });
-    configApplied = true;
-    await refreshGatewayManagedState();
-    gatewayActionNotice = { kind: 'success', text: 'Đã backup cấu hình gốc, route Codex qua Gateway và bật bắt nội dung đầy đủ. Đang reload VS Code...', at: Date.now() };
+    gatewayActionNotice = {
+      kind: 'success',
+      text: 'Đã gỡ route localhost cũ, giữ nguyên HTTPS origin của Codex và bật forward proxy local. Đang reload VS Code...',
+      at: Date.now()
+    };
     postViewState();
     await vscode.commands.executeCommand('workbench.action.reloadWindow');
   } catch (error) {
-    if (configApplied) {
-      try {
-        await gatewayConfig.revertManagedConfig({
-          codexHome: cfg.codexHome,
-          storageDir: gatewayStorageDir(),
-          forceExact: true
-        });
-      } catch {}
-    }
     try {
       await applyGatewaySettings(originalTrackerSettings);
+      applyGatewayProcessEnvironment();
       await restartGateway();
     } catch {}
     gatewayActionNotice = { kind: 'error', text: friendlyError(error), at: Date.now() };
@@ -411,22 +443,38 @@ async function restoreTrackerGatewaySettings(saved) {
 async function revertGatewayManaged(forceExact) {
   const cfg = config();
   try {
-    if (forceExact) {
-      const answer = await vscode.window.showWarningMessage(
-        'Khôi phục snapshot config.toml gốc sẽ ghi đè thay đổi config phát sinh sau khi bật Gateway. Tiếp tục?',
-        { modal: true },
-        'Khôi phục snapshot gốc'
-      );
-      if (answer !== 'Khôi phục snapshot gốc') return;
-    }
-    const result = await gatewayConfig.revertManagedConfig({
-      codexHome: cfg.codexHome,
-      storageDir: gatewayStorageDir(),
-      forceExact: Boolean(forceExact)
-    });
-    await restoreTrackerGatewaySettings(result.originalTrackerSettings || gatewayManagedState.originalTrackerSettings);
     await refreshGatewayManagedState();
-    gatewayActionNotice = { kind: 'success', text: result.mode === 'merge' ? 'Đã gỡ route Gateway và giữ các thay đổi config khác.' : 'Đã khôi phục đúng snapshot cấu hình gốc.', at: Date.now() };
+    if (gatewayManagedState.active) {
+      if (forceExact) {
+        const answer = await vscode.window.showWarningMessage(
+          'Khôi phục snapshot config.toml gốc sẽ ghi đè thay đổi config phát sinh sau khi bật Gateway cũ. Tiếp tục?',
+          { modal: true },
+          'Khôi phục snapshot gốc'
+        );
+        if (answer !== 'Khôi phục snapshot gốc') return;
+      }
+      await gatewayConfig.revertManagedConfig({
+        codexHome: cfg.codexHome,
+        storageDir: gatewayStorageDir(),
+        forceExact: Boolean(forceExact)
+      });
+    }
+
+    const current = storedGatewaySettings();
+    await applyGatewaySettings({
+      ...current,
+      modelProxyEnabled: false,
+      upstreamBaseUrl: '',
+      captureContent: false
+    });
+    restoreOriginalProxyEnvironment();
+    await refreshGatewayManagedState();
+
+    gatewayActionNotice = {
+      kind: 'success',
+      text: 'Đã tắt forward proxy và khôi phục route HTTPS gốc của Codex. Đang reload VS Code...',
+      at: Date.now()
+    };
     postViewState();
     await vscode.commands.executeCommand('workbench.action.reloadWindow');
   } catch (error) {
@@ -1020,10 +1068,13 @@ function postViewState() {
           modelProxyReady: false,
           modelTrafficObserved: false,
           lastModelNetworkAt: 0,
+          transportTrafficObserved: false,
+          lastTransportNetworkAt: 0,
           websocketProxyReady: false,
           captureContent: false,
           captureMaxBytes: 0
         }),
+        proxyEnvironmentApplied: gatewayProxyEnvApplied,
         commands: gatewayThreadDiagnostics(),
         traffic: gateway ? gateway.trafficIndex(250) : [],
         settings: gatewaySettingsSnapshot(),
