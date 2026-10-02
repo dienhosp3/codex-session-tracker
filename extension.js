@@ -331,13 +331,8 @@ async function enableGatewayFullCapture(input = {}) {
   const port = requested.port;
   const upstream = requested.upstreamBaseUrl || 'https://chatgpt.com/backend-api';
   const localBase = `http://127.0.0.1:${port}/backend-api`;
+  let configApplied = false;
   try {
-    await gatewayConfig.applyManagedConfig({
-      codexHome: cfg.codexHome,
-      storageDir: gatewayStorageDir(),
-      baseUrl: localBase,
-      originalTrackerSettings
-    });
     await applyGatewaySettings({
       enabled: true,
       port,
@@ -347,12 +342,37 @@ async function enableGatewayFullCapture(input = {}) {
       captureMaxMb: 64,
       traceMaxMb: Math.max(256, Number(requested.traceMaxMb || 64))
     });
+    const activeGateway = await restartGateway();
+    const diagnostics = activeGateway && activeGateway.diagnostics();
+    if (!activeGateway || !diagnostics || !diagnostics.modelProxyReady) {
+      throw new Error('Gateway proxy chưa sẵn sàng nên Tracker không sửa Codex config.');
+    }
+
+    await gatewayConfig.applyManagedConfig({
+      codexHome: cfg.codexHome,
+      storageDir: gatewayStorageDir(),
+      baseUrl: localBase,
+      originalTrackerSettings
+    });
+    configApplied = true;
     await refreshGatewayManagedState();
     gatewayActionNotice = { kind: 'success', text: 'Đã backup cấu hình gốc, route Codex qua Gateway và bật bắt nội dung đầy đủ. Đang reload VS Code...', at: Date.now() };
     postViewState();
     await vscode.commands.executeCommand('workbench.action.reloadWindow');
   } catch (error) {
-    try { await gatewayConfig.revertManagedConfig({ codexHome: cfg.codexHome, storageDir: gatewayStorageDir() }); } catch {}
+    if (configApplied) {
+      try {
+        await gatewayConfig.revertManagedConfig({
+          codexHome: cfg.codexHome,
+          storageDir: gatewayStorageDir(),
+          forceExact: true
+        });
+      } catch {}
+    }
+    try {
+      await applyGatewaySettings(originalTrackerSettings);
+      await restartGateway();
+    } catch {}
     gatewayActionNotice = { kind: 'error', text: friendlyError(error), at: Date.now() };
     await refreshGatewayManagedState();
     postViewState();
