@@ -332,9 +332,10 @@ function renderGateway(){
   const status=g.running?'Gateway chạy '+esc((g.address&&g.address.host||'127.0.0.1')+':'+(g.address&&g.address.port||'')):(g.enabled?'Gateway lỗi: '+esc(g.error||'không chạy'):'Gateway tắt');
   const runtime=[g.extensionRuntime&&g.extensionRuntime.version?'Extension '+g.extensionRuntime.version:'',g.cliVersion?'CLI '+g.cliVersion:''].filter(Boolean).join(' · ');
   const proxy=g.modelProxyReady?(g.transportTrafficObserved?'forward proxy: ĐÃ THẤY TRAFFIC':'forward proxy: READY, CHƯA THẤY TRAFFIC'):(g.modelProxyConfigured?'forward proxy: CHƯA SẴN SÀNG':'forward proxy: TẮT');
+  const hook=g.httpHookRunning?(g.httpHookTrafficObserved?'HTTP hook: PLAINTEXT ĐANG CHẠY':g.httpHookConnectedClients?'HTTP hook: ĐÃ KẾT NỐI':'HTTP hook: LISTEN, CHỜ CODEX'):'HTTP hook: TẮT';
   const managedText=managed.active?(managed.managed?'Legacy route: Tracker còn quản lý chatgpt_base_url':managed.drifted?'Legacy route: config đã đổi sau lần route cũ':'Legacy route: trạng thái không khớp'):'Codex HTTPS origin: giữ nguyên, không rewrite chatgpt_base_url';
   const originalLine=managed.active?(managed.originalRootLine?(' · gốc: '+managed.originalRootLine):' · gốc: không có chatgpt_base_url override'):(managed.currentRootLine?(' · hiện tại: '+managed.currentRootLine):' · hiện tại: dùng backend mặc định');
-  let html='<section class="card"><div class="card-title">Trạng thái giao tiếp</div><div class="gateway-meta">'+status+' · '+proxy+(g.websocketProxyReady?' · WS proxy sẵn sàng':'')+(g.lastModelNetworkAt?' · traffic '+esc(relTime(g.lastModelNetworkAt)):'')+(runtime?' · '+esc(runtime):'')+'</div><div class="gateway-meta" style="margin-top:3px">'+esc(managedText)+esc(originalLine)+(managed.configPath?' · '+esc(managed.configPath):'')+'</div>';
+  let html='<section class="card"><div class="card-title">Trạng thái giao tiếp</div><div class="gateway-meta">'+status+' · '+proxy+' · '+hook+(g.websocketProxyReady?' · WS proxy sẵn sàng':'')+(g.lastHttpHookAt?' · plaintext '+esc(relTime(g.lastHttpHookAt)):'')+(runtime?' · '+esc(runtime):'')+'</div><div class="gateway-meta" style="margin-top:3px">'+esc(managedText)+esc(originalLine)+(managed.configPath?' · '+esc(managed.configPath):'')+'</div>';
 
   if(cmd){
     const events=Array.isArray(cmd.events)?cmd.events:[];
@@ -349,21 +350,25 @@ function renderGateway(){
 
   html+='<div class="gateway-settings">'+
     '<label class="gateway-check"><input id="gwEnabled" type="checkbox" '+(settings.enabled?'checked':'')+'> Chạy Gateway local</label>'+
-    '<div class="gateway-setting"><label>Port</label><input id="gwPort" type="number" min="1" max="65535" value="'+esc(settings.port||8765)+'"></div>'+
+    '<div class="gateway-setting"><label>Transport port</label><input id="gwPort" type="number" min="1" max="65535" value="'+esc(settings.port||8765)+'"></div>'+
     '<label class="gateway-check"><input id="gwProxy" type="checkbox" '+(settings.modelProxyEnabled?'checked':'')+'> Route Codex qua local forward proxy, giữ nguyên HTTPS origin thật</label>'+
-    '<label class="gateway-check"><input id="gwCapture" type="checkbox" '+(settings.captureContent?'checked':'')+'> Lưu plaintext khi transport cung cấp; HTTPS CONNECT pass-through chỉ có byte/timing</label>'+
+    '<label class="gateway-check"><input id="gwHttpHook" type="checkbox" '+(settings.httpHookEnabled?'checked':'')+'> Bật plaintext HTTP hook trước TLS / sau TLS</label>'+
+    '<div class="gateway-setting"><label>HTTP hook port</label><input id="gwHttpHookPort" type="number" min="1" max="65535" value="'+esc(settings.httpHookPort||8767)+'"></div>'+
+    '<label class="gateway-check"><input id="gwHttpHookMutate" type="checkbox" '+(settings.httpHookMutationEnabled?'checked':'')+'> Cho phép mutation preflight (hiện mặc định PASS; bộ lọc sẽ thêm sau)</label>'+
+    '<label class="gateway-check"><input id="gwCapture" type="checkbox" '+(settings.captureContent?'checked':'')+'> Capture content của lớp transport fallback</label>'+
     '<div class="gateway-setting"><label>Giới hạn content capture (MiB)</label><input id="gwCaptureMax" type="number" min="1" max="64" value="'+esc(settings.captureMaxMb||16)+'"></div>'+
     '<div class="gateway-setting"><label>Trace local trước khi rotate (MiB)</label><input id="gwTraceMax" type="number" min="8" max="512" value="'+esc(settings.traceMaxMb||64)+'"></div>'+
-    '<div class="gateway-actions"><button id="gwSave">Lưu cài đặt</button><button id="gwEnableFull" class="primary">Bật forward proxy + Reload</button><button id="gwTraffic">Mở Traffic Monitor</button>'+
+    '<div class="gateway-actions"><button id="gwSave">Lưu cài đặt</button><button id="gwEnableFull" class="primary">Bật transport + plaintext hook</button><button id="gwTraffic">Mở Traffic Monitor</button></div>'+
+    '<div class="gateway-actions"><button id="gwHookBuild">Build Codex HTTP Hook 0.159.2</button><button id="gwHookInstall" class="primary">Cài hook daemon</button><button id="gwHookRestore">Khôi phục Codex chính thức</button>'+
       (settings.modelProxyEnabled||managed.active?'<button id="gwRevert">Tắt proxy + khôi phục route + Reload</button>':'')+
       (managed.active?'<button id="gwForceRestore" class="danger">Khôi phục snapshot config cũ + Reload</button>':'')+
     '</div>'+
     (g.actionNotice&&g.actionNotice.text?'<div class="gateway-notice '+(g.actionNotice.kind==='success'?'ok':'err')+'">'+esc(g.actionNotice.text)+'</div>':'')+
-    '<div class="gateway-meta wide">Forward proxy không đổi chatgpt_base_url, nên account/workspace vẫn nhìn thấy HTTPS origin thật. Pause trong Traffic Monitor chỉ đóng băng màn hình, không chặn network.</div>'+
+    '<div class="gateway-meta wide">Plaintext hook chạy trong codex-http-client trước khi reqwest giao request cho TLS và khi response body đã ra khỏi TLS. Header credential vẫn bị che trong Tracker; body giữ nguyên theo giới hạn capture. Mutation fail-open: Tracker mất kết nối thì Codex vẫn gửi request gốc.</div>'+
   '</div>';
 
   html+='<div style="margin-top:9px;padding-top:8px;border-top:1px solid var(--vscode-panel-border)"><div class="card-title">Traffic Codex ↔ backend</div>'+
-    '<div class="gateway-meta">'+(g.transportTrafficObserved?'Đã thấy transport traffic qua Gateway.':'Chưa thấy transport traffic qua Gateway.')+' HTTPS CONNECT pass-through giữ chat ổn định nhưng payload TLS vẫn mã hóa ở tầng proxy.</div>'+
+    '<div class="gateway-meta">'+(g.httpHookTrafficObserved?'Đã thấy PLAINTEXT request/response từ Codex HTTP hook.':g.transportTrafficObserved?'Đã thấy transport traffic; đang chờ plaintext hook.':'Chưa thấy traffic.')+' Forward proxy vẫn giữ HTTPS origin thật; hook mới là nguồn plaintext trước/sau TLS.</div>'+
     '<div class="gateway-actions" style="margin-top:7px"><button id="gwTrafficInline" class="primary">Mở Traffic Monitor</button></div></div></section>';
   return html;
 }
@@ -375,16 +380,22 @@ function readGatewaySettingsFromUi(){
     upstreamBaseUrl:'',
     captureContent:Boolean(document.getElementById('gwCapture')&&document.getElementById('gwCapture').checked),
     captureMaxMb:Number(document.getElementById('gwCaptureMax')&&document.getElementById('gwCaptureMax').value||16),
-    traceMaxMb:Number(document.getElementById('gwTraceMax')&&document.getElementById('gwTraceMax').value||64)
+    traceMaxMb:Number(document.getElementById('gwTraceMax')&&document.getElementById('gwTraceMax').value||64),
+    httpHookEnabled:Boolean(document.getElementById('gwHttpHook')&&document.getElementById('gwHttpHook').checked),
+    httpHookPort:Number(document.getElementById('gwHttpHookPort')&&document.getElementById('gwHttpHookPort').value||8767),
+    httpHookMutationEnabled:Boolean(document.getElementById('gwHttpHookMutate')&&document.getElementById('gwHttpHookMutate').checked)
   };
 }
 function bindGatewayUi(){
-  const ids=['gwEnabled','gwPort','gwProxy','gwCapture','gwCaptureMax','gwTraceMax'];
+  const ids=['gwEnabled','gwPort','gwProxy','gwHttpHook','gwHttpHookPort','gwHttpHookMutate','gwCapture','gwCaptureMax','gwTraceMax'];
   const updateDraft=()=>{gatewaySettingsDraft=readGatewaySettingsFromUi()};
   for(const id of ids){const el=document.getElementById(id);if(el){el.oninput=updateDraft;el.onchange=updateDraft}}
   const save=document.getElementById('gwSave');if(save)save.onclick=()=>{const value=readGatewaySettingsFromUi();gatewaySettingsDraft=value;vscode.postMessage({command:'saveGatewaySettings',settings:value})};
   const enable=document.getElementById('gwEnableFull');if(enable)enable.onclick=()=>vscode.postMessage({command:'enableGatewayFullCapture',settings:readGatewaySettingsFromUi()});
   const traffic=document.getElementById('gwTraffic');if(traffic)traffic.onclick=()=>vscode.postMessage({command:'openTrafficMonitor'});
+  const hookBuild=document.getElementById('gwHookBuild');if(hookBuild)hookBuild.onclick=()=>vscode.postMessage({command:'buildInstrumentedCodex'});
+  const hookInstall=document.getElementById('gwHookInstall');if(hookInstall)hookInstall.onclick=()=>vscode.postMessage({command:'installInstrumentedCodex'});
+  const hookRestore=document.getElementById('gwHookRestore');if(hookRestore)hookRestore.onclick=()=>vscode.postMessage({command:'restoreOfficialCodexDaemon'});
   const trafficInline=document.getElementById('gwTrafficInline');if(trafficInline)trafficInline.onclick=()=>vscode.postMessage({command:'openTrafficMonitor'});
   const revert=document.getElementById('gwRevert');if(revert)revert.onclick=()=>vscode.postMessage({command:'revertGatewayManaged'});
   const force=document.getElementById('gwForceRestore');if(force)force.onclick=()=>vscode.postMessage({command:'forceRestoreGatewayManaged'});
