@@ -1150,7 +1150,7 @@ function postViewState() {
         }),
         proxyEnvironmentApplied: gatewayProxyEnvApplied,
         commands: gatewayThreadDiagnostics(),
-        traffic: gateway ? gateway.trafficIndex(250) : [],
+        traffic: [],
         settings: gatewaySettingsSnapshot(),
         managedConfig: gatewayManagedState,
         actionNotice: gatewayActionNotice,
