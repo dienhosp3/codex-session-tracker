@@ -80,6 +80,8 @@ cat > "$STAGE/[Content_Types].xml" <<'XML'
   <Default Extension="html" ContentType="text/html" />
   <Default Extension="svg" ContentType="image/svg+xml" />
   <Default Extension="txt" ContentType="text/plain" />
+  <Default Extension="ps1" ContentType="text/plain" />
+  <Default Extension="rs" ContentType="text/plain" />
   <Default Extension="vsixmanifest" ContentType="text/xml" />
 </Types>
 XML
