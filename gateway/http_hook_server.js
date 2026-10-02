@@ -6,6 +6,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 const { URL } = require('url');
 const { redactHeaders, safeError } = require('./redaction');
+const { classifyRequest } = require('./classifier');
 
 const CONFIG_FILE = 'codex-session-tracker-http-hook.json';
 
@@ -272,6 +273,7 @@ class HttpHookServer {
       path: eventPath(url),
       targetHost: eventHost(url),
       statusCode: Number(input.statusCode || 0),
+      kind: classifyRequest({ method: String(input.method || ''), path: eventPath(url), upgrade: false }),
       headers: redactHeaders(input.headers || {}),
       hookPlaintext: true,
       hookLogical: Boolean(input.logical),
