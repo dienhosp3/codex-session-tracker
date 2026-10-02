@@ -119,6 +119,47 @@
           "type": "string",
           "default": "",
           "description": "Optional path to the Codex CLI binary used for official queue delivery. Steer uses the live Codex Extension IPC owner and does not use this path. Empty auto-detects PATH or the OpenAI Codex extension bundle."
+        },
+        "codexSessionTracker.gateway.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
+        },
+        "codexSessionTracker.gateway.port": {
+          "type": "number",
+          "default": 8765,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
+        },
+        "codexSessionTracker.gateway.modelProxyEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
+        },
+        "codexSessionTracker.gateway.upstreamBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
+        },
+        "codexSessionTracker.gateway.captureContent": {
+          "type": "boolean",
+          "default": false,
+          "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
+        },
+        "codexSessionTracker.gateway.captureMaxMb": {
+          "type": "number",
+          "default": 16,
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
+        },
+        "codexSessionTracker.gateway.traceMaxMb": {
+          "type": "number",
+          "default": 64,
+          "minimum": 8,
+          "maximum": 512,
+          "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
         }
       }
     },
