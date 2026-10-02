@@ -26,12 +26,18 @@ function tunnelConnect(req, clientSocket, head, options = {}) {
   const record = typeof options.record === 'function' ? options.record : async () => {};
   const startedAt = Date.now();
   const upstream = net.connect(target.port, target.host);
+
   let clientToServerBytes = 0;
   let serverToClientBytes = 0;
   let pendingOut = 0;
   let pendingIn = 0;
   let flushTimer = null;
   let opened = false;
+  let clientClosed = false;
+  let upstreamClosed = false;
+  let summaryRecorded = false;
+  let resolveDone;
+  const done = new Promise(resolve => { resolveDone = resolve; });
 
   const flushTraffic = () => {
     if (flushTimer) {
@@ -70,9 +76,36 @@ function tunnelConnect(req, clientSocket, head, options = {}) {
   const scheduleFlush = () => {
     if (flushTimer) return;
     flushTimer = setTimeout(flushTraffic, 100);
+    if (flushTimer && typeof flushTimer.unref === 'function') flushTimer.unref();
   };
 
-  const closeBoth = () => {
+  const recordSummary = reason => {
+    if (summaryRecorded) return;
+    summaryRecorded = true;
+    flushTraffic();
+    record({
+      type: 'connect_tunnel',
+      stage: 'TUNNEL_CLOSED',
+      connectionId,
+      at: Date.now(),
+      targetHost: target.host,
+      targetPort: target.port,
+      inspected: false,
+      closeReason: reason || '',
+      clientToServerBytes,
+      serverToClientBytes,
+      totalMs: Date.now() - startedAt
+    }).catch(() => {});
+  };
+
+  const maybeDone = reason => {
+    if (!clientClosed || !upstreamClosed) return;
+    recordSummary(reason);
+    resolveDone();
+  };
+
+  const close = reason => {
+    recordSummary(reason || 'forced');
     try { clientSocket.destroy(); } catch {}
     try { upstream.destroy(); } catch {}
   };
@@ -131,34 +164,33 @@ function tunnelConnect(req, clientSocket, head, options = {}) {
     if (!opened) {
       try { clientSocket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n'); } catch {}
     }
-    closeBoth();
+    close('upstream-error');
   });
 
-  const finish = stage => {
-    flushTraffic();
-    record({
-      type: 'connect_tunnel',
-      stage,
-      connectionId,
-      at: Date.now(),
-      targetHost: target.host,
-      targetPort: target.port,
-      inspected: false,
-      clientToServerBytes,
-      serverToClientBytes,
-      totalMs: Date.now() - startedAt
-    }).catch(() => {});
-  };
+  clientSocket.on('error', () => close('client-error'));
 
   clientSocket.on('close', () => {
-    finish('CLIENT_CLOSED');
-    try { upstream.end(); } catch {}
+    clientClosed = true;
+    try {
+      if (!upstream.destroyed) upstream.destroy();
+    } catch {}
+    maybeDone('client-closed');
   });
+
   upstream.on('close', () => {
-    finish('UPSTREAM_CLOSED');
-    try { clientSocket.end(); } catch {}
+    upstreamClosed = true;
+    try {
+      if (!clientSocket.destroyed) clientSocket.destroy();
+    } catch {}
+    maybeDone('upstream-closed');
   });
-  clientSocket.on('error', closeBoth);
+
+  return {
+    connectionId,
+    target,
+    close,
+    done
+  };
 }
 
 module.exports = { parseAuthority, tunnelConnect };
