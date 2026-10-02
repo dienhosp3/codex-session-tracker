@@ -363,9 +363,9 @@ function renderGateway(){
   '</div>';
 
   html+='<div style="margin-top:9px;padding-top:8px;border-top:1px solid var(--vscode-panel-border)"><div class="card-title">Traffic Codex ↔ backend</div>'+
-    '<div class="gateway-meta">Capture nội dung: '+(g.captureContent?'BẬT':'TẮT')+' · '+(g.captureMaxBytes?Math.round(g.captureMaxBytes/1048576)+' MiB/event':'--')+'. Header auth/cookie vẫn bị che; body được giữ nguyên khi capture bật.</div>';
+    '<div class="gateway-meta">Capture nội dung: '+(g.captureContent?'BẬT':'TẮT')+' · '+(g.captureMaxBytes?Math.round(g.captureMaxBytes/1048576)+' MiB/event':'--')+'. Đang hiển thị tối đa 250 event gần nhất; header auth/cookie vẫn bị che, body được giữ nguyên khi capture bật.</div>';
   if(!traffic.length) html+='<div class="sub" style="margin-top:5px">Chưa có traffic đi qua Gateway.</div>';
-  else html+='<div class="traffic-list">'+traffic.slice().reverse().slice(0,40).map(e=>{
+  else html+='<div class="traffic-list">'+traffic.slice().reverse().map(e=>{
     const dir=e.type==='ws_frame'?(e.direction==='out'?'out':'in'):(e.stage==='UPSTREAM_BODY_FINISHED'?'out':e.stage==='UPSTREAM_FINISHED'?'in':'');
     const bytes=e.totalContentBytes||e.requestBytes||e.responseBytes||e.size||0;
     const meta=[e.kind,e.method,e.path,bytes?bytes+' B':'',e.statusCode?('HTTP '+e.statusCode):'',e.totalMs?e.totalMs+' ms':''].filter(Boolean).join(' · ');
