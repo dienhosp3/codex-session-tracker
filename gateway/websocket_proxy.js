@@ -177,14 +177,14 @@ function proxyWebSocket(req, clientSocket, head, options = {}) {
 
   const outboundFrames = frameParser('out', frame => {
     record({ type: 'ws_frame', connectionId, kind, at: Date.now(), ...frame }).catch(()=>{});
-    if (firstOutbound) {
+    if (firstOutbound && (frame.opcode === 0 || frame.opcode === 1 || frame.opcode === 2)) {
       firstOutbound = false;
       record({ type:'ws_connection', stage:'UPSTREAM_BYTES_SENT', connectionId, kind, at:Date.now(), frameSize:frame.size, ...(frame.bodySha256?{bodySha256:frame.bodySha256}:{}) }).catch(()=>{});
     }
   }, { captureContent, captureMaxBytes });
   const inboundFrames = frameParser('in', frame => {
     record({ type: 'ws_frame', connectionId, kind, at: Date.now(), ...frame }).catch(()=>{});
-    if (firstInbound) {
+    if (firstInbound && (frame.opcode === 0 || frame.opcode === 1 || frame.opcode === 2)) {
       firstInbound = false;
       record({ type:'ws_connection', stage:'UPSTREAM_FIRST_EVENT', connectionId, kind, at:Date.now(), frameSize:frame.size }).catch(()=>{});
     }
