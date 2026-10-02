@@ -3,6 +3,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
+const childProcess = require('child_process');
 const tracker = require('./tracker');
 const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
@@ -41,6 +42,8 @@ let gatewayStatus = { enabled: false, running: false, error: '', address: null }
 let gatewayManagedState = { active: false, managed: false, drifted: false };
 let gatewayActionNotice = null;
 const GATEWAY_SETTINGS_KEY = 'codexSessionTracker.gatewaySettings.v1';
+const HTTP_HOOK_INSTALL_KEY = 'codexSessionTracker.httpHookInstall.v1';
+const HTTP_HOOK_CODEX_VERSION = '0.159.2';
 const ORIGINAL_PROXY_ENV = Object.fromEntries(
   ['HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY','http_proxy','https_proxy','all_proxy','no_proxy']
     .map(key => [key, process.env[key]])
@@ -80,6 +83,9 @@ async function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }),
     vscode.commands.registerCommand('codexSessionTracker.exportGatewayDiagnostics', exportGatewayDiagnostics),
     vscode.commands.registerCommand('codexSessionTracker.openTrafficMonitor', openTrafficMonitor),
+    vscode.commands.registerCommand('codexSessionTracker.buildInstrumentedCodex', buildInstrumentedCodex),
+    vscode.commands.registerCommand('codexSessionTracker.installInstrumentedCodex', installInstrumentedCodex),
+    vscode.commands.registerCommand('codexSessionTracker.restoreOfficialCodexDaemon', restoreOfficialCodexDaemon),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (!event.affectsConfiguration('codexSessionTracker')) return;
       restartPolling();
@@ -130,6 +136,9 @@ class TrackerViewProvider {
       if (message.command === 'forceRestoreGatewayManaged') await revertGatewayManaged(true);
       if (message.command === 'loadGatewayPayload') await sendGatewayPayload(message.traceId, message.offset);
       if (message.command === 'openTrafficMonitor') await openTrafficMonitor();
+      if (message.command === 'buildInstrumentedCodex') await buildInstrumentedCodex();
+      if (message.command === 'installInstrumentedCodex') await installInstrumentedCodex();
+      if (message.command === 'restoreOfficialCodexDaemon') await restoreOfficialCodexDaemon();
     }, null, contextRef.subscriptions);
 
     webviewView.onDidChangeVisibility(() => {
@@ -151,7 +160,10 @@ function storedGatewaySettings() {
       upstreamBaseUrl: String(value.upstreamBaseUrl || ''),
       captureContent: Boolean(value.captureContent),
       captureMaxMb: Number(value.captureMaxMb || 16),
-      traceMaxMb: Number(value.traceMaxMb || 64)
+      traceMaxMb: Number(value.traceMaxMb || 64),
+      httpHookEnabled: Boolean(value.httpHookEnabled),
+      httpHookPort: Number(value.httpHookPort || 8767),
+      httpHookMutationEnabled: Boolean(value.httpHookMutationEnabled)
     };
   }
 
@@ -163,7 +175,10 @@ function storedGatewaySettings() {
     upstreamBaseUrl: legacy.get('gateway.upstreamBaseUrl', ''),
     captureContent: legacy.get('gateway.captureContent', false),
     captureMaxMb: legacy.get('gateway.captureMaxMb', 16),
-    traceMaxMb: legacy.get('gateway.traceMaxMb', 64)
+    traceMaxMb: legacy.get('gateway.traceMaxMb', 64),
+    httpHookEnabled: false,
+    httpHookPort: 8767,
+    httpHookMutationEnabled: false
   };
 }
 
@@ -225,7 +240,10 @@ function config() {
     gatewayUpstreamBaseUrl: gatewaySettings.upstreamBaseUrl,
     gatewayCaptureContent: gatewaySettings.captureContent,
     gatewayCaptureMaxMb: gatewaySettings.captureMaxMb,
-    gatewayTraceMaxMb: gatewaySettings.traceMaxMb
+    gatewayTraceMaxMb: gatewaySettings.traceMaxMb,
+    gatewayHttpHookEnabled: gatewaySettings.httpHookEnabled,
+    gatewayHttpHookPort: gatewaySettings.httpHookPort,
+    gatewayHttpHookMutationEnabled: gatewaySettings.httpHookMutationEnabled
   };
 }
 
@@ -246,6 +264,8 @@ async function startGateway() {
     captureContent: cfg.gatewayCaptureContent,
     captureMaxBytes: Math.max(1, Number(cfg.gatewayCaptureMaxMb || 16)) * 1024 * 1024,
     traceMaxBytes: Math.max(8, Number(cfg.gatewayTraceMaxMb || 64)) * 1024 * 1024,
+    httpHookPort: cfg.gatewayHttpHookPort,
+    httpHookMutationEnabled: cfg.gatewayHttpHookMutationEnabled,
     handlers: {
       steer: async input => codexSteer.steerViaExtensionIpc({
         threadId: input.threadId,
@@ -276,6 +296,11 @@ async function startGateway() {
   });
   try {
     const address = await gateway.start();
+    if (cfg.gatewayHttpHookEnabled) {
+      await gateway.httpHook.writeConfig(cfg.codexHome);
+    } else {
+      await gateway.httpHook.removeConfig(cfg.codexHome);
+    }
     gatewayStatus = { enabled: true, running: true, error: '', address: { host: address.host, port: address.port } };
   } catch (error) {
     gatewayStatus = { enabled: true, running: false, error: friendlyError(error), address: null };
@@ -341,7 +366,10 @@ function gatewaySettingsSnapshot(cfg = config()) {
     upstreamBaseUrl: String(cfg.gatewayUpstreamBaseUrl || ''),
     captureContent: Boolean(cfg.gatewayCaptureContent),
     captureMaxMb: Number(cfg.gatewayCaptureMaxMb || 16),
-    traceMaxMb: Number(cfg.gatewayTraceMaxMb || 64)
+    traceMaxMb: Number(cfg.gatewayTraceMaxMb || 64),
+    httpHookEnabled: Boolean(cfg.gatewayHttpHookEnabled),
+    httpHookPort: Number(cfg.gatewayHttpHookPort || 8767),
+    httpHookMutationEnabled: Boolean(cfg.gatewayHttpHookMutationEnabled)
   };
 }
 
@@ -356,10 +384,13 @@ function validateGatewaySettings(input = {}) {
   const port = Math.round(Number(input.port || 8765));
   const captureMaxMb = Math.round(Number(input.captureMaxMb || 16));
   const traceMaxMb = Math.round(Number(input.traceMaxMb || 64));
+  const httpHookPort = Math.round(Number(input.httpHookPort || 8767));
   const upstreamBaseUrl = String(input.upstreamBaseUrl || '').trim();
   if (port < 1 || port > 65535) throw new Error('Gateway port phải nằm trong 1..65535.');
   if (captureMaxMb < 1 || captureMaxMb > 64) throw new Error('Giới hạn nội dung phải nằm trong 1..64 MiB.');
   if (traceMaxMb < 8 || traceMaxMb > 512) throw new Error('Giới hạn trace phải nằm trong 8..512 MiB.');
+  if (httpHookPort < 1 || httpHookPort > 65535) throw new Error('HTTP hook port phải nằm trong 1..65535.');
+  if (httpHookPort === port) throw new Error('HTTP hook port phải khác Gateway transport port.');
   if (upstreamBaseUrl && !/^https?:\/\//i.test(upstreamBaseUrl)) throw new Error('Upstream phải là URL http/https.');
   return {
     enabled: Boolean(input.enabled),
@@ -368,7 +399,10 @@ function validateGatewaySettings(input = {}) {
     upstreamBaseUrl,
     captureContent: Boolean(input.captureContent),
     captureMaxMb,
-    traceMaxMb
+    traceMaxMb,
+    httpHookEnabled: Boolean(input.httpHookEnabled),
+    httpHookPort,
+    httpHookMutationEnabled: Boolean(input.httpHookMutationEnabled)
   };
 }
 
@@ -441,7 +475,10 @@ async function enableGatewayFullCapture(input = {}) {
       upstreamBaseUrl: '',
       captureContent: true,
       captureMaxMb: Math.max(16, Number(requested.captureMaxMb || 16)),
-      traceMaxMb: Math.max(256, Number(requested.traceMaxMb || 64))
+      traceMaxMb: Math.max(256, Number(requested.traceMaxMb || 64)),
+      httpHookEnabled: true,
+      httpHookPort: Number(requested.httpHookPort || 8767),
+      httpHookMutationEnabled: Boolean(requested.httpHookMutationEnabled)
     });
 
     applyGatewayProcessEnvironment();
@@ -473,7 +510,7 @@ async function enableGatewayFullCapture(input = {}) {
 async function restoreTrackerGatewaySettings(saved) {
   if (!saved || typeof saved !== 'object') return;
   const values = {};
-  for (const key of ['enabled','port','modelProxyEnabled','upstreamBaseUrl','captureContent','captureMaxMb','traceMaxMb']) {
+  for (const key of ['enabled','port','modelProxyEnabled','upstreamBaseUrl','captureContent','captureMaxMb','traceMaxMb','httpHookEnabled','httpHookPort','httpHookMutationEnabled']) {
     if (Object.prototype.hasOwnProperty.call(saved, key)) values[key] = saved[key];
   }
   await applyGatewaySettings(values);
@@ -584,6 +621,144 @@ function restartPolling() {
   if (pollTimer) clearInterval(pollTimer);
   const interval = Math.max(500, Math.min(10000, Number(config().pollIntervalMs) || 1500));
   pollTimer = setInterval(() => refreshAll(false), interval);
+}
+
+function execFilePromise(executable, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    childProcess.execFile(executable, args, {
+      windowsHide: true,
+      maxBuffer: 8 * 1024 * 1024,
+      ...options
+    }, (error, stdout = '', stderr = '') => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
+    });
+  });
+}
+
+function instrumentedCodexDir() {
+  return path.join(contextRef.globalStorageUri.fsPath, 'http-hook-bin', HTTP_HOOK_CODEX_VERSION);
+}
+
+function instrumentedCodexPath() {
+  return path.join(instrumentedCodexDir(), process.platform === 'win32' ? 'codex.exe' : 'codex');
+}
+
+async function buildInstrumentedCodex() {
+  if (process.platform !== 'win32') {
+    vscode.window.showWarningMessage('Build Codex HTTP Hook hiện chỉ được triển khai cho Windows.');
+    return;
+  }
+  const script = path.join(contextRef.extensionPath, 'codex-hook', 'build-instrumented-codex.ps1');
+  if (!fs.existsSync(script)) {
+    vscode.window.showErrorMessage('Không tìm thấy build script của Codex HTTP Hook trong extension.');
+    return;
+  }
+  await fs.promises.mkdir(instrumentedCodexDir(), { recursive: true });
+  const terminal = vscode.window.createTerminal({ name: 'Codex HTTP Hook Build' });
+  terminal.show(true);
+  const command = '& ' + JSON.stringify(script) + ' -OutputDir ' + JSON.stringify(instrumentedCodexDir());
+  terminal.sendText('powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ' + JSON.stringify(command), true);
+  gatewayActionNotice = {
+    kind: 'success',
+    text: 'Đã mở terminal build Codex HTTP Hook ' + HTTP_HOOK_CODEX_VERSION + '. Build xong thì bấm Cài hook daemon.',
+    at: Date.now()
+  };
+  postViewState();
+}
+
+async function ensureHttpHookConfig() {
+  const current = storedGatewaySettings();
+  if (!current.httpHookEnabled) {
+    await applyGatewaySettings({ ...current, enabled: true, httpHookEnabled: true });
+  }
+  const activeGateway = await restartGateway();
+  if (!activeGateway) throw new Error('Gateway chưa chạy nên không thể cấp endpoint cho HTTP hook.');
+  await activeGateway.httpHook.writeConfig(config().codexHome);
+  return activeGateway;
+}
+
+async function installInstrumentedCodex() {
+  const executable = instrumentedCodexPath();
+  try {
+    if (!fs.existsSync(executable)) {
+      throw new Error('Chưa có codex.exe instrumented. Hãy bấm Build Codex HTTP Hook trước.');
+    }
+    const version = await execFilePromise(executable, ['--version'], { timeout: 10000 });
+    const versionText = (version.stdout || version.stderr).trim();
+    if (!versionText.includes(HTTP_HOOK_CODEX_VERSION)) {
+      throw new Error('Instrumented Codex không đúng version yêu cầu: ' + versionText);
+    }
+
+    await ensureHttpHookConfig();
+    const env = { ...process.env, CODEX_HOME: config().codexHome };
+    const result = await execFilePromise(
+      executable,
+      ['app-server', 'daemon', 'update', '--from-cli', '--yes'],
+      { env, timeout: 120000 }
+    );
+
+    await contextRef.globalState.update(HTTP_HOOK_INSTALL_KEY, {
+      version: HTTP_HOOK_CODEX_VERSION,
+      executable,
+      installedAt: Date.now(),
+      output: (result.stdout || result.stderr || '').slice(-2000)
+    });
+
+    gatewayActionNotice = {
+      kind: 'success',
+      text: 'Đã cài Codex app-server instrumented ' + HTTP_HOOK_CODEX_VERSION + '. Đang reload VS Code để kết nối lại owner...',
+      at: Date.now()
+    };
+    postViewState();
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  } catch (error) {
+    gatewayActionNotice = { kind: 'error', text: 'Cài HTTP hook thất bại: ' + friendlyError(error), at: Date.now() };
+    postViewState();
+  }
+}
+
+async function restoreOfficialCodexDaemon() {
+  try {
+    const resolved = await codexQueue.resolveCodexExecutable({
+      configuredPath: '',
+      extensionRoots: openAiExtensionRoots(),
+      platform: process.platform
+    });
+    if (!resolved.executable) throw new Error(resolved.error || 'Không tìm thấy Codex chính thức trong OpenAI extension.');
+
+    const env = { ...process.env, CODEX_HOME: config().codexHome };
+    await execFilePromise(
+      resolved.executable,
+      ['app-server', 'daemon', 'update', '--from-cli', '--yes'],
+      { env, timeout: 120000 }
+    );
+
+    const current = storedGatewaySettings();
+    await applyGatewaySettings({
+      ...current,
+      httpHookEnabled: false,
+      httpHookMutationEnabled: false
+    });
+    if (gateway) await gateway.httpHook.removeConfig(config().codexHome).catch(() => {});
+    await contextRef.globalState.update(HTTP_HOOK_INSTALL_KEY, undefined);
+
+    gatewayActionNotice = {
+      kind: 'success',
+      text: 'Đã khôi phục app-server từ Codex chính thức và tắt plaintext hook. Đang reload VS Code...',
+      at: Date.now()
+    };
+    postViewState();
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  } catch (error) {
+    gatewayActionNotice = { kind: 'error', text: 'Khôi phục Codex chính thức thất bại: ' + friendlyError(error), at: Date.now() };
+    postViewState();
+  }
 }
 
 function trafficMonitorHtml() {
