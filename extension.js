@@ -646,7 +646,12 @@ function instrumentedCodexDir() {
 }
 
 function instrumentedCodexPath() {
-  return path.join(instrumentedCodexDir(), process.platform === 'win32' ? 'codex.exe' : 'codex');
+  return path.join(
+    instrumentedCodexDir(),
+    'package',
+    'bin',
+    process.platform === 'win32' ? 'codex.exe' : 'codex'
+  );
 }
 
 async function buildInstrumentedCodex() {
@@ -725,18 +730,22 @@ async function installInstrumentedCodex() {
 
 async function restoreOfficialCodexDaemon() {
   try {
-    const resolved = await codexQueue.resolveCodexExecutable({
-      configuredPath: '',
-      extensionRoots: openAiExtensionRoots(),
-      platform: process.platform
-    });
-    if (!resolved.executable) throw new Error(resolved.error || 'Không tìm thấy Codex chính thức trong OpenAI extension.');
+    let executable = instrumentedCodexPath();
+    if (!fs.existsSync(executable)) {
+      const resolved = await codexQueue.resolveCodexExecutable({
+        configuredPath: '',
+        extensionRoots: openAiExtensionRoots(),
+        platform: process.platform
+      });
+      if (!resolved.executable) throw new Error(resolved.error || 'Không tìm thấy Codex CLI để gọi updater chính thức.');
+      executable = resolved.executable;
+    }
 
     const env = { ...process.env, CODEX_HOME: config().codexHome };
     await execFilePromise(
-      resolved.executable,
-      ['app-server', 'daemon', 'update', '--from-cli', '--yes'],
-      { env, timeout: 120000 }
+      executable,
+      ['app-server', 'daemon', 'update'],
+      { env, timeout: 180000 }
     );
 
     const current = storedGatewaySettings();
@@ -746,11 +755,15 @@ async function restoreOfficialCodexDaemon() {
       httpHookMutationEnabled: false
     });
     if (gateway) await gateway.httpHook.removeConfig(config().codexHome).catch(() => {});
+    else await fs.promises.rm(
+      path.join(config().codexHome, 'codex-session-tracker-http-hook.json'),
+      { force: true }
+    ).catch(() => {});
     await contextRef.globalState.update(HTTP_HOOK_INSTALL_KEY, undefined);
 
     gatewayActionNotice = {
       kind: 'success',
-      text: 'Đã khôi phục app-server từ Codex chính thức và tắt plaintext hook. Đang reload VS Code...',
+      text: 'Đã chuyển app-server daemon về production update channel và tắt plaintext hook. Đang reload VS Code...',
       at: Date.now()
     };
     postViewState();
