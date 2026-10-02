@@ -446,6 +446,9 @@ test('managed Codex config creates an exact backup and exact revert when unchang
   await fs.promises.mkdir(codexHome, { recursive: true });
   const original = 'model = "gpt-test"\r\nchatgpt_base_url = "https://old.example/backend-api"\r\n[features]\r\nresponses_websockets = true\r\n';
   await fs.promises.writeFile(path.join(codexHome, 'config.toml'), original, 'utf8');
+  const before = await gatewayConfig.getManagedState(codexHome, storageDir);
+  assert.equal(before.active, false);
+  assert.equal(before.currentRootLine, 'chatgpt_base_url = "https://old.example/backend-api"');
 
   const applied = await gatewayConfig.applyManagedConfig({
     codexHome,
