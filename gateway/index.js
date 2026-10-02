@@ -21,6 +21,7 @@ class CodexGateway {
     this.lastTransportNetworkAt = 0;
     this.lastHttpHookAt = 0;
     this.handlers = options.handlers || {};
+    this.httpHookEnabled = Boolean(options.httpHookEnabled);
     this.server = new GatewayServer({
       port: options.port,
       version: this.version,
@@ -51,11 +52,11 @@ class CodexGateway {
   async start() {
     await this.trace.init();
     this.seedFromTrace();
-    await this.httpHook.start();
+    if (this.httpHookEnabled) await this.httpHook.start();
     try {
       return await this.server.start();
     } catch (error) {
-      await this.httpHook.stop().catch(() => {});
+      if (this.httpHookEnabled) await this.httpHook.stop().catch(() => {});
       throw error;
     }
   }
@@ -494,6 +495,7 @@ class CodexGateway {
       transportTrafficObserved: Boolean(this.lastTransportNetworkAt),
       lastTransportNetworkAt: this.lastTransportNetworkAt,
       websocketProxyReady: Boolean(this.server.modelProxyEnabled && this.server.server),
+      httpHookConfigured: this.httpHookEnabled,
       httpHookTrafficObserved: Boolean(this.lastHttpHookAt),
       lastHttpHookAt: this.lastHttpHookAt,
       ...this.httpHook.diagnostics(),
