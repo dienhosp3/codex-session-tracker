@@ -565,13 +565,13 @@ test('dashboard contains UI-only gateway settings, managed revert and traffic bo
 });
 
 
-test('Gateway settings are persisted by the extension UI instead of VS Code registered configuration', async () => {
+test('Gateway settings are persisted by the dashboard state while legacy schema remains registered', async () => {
   const extensionSource = await fs.promises.readFile(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const pkg = JSON.parse(await fs.promises.readFile(path.join(__dirname, '..', 'package.json'), 'utf8'));
   assert.match(extensionSource, /globalState\.update\(GATEWAY_SETTINGS_KEY/);
   assert.doesNotMatch(extensionSource, /\.update\('gateway\./);
   assert.deepEqual(pkg.activationEvents, ['*']);
-  assert.equal(Object.keys(pkg.contributes.configuration.properties).some(key => key.startsWith('codexSessionTracker.gateway.')), false);
+  assert.ok(pkg.contributes.configuration.properties['codexSessionTracker.gateway.captureContent']);
 });
 
 test('loopback predicate rejects non-loopback clients', () => {
