@@ -47,9 +47,17 @@ const ORIGINAL_PROXY_ENV = Object.fromEntries(
 );
 let gatewayProxyEnvApplied = false;
 
-function activate(context) {
+async function activate(context) {
   contextRef = context;
   applyGatewayProcessEnvironment();
+
+  const migratedLegacyRoute = await migrateLegacyGatewayRoute();
+  if (migratedLegacyRoute) {
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+    return;
+  }
+
+  await startGateway().catch(() => {});
 
   const provider = new TrackerViewProvider();
   context.subscriptions.push(
@@ -83,7 +91,6 @@ function activate(context) {
   renderStatus();
   restartPolling();
   refreshGatewayManagedState().catch(() => {});
-  startGateway().catch(() => {});
   refreshTrackedStatus(true);
 }
 
@@ -289,6 +296,31 @@ async function restartGateway() {
 
 function gatewayStorageDir() {
   return path.join(contextRef.globalStorageUri.fsPath, 'gateway');
+}
+
+async function migrateLegacyGatewayRoute() {
+  if (!contextRef) return false;
+  try {
+    const state = await gatewayConfig.getManagedState(config().codexHome, gatewayStorageDir());
+    if (!state.active) {
+      gatewayManagedState = state;
+      return false;
+    }
+    await gatewayConfig.revertManagedConfig({
+      codexHome: config().codexHome,
+      storageDir: gatewayStorageDir(),
+      forceExact: false
+    });
+    gatewayManagedState = await gatewayConfig.getManagedState(config().codexHome, gatewayStorageDir());
+    return true;
+  } catch (error) {
+    gatewayActionNotice = {
+      kind: 'error',
+      text: 'Không thể tự gỡ legacy chatgpt_base_url route: ' + friendlyError(error),
+      at: Date.now()
+    };
+    return false;
+  }
 }
 
 async function refreshGatewayManagedState() {
