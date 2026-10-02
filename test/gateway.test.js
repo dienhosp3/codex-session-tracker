@@ -599,6 +599,7 @@ test('Gateway CONNECT proxy passes bidirectional bytes without changing the targ
   });
 
   assert.equal(echoed, 'PING_PROXY');
+  await new Promise(resolve => setTimeout(resolve, 150));
   const events = trace.recent(50);
   assert.ok(events.some(event => event.type === 'connect_tunnel' && event.stage === 'TUNNEL_OPEN'));
   assert.ok(events.some(event => event.type === 'tunnel_bytes' && event.direction === 'out'));
