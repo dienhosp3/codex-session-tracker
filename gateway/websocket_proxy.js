@@ -6,6 +6,7 @@ const { randomUUID, createHash } = require('crypto');
 const { URL } = require('url');
 const { classifyRequest } = require('./classifier');
 const { redactHeaders, sanitizePath, safeError } = require('./redaction');
+const { decodeWebSocketPayload } = require('./content_capture');
 
 const MAX_FRAME_PARSE_BYTES = 64 * 1024 * 1024;
 
@@ -44,7 +45,9 @@ function payloadFingerprint(frame, payloadOffset, payloadLength, masked, maskOff
   return hash.digest('hex');
 }
 
-function frameParser(direction, onFrame) {
+function frameParser(direction, onFrame, options = {}) {
+  const captureContent = Boolean(options.captureContent);
+  const captureMaxBytes = Math.max(1024, Number(options.captureMaxBytes || 16 * 1024 * 1024));
   let buffer = Buffer.alloc(0);
   let skipping = 0;
 
@@ -64,6 +67,9 @@ function frameParser(direction, onFrame) {
       const first = buffer[0];
       const second = buffer[1];
       const fin = Boolean(first & 0x80);
+      const rsv1 = Boolean(first & 0x40);
+      const rsv2 = Boolean(first & 0x20);
+      const rsv3 = Boolean(first & 0x10);
       const opcode = first & 0x0f;
       const masked = Boolean(second & 0x80);
       let length = second & 0x7f;
@@ -100,10 +106,29 @@ function frameParser(direction, onFrame) {
         return;
       }
       if (buffer.length < total) return;
-      const payloadSha256=(opcode===1||opcode===2)&&length
+      const isDataFrame = opcode === 0 || opcode === 1 || opcode === 2;
+      const payloadSha256=isDataFrame&&length
         ? payloadFingerprint(buffer,payloadOffset,length,masked,maskOffset)
         : '';
-      onFrame({ direction, fin, opcode, masked, size: length, wireBytes: total, ...(payloadSha256?{bodySha256:payloadSha256}:{}) });
+      let contentCapture = null;
+      if (captureContent && isDataFrame) {
+        const decoded = decodeWebSocketPayload(buffer,payloadOffset,length,masked,maskOffset,captureMaxBytes);
+        const textFrame = opcode === 1 && !rsv1;
+        contentCapture = {
+          contentType: textFrame ? 'application/json; charset=utf-8' : 'application/octet-stream',
+          encoding: textFrame ? 'utf8' : 'base64',
+          content: textFrame ? decoded.toString('utf8') : decoded.toString('base64'),
+          capturedBytes: decoded.length,
+          totalBytes: length,
+          truncated: length > decoded.length,
+          compressed: rsv1
+        };
+      }
+      onFrame({
+        direction, fin, rsv1, rsv2, rsv3, opcode, masked, size: length, wireBytes: total,
+        ...(payloadSha256?{bodySha256:payloadSha256}:{}),
+        ...(contentCapture?{contentCapture}:{})
+      });
       buffer = buffer.subarray(total);
     }
   };
@@ -129,6 +154,8 @@ function proxyWebSocket(req, clientSocket, head, options = {}) {
     return;
   }
   const target = upstreamTarget(baseUrl, req.url);
+  const captureContent = Boolean(options.captureContent);
+  const captureMaxBytes = Math.max(1024, Number(options.captureMaxBytes || 16 * 1024 * 1024));
   const connectionId = randomUUID();
   const record = typeof options.record === 'function' ? options.record : async () => {};
   const kind = classifyRequest({ method: req.method, path: req.url, upgrade: true });
@@ -154,14 +181,14 @@ function proxyWebSocket(req, clientSocket, head, options = {}) {
       firstOutbound = false;
       record({ type:'ws_connection', stage:'UPSTREAM_BYTES_SENT', connectionId, kind, at:Date.now(), frameSize:frame.size, ...(frame.bodySha256?{bodySha256:frame.bodySha256}:{}) }).catch(()=>{});
     }
-  });
+  }, { captureContent, captureMaxBytes });
   const inboundFrames = frameParser('in', frame => {
     record({ type: 'ws_frame', connectionId, kind, at: Date.now(), ...frame }).catch(()=>{});
     if (firstInbound) {
       firstInbound = false;
       record({ type:'ws_connection', stage:'UPSTREAM_FIRST_EVENT', connectionId, kind, at:Date.now(), frameSize:frame.size }).catch(()=>{});
     }
-  });
+  }, { captureContent, captureMaxBytes });
 
   const sendHandshake = async () => {
     await record({
