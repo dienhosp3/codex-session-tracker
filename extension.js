@@ -107,7 +107,7 @@ class TrackerViewProvider {
       if (message.command === 'deleteChat' && message.threadId) await deleteChat(String(message.threadId));
       if (message.command === 'reprobeQueue' || message.command === 'reprobeCodex') { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }
       if (message.command === 'saveGatewaySettings') await saveGatewaySettings(message.settings || {});
-      if (message.command === 'enableGatewayFullCapture') await enableGatewayFullCapture();
+      if (message.command === 'enableGatewayFullCapture') await enableGatewayFullCapture(message.settings || {});
       if (message.command === 'revertGatewayManaged') await revertGatewayManaged(false);
       if (message.command === 'forceRestoreGatewayManaged') await revertGatewayManaged(true);
       if (message.command === 'loadGatewayPayload') await sendGatewayPayload(message.traceId);
@@ -313,7 +313,7 @@ async function saveGatewaySettings(input) {
   postViewState();
 }
 
-async function enableGatewayFullCapture() {
+async function enableGatewayFullCapture(input = {}) {
   if (process.platform !== 'win32') {
     gatewayActionNotice = { kind: 'error', text: 'Chế độ tự quản lý hiện được khóa cho Windows VS Code.', at: Date.now() };
     postViewState();
@@ -321,8 +321,15 @@ async function enableGatewayFullCapture() {
   }
   const cfg = config();
   const originalTrackerSettings = gatewaySettingsSnapshot(cfg);
-  const port = Number(cfg.gatewayPort || 8765);
-  const upstream = String(cfg.gatewayUpstreamBaseUrl || '').trim() || 'https://chatgpt.com/backend-api';
+  const requested = validateGatewaySettings({
+    ...originalTrackerSettings,
+    ...input,
+    enabled: true,
+    modelProxyEnabled: true,
+    captureContent: true
+  });
+  const port = requested.port;
+  const upstream = requested.upstreamBaseUrl || 'https://chatgpt.com/backend-api';
   const localBase = `http://127.0.0.1:${port}/backend-api`;
   try {
     await gatewayConfig.applyManagedConfig({
@@ -338,7 +345,7 @@ async function enableGatewayFullCapture() {
       upstreamBaseUrl: upstream,
       captureContent: true,
       captureMaxMb: 64,
-      traceMaxMb: Math.max(256, Number(cfg.gatewayTraceMaxMb || 64))
+      traceMaxMb: Math.max(256, Number(requested.traceMaxMb || 64))
     });
     await refreshGatewayManagedState();
     gatewayActionNotice = { kind: 'success', text: 'Đã backup cấu hình gốc, route Codex qua Gateway và bật bắt nội dung đầy đủ. Đang reload VS Code...', at: Date.now() };
