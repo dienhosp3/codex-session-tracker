@@ -22,13 +22,15 @@ function newlineOf(text) {
 }
 
 function rootRegionEnd(text) {
-  const lines = String(text || '').split(/(?<=\n)/);
-  let offset = 0;
+  const source = String(text || '');
+  const bomLength = source.startsWith('\uFEFF') ? 1 : 0;
+  const lines = source.slice(bomLength).split(/(?<=\n)/);
+  let offset = bomLength;
   for (const line of lines) {
-    if (/^[\uFEFF\s]*\[[^\]]+\]\s*(?:#.*)?(?:\r?\n)?$/.test(line)) return offset;
+    if (/^\s*\[[^\]]+\]\s*(?:#.*)?(?:\r?\n)?$/.test(line)) return offset;
     offset += line.length;
   }
-  return String(text || '').length;
+  return source.length;
 }
 
 function findRootAssignment(text, key) {
@@ -56,7 +58,7 @@ function setRootString(text, key, value) {
   const end = rootRegionEnd(source);
   const before = source.slice(0, end);
   const after = source.slice(end);
-  const spacer = before && !before.endsWith('\n') ? nl : '';
+  const spacer = before && before !== '\uFEFF' && !before.endsWith('\n') ? nl : '';
   return before + spacer + line + nl + after;
 }
 
@@ -69,7 +71,7 @@ function restoreRootAssignment(currentText, key, originalLine) {
     const nl = newlineOf(source);
     const before = source.slice(0, end);
     const after = source.slice(end);
-    return before + (before && !before.endsWith('\n') ? nl : '') + originalLine + nl + after;
+    return before + (before && before !== '\uFEFF' && !before.endsWith('\n') ? nl : '') + originalLine + nl + after;
   }
   if (!found) return source;
   let start = found.start;
