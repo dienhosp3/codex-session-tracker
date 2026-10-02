@@ -320,10 +320,12 @@ function renderGatewayPayload(){
   if(p.missing)return '<div class="payload-view gateway-bad">Không còn payload này trong trace hiện tại.</div>';
   const c=p.contentCapture;
   if(!c)return '<div class="payload-view"><div class="gateway-meta">Event này không có nội dung được capture.</div></div>';
-  const meta=[p.kind,p.method,p.path,p.direction,p.requestId&&('request '+p.requestId),p.connectionId&&('conn '+p.connectionId),c.encoding,c.contentType].filter(Boolean).join(' · ');
+  const meta=[p.kind,p.method,p.path,p.direction,p.statusCode&&('HTTP '+p.statusCode),p.requestId&&('request '+p.requestId),p.connectionId&&('conn '+p.connectionId),c.encoding,c.contentType,c.wireContentEncoding&&('wire '+c.wireContentEncoding),c.decoded?'đã giải nén':''].filter(Boolean).join(' · ');
+  const headers=p.headers?'<details><summary class="gateway-meta" style="cursor:pointer;margin-top:5px">Headers đã lọc</summary><pre>'+esc(JSON.stringify(p.headers,null,2))+'</pre></details>':'';
   return '<div class="payload-view"><div class="card-title">Nội dung input/output đã capture</div><div class="gateway-meta">'+esc(meta)+'</div>'+
+    (c.decodeError?'<div class="gateway-warn gateway-meta">Không giải nén được nội dung capture: '+esc(c.decodeError)+'</div>':'')+
     (c.truncated?'<div class="gateway-warn gateway-meta">Đã capture '+esc(String(c.capturedBytes))+'/'+esc(String(c.totalBytes))+' bytes theo giới hạn UI; transport thực tế không bị cắt.</div>':'')+
-    '<pre>'+esc(c.content||'')+'</pre></div>';
+    headers+'<pre>'+esc(c.content||'')+'</pre></div>';
 }
 function renderGateway(){
   const g=state.gateway||{},commands=Array.isArray(g.commands)?g.commands:[],cmd=commands[0],settings=gatewaySettingsValue(),managed=g.managedConfig||{},traffic=Array.isArray(g.traffic)?g.traffic:[];
