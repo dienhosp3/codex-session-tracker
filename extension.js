@@ -122,6 +122,7 @@ class TrackerViewProvider {
       if (message.command === 'revertGatewayManaged') await revertGatewayManaged(false);
       if (message.command === 'forceRestoreGatewayManaged') await revertGatewayManaged(true);
       if (message.command === 'loadGatewayPayload') await sendGatewayPayload(message.traceId, message.offset);
+      if (message.command === 'openTrafficMonitor') await openTrafficMonitor();
     }, null, contextRef.subscriptions);
 
     webviewView.onDidChangeVisibility(() => {
