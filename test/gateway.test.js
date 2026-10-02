@@ -663,11 +663,13 @@ test('Gateway stop does not hang with an active CONNECT tunnel', { timeout: 5000
   assert.equal(socket.destroyed, true);
 });
 
-test('dashboard routes traffic inspection to the dedicated monitor without rewriting base URL controls', async () => {
+test('dashboard exposes dedicated plaintext hook controls without rewriting base URL controls', async () => {
   const html = await fs.promises.readFile(path.join(__dirname, '..', 'dashboard.html'), 'utf8');
-  assert.match(html, /Bật forward proxy \+ Reload/);
+  assert.match(html, /Bật transport \+ plaintext hook/);
+  assert.match(html, /Build Codex HTTP Hook 0\.159\.2/);
+  assert.match(html, /Cài hook daemon/);
   assert.match(html, /Mở Traffic Monitor/);
-  assert.match(html, /giữ nguyên HTTPS origin thật/);
+  assert.match(html, /trước TLS \/ sau TLS/);
   assert.doesNotMatch(html, /id="gwUpstream"/);
 });
 
@@ -679,6 +681,7 @@ test('traffic monitor exposes independent visual pause and direction/API filters
   assert.match(html, /id="direction"/);
   assert.match(html, /id="api"/);
   assert.match(html, /PAUSE chỉ đóng băng màn hình, không chặn network thật/);
+  assert.match(html, /PLAINTEXT/);
 });
 
 
