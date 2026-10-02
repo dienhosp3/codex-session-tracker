@@ -361,10 +361,12 @@ fn emit_request_event(
     );
 }
 
-fn request_preflight(
+fn mutation_preflight(
     config: &TapConfig,
-    context: &TapContext,
-    request: &Request,
+    request_id: &str,
+    method: &str,
+    url: &str,
+    headers: HashMap<String, String>,
     body: Option<TapBody>,
 ) -> Option<MutationDecision> {
     if !config.mutation_enabled {
@@ -378,10 +380,10 @@ fn request_preflight(
         token: &config.token,
         kind: "preflight",
         request: PreflightRequest {
-            request_id: &context.request_id,
-            method: &context.method,
-            url: &context.url,
-            headers: capture_headers(request.headers()),
+            request_id,
+            method,
+            url,
+            headers,
             body,
         },
     };
@@ -392,6 +394,22 @@ fn request_preflight(
     let mut response = String::new();
     reader.read_line(&mut response).ok()?;
     serde_json::from_str(response.trim()).ok()
+}
+
+fn request_preflight(
+    config: &TapConfig,
+    context: &TapContext,
+    request: &Request,
+    body: Option<TapBody>,
+) -> Option<MutationDecision> {
+    mutation_preflight(
+        config,
+        &context.request_id,
+        &context.method,
+        &context.url,
+        capture_headers(request.headers()),
+        body,
+    )
 }
 
 fn apply_decision(request: &mut Request, decision: &MutationDecision) -> bool {
@@ -492,9 +510,10 @@ pub(crate) fn intercept_outbound(request: &mut Request) -> Option<TapContext> {
     Some(context)
 }
 
-pub(crate) fn attach_response_context(response: &mut Response, context: TapContext) {
+pub(crate) fn attach_response_context(response: &mut Response, mut context: TapContext) {
     let status_code = response.status().as_u16();
     let headers = capture_headers(response.headers());
+    context.content_type = content_type(response.headers());
     let event = TapEvent {
         phase: "response_headers".to_string(),
         direction: "in".to_string(),
@@ -581,5 +600,184 @@ pub(crate) fn emit_request_error(context: &TapContext, error: &str) {
             at: now_ms(),
             error: Some(error.to_string()),
         },
+    );
+}
+
+
+fn emit_websocket_event(
+    config: &TapConfig,
+    request_id: &str,
+    url: &str,
+    phase: &str,
+    direction: &str,
+    body: Option<TapBody>,
+    mutation_applied: bool,
+) {
+    enqueue_event(
+        config,
+        &TapEvent {
+            phase: phase.to_string(),
+            direction: direction.to_string(),
+            request_id: request_id.to_string(),
+            method: "WS".to_string(),
+            url: url.to_string(),
+            status_code: None,
+            headers: HashMap::new(),
+            body,
+            logical: true,
+            mutation_applied,
+            at: now_ms(),
+            error: None,
+        },
+    );
+}
+
+/// Tracker-only hook used by codex-websocket-client before Tungstenite serializes
+/// a text frame. It intentionally fails open: any unavailable/invalid mutation
+/// response leaves the original frame untouched.
+#[doc(hidden)]
+pub fn tracker_intercept_websocket_text(url: &str, original: String) -> String {
+    let Some(config) = load_config() else {
+        return original;
+    };
+    let id = request_id();
+    let body = tap_body(
+        original.as_bytes(),
+        "application/json; charset=utf-8",
+        config.max_body_bytes,
+    );
+    emit_websocket_event(
+        &config,
+        &id,
+        url,
+        "websocket_outbound",
+        "out",
+        Some(body.clone()),
+        false,
+    );
+    let Some(decision) = mutation_preflight(
+        &config,
+        &id,
+        "WS",
+        url,
+        HashMap::new(),
+        Some(body),
+    ) else {
+        return original;
+    };
+    if !matches!(decision.action.to_ascii_lowercase().as_str(), "replace" | "modify") {
+        return original;
+    }
+    let Some(replacement) = decision.body.as_ref().and_then(body_bytes) else {
+        return original;
+    };
+    let Ok(replacement) = String::from_utf8(replacement) else {
+        return original;
+    };
+    emit_websocket_event(
+        &config,
+        &id,
+        url,
+        "websocket_outbound_mutated",
+        "out",
+        Some(tap_body(
+            replacement.as_bytes(),
+            "application/json; charset=utf-8",
+            config.max_body_bytes,
+        )),
+        true,
+    );
+    replacement
+}
+
+#[doc(hidden)]
+pub fn tracker_observe_websocket_text(url: &str, text: &str) {
+    let Some(config) = load_config() else {
+        return;
+    };
+    emit_websocket_event(
+        &config,
+        &request_id(),
+        url,
+        "websocket_inbound",
+        "in",
+        Some(tap_body(
+            text.as_bytes(),
+            "application/json; charset=utf-8",
+            config.max_body_bytes,
+        )),
+        false,
+    );
+}
+
+#[doc(hidden)]
+pub fn tracker_intercept_websocket_binary(url: &str, original: &[u8]) -> Vec<u8> {
+    let Some(config) = load_config() else {
+        return original.to_vec();
+    };
+    let id = request_id();
+    let body = tap_body(
+        original,
+        "application/octet-stream",
+        config.max_body_bytes,
+    );
+    emit_websocket_event(
+        &config,
+        &id,
+        url,
+        "websocket_binary_outbound",
+        "out",
+        Some(body.clone()),
+        false,
+    );
+    let Some(decision) = mutation_preflight(
+        &config,
+        &id,
+        "WS",
+        url,
+        HashMap::new(),
+        Some(body),
+    ) else {
+        return original.to_vec();
+    };
+    if !matches!(decision.action.to_ascii_lowercase().as_str(), "replace" | "modify") {
+        return original.to_vec();
+    }
+    let Some(replacement) = decision.body.as_ref().and_then(body_bytes) else {
+        return original.to_vec();
+    };
+    emit_websocket_event(
+        &config,
+        &id,
+        url,
+        "websocket_binary_outbound_mutated",
+        "out",
+        Some(tap_body(
+            &replacement,
+            "application/octet-stream",
+            config.max_body_bytes,
+        )),
+        true,
+    );
+    replacement
+}
+
+#[doc(hidden)]
+pub fn tracker_observe_websocket_binary(url: &str, bytes: &[u8]) {
+    let Some(config) = load_config() else {
+        return;
+    };
+    emit_websocket_event(
+        &config,
+        &request_id(),
+        url,
+        "websocket_binary_inbound",
+        "in",
+        Some(tap_body(
+            bytes,
+            "application/octet-stream",
+            config.max_body_bytes,
+        )),
+        false,
     );
 }
