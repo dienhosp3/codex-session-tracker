@@ -8,6 +8,7 @@ const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
 const codexDelete = require('./codex_delete');
 const { CodexGateway } = require('./gateway');
+const gatewayConfig = require('./gateway/config_manager');
 
 let contextRef = null;
 let statusBar = null;
@@ -36,6 +37,8 @@ let steerBusy = false;
 let steerNotice = null;
 let gateway = null;
 let gatewayStatus = { enabled: false, running: false, error: '', address: null };
+let gatewayManagedState = { active: false, managed: false, drifted: false };
+let gatewayActionNotice = null;
 
 function activate(context) {
   contextRef = context;
@@ -72,6 +75,7 @@ function activate(context) {
   restoreSelection(context);
   renderStatus();
   restartPolling();
+  refreshGatewayManagedState().catch(() => {});
   startGateway().catch(() => {});
   refreshTrackedStatus(true);
 }
@@ -102,6 +106,11 @@ class TrackerViewProvider {
       if (message.command === 'setShowNonRunning') await setShowNonRunning(Boolean(message.enabled));
       if (message.command === 'deleteChat' && message.threadId) await deleteChat(String(message.threadId));
       if (message.command === 'reprobeQueue' || message.command === 'reprobeCodex') { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }
+      if (message.command === 'saveGatewaySettings') await saveGatewaySettings(message.settings || {});
+      if (message.command === 'enableGatewayFullCapture') await enableGatewayFullCapture();
+      if (message.command === 'revertGatewayManaged') await revertGatewayManaged(false);
+      if (message.command === 'forceRestoreGatewayManaged') await revertGatewayManaged(true);
+      if (message.command === 'loadGatewayPayload') await sendGatewayPayload(message.traceId);
     }, null, contextRef.subscriptions);
 
     webviewView.onDidChangeVisibility(() => {
@@ -131,7 +140,10 @@ function config() {
     gatewayEnabled: cfg.get('gateway.enabled', true),
     gatewayPort: cfg.get('gateway.port', 8765),
     gatewayModelProxyEnabled: cfg.get('gateway.modelProxyEnabled', false),
-    gatewayUpstreamBaseUrl: cfg.get('gateway.upstreamBaseUrl', '')
+    gatewayUpstreamBaseUrl: cfg.get('gateway.upstreamBaseUrl', ''),
+    gatewayCaptureContent: cfg.get('gateway.captureContent', false),
+    gatewayCaptureMaxMb: cfg.get('gateway.captureMaxMb', 16),
+    gatewayTraceMaxMb: cfg.get('gateway.traceMaxMb', 64)
   };
 }
 
@@ -142,13 +154,16 @@ async function startGateway() {
     return null;
   }
   if (gateway) return gateway;
-  const traceDir = path.join(contextRef.globalStorageUri.fsPath, 'gateway');
+  const traceDir = gatewayStorageDir();
   gateway = new CodexGateway({
     version: String(contextRef.extension && contextRef.extension.packageJSON && contextRef.extension.packageJSON.version || 'dev'),
     port: cfg.gatewayPort,
     traceDir,
     modelProxyEnabled: cfg.gatewayModelProxyEnabled,
     upstreamBaseUrl: cfg.gatewayUpstreamBaseUrl,
+    captureContent: cfg.gatewayCaptureContent,
+    captureMaxBytes: Math.max(1, Number(cfg.gatewayCaptureMaxMb || 16)) * 1024 * 1024,
+    traceMaxBytes: Math.max(8, Number(cfg.gatewayTraceMaxMb || 64)) * 1024 * 1024,
     handlers: {
       steer: async input => codexSteer.steerViaExtensionIpc({
         threadId: input.threadId,
@@ -184,6 +199,7 @@ async function startGateway() {
     gatewayStatus = { enabled: true, running: false, error: friendlyError(error), address: null };
     gateway = null;
   }
+  await refreshGatewayManagedState().catch(() => {});
   postViewState();
   return gateway;
 }
@@ -194,6 +210,156 @@ async function restartGateway() {
     gateway = null;
   }
   return startGateway();
+}
+
+function gatewayStorageDir() {
+  return path.join(contextRef.globalStorageUri.fsPath, 'gateway');
+}
+
+async function refreshGatewayManagedState() {
+  if (!contextRef) return gatewayManagedState;
+  try {
+    gatewayManagedState = await gatewayConfig.getManagedState(config().codexHome, gatewayStorageDir());
+  } catch (error) {
+    gatewayManagedState = { active: false, managed: false, drifted: false, error: friendlyError(error) };
+  }
+  return gatewayManagedState;
+}
+
+function gatewaySettingsSnapshot(cfg = config()) {
+  return {
+    enabled: Boolean(cfg.gatewayEnabled),
+    port: Number(cfg.gatewayPort || 8765),
+    modelProxyEnabled: Boolean(cfg.gatewayModelProxyEnabled),
+    upstreamBaseUrl: String(cfg.gatewayUpstreamBaseUrl || ''),
+    captureContent: Boolean(cfg.gatewayCaptureContent),
+    captureMaxMb: Number(cfg.gatewayCaptureMaxMb || 16),
+    traceMaxMb: Number(cfg.gatewayTraceMaxMb || 64)
+  };
+}
+
+async function setGatewaySetting(key, value) {
+  await vscode.workspace.getConfiguration('codexSessionTracker').update('gateway.' + key, value, vscode.ConfigurationTarget.Global);
+}
+
+function validateGatewaySettings(input = {}) {
+  const port = Math.round(Number(input.port || 8765));
+  const captureMaxMb = Math.round(Number(input.captureMaxMb || 16));
+  const traceMaxMb = Math.round(Number(input.traceMaxMb || 64));
+  const upstreamBaseUrl = String(input.upstreamBaseUrl || '').trim();
+  if (port < 1 || port > 65535) throw new Error('Gateway port phải nằm trong 1..65535.');
+  if (captureMaxMb < 1 || captureMaxMb > 64) throw new Error('Giới hạn nội dung phải nằm trong 1..64 MiB.');
+  if (traceMaxMb < 8 || traceMaxMb > 512) throw new Error('Giới hạn trace phải nằm trong 8..512 MiB.');
+  if (upstreamBaseUrl && !/^https?:\/\//i.test(upstreamBaseUrl)) throw new Error('Upstream phải là URL http/https.');
+  return {
+    enabled: Boolean(input.enabled),
+    port,
+    modelProxyEnabled: Boolean(input.modelProxyEnabled),
+    upstreamBaseUrl,
+    captureContent: Boolean(input.captureContent),
+    captureMaxMb,
+    traceMaxMb
+  };
+}
+
+async function saveGatewaySettings(input) {
+  try {
+    const next = validateGatewaySettings(input);
+    await setGatewaySetting('enabled', next.enabled);
+    await setGatewaySetting('port', next.port);
+    await setGatewaySetting('modelProxyEnabled', next.modelProxyEnabled);
+    await setGatewaySetting('upstreamBaseUrl', next.upstreamBaseUrl);
+    await setGatewaySetting('captureContent', next.captureContent);
+    await setGatewaySetting('captureMaxMb', next.captureMaxMb);
+    await setGatewaySetting('traceMaxMb', next.traceMaxMb);
+    gatewayActionNotice = { kind: 'success', text: 'Đã lưu toàn bộ cài đặt Gateway trên giao diện.', at: Date.now() };
+    await restartGateway();
+    await refreshGatewayManagedState();
+  } catch (error) {
+    gatewayActionNotice = { kind: 'error', text: friendlyError(error), at: Date.now() };
+  }
+  postViewState();
+}
+
+async function enableGatewayFullCapture() {
+  if (process.platform !== 'win32') {
+    gatewayActionNotice = { kind: 'error', text: 'Chế độ tự quản lý hiện được khóa cho Windows VS Code.', at: Date.now() };
+    postViewState();
+    return;
+  }
+  const cfg = config();
+  const originalTrackerSettings = gatewaySettingsSnapshot(cfg);
+  const port = Number(cfg.gatewayPort || 8765);
+  const upstream = String(cfg.gatewayUpstreamBaseUrl || '').trim() || 'https://chatgpt.com/backend-api';
+  const localBase = `http://127.0.0.1:${port}/backend-api`;
+  try {
+    await gatewayConfig.applyManagedConfig({
+      codexHome: cfg.codexHome,
+      storageDir: gatewayStorageDir(),
+      baseUrl: localBase,
+      originalTrackerSettings
+    });
+    await setGatewaySetting('enabled', true);
+    await setGatewaySetting('port', port);
+    await setGatewaySetting('modelProxyEnabled', true);
+    await setGatewaySetting('upstreamBaseUrl', upstream);
+    await setGatewaySetting('captureContent', true);
+    await setGatewaySetting('captureMaxMb', Math.max(16, Number(cfg.gatewayCaptureMaxMb || 16)));
+    await setGatewaySetting('traceMaxMb', Math.max(64, Number(cfg.gatewayTraceMaxMb || 64)));
+    await refreshGatewayManagedState();
+    gatewayActionNotice = { kind: 'success', text: 'Đã backup cấu hình gốc, route Codex qua Gateway và bật bắt nội dung đầy đủ. Đang reload VS Code...', at: Date.now() };
+    postViewState();
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  } catch (error) {
+    try { await gatewayConfig.revertManagedConfig({ codexHome: cfg.codexHome, storageDir: gatewayStorageDir() }); } catch {}
+    gatewayActionNotice = { kind: 'error', text: friendlyError(error), at: Date.now() };
+    await refreshGatewayManagedState();
+    postViewState();
+  }
+}
+
+async function restoreTrackerGatewaySettings(saved) {
+  if (!saved || typeof saved !== 'object') return;
+  for (const key of ['enabled','port','modelProxyEnabled','upstreamBaseUrl','captureContent','captureMaxMb','traceMaxMb']) {
+    if (Object.prototype.hasOwnProperty.call(saved, key)) await setGatewaySetting(key, saved[key]);
+  }
+}
+
+async function revertGatewayManaged(forceExact) {
+  const cfg = config();
+  try {
+    if (forceExact) {
+      const answer = await vscode.window.showWarningMessage(
+        'Khôi phục snapshot config.toml gốc sẽ ghi đè thay đổi config phát sinh sau khi bật Gateway. Tiếp tục?',
+        { modal: true },
+        'Khôi phục snapshot gốc'
+      );
+      if (answer !== 'Khôi phục snapshot gốc') return;
+    }
+    const result = await gatewayConfig.revertManagedConfig({
+      codexHome: cfg.codexHome,
+      storageDir: gatewayStorageDir(),
+      forceExact: Boolean(forceExact)
+    });
+    await restoreTrackerGatewaySettings(result.originalTrackerSettings || gatewayManagedState.originalTrackerSettings);
+    await refreshGatewayManagedState();
+    gatewayActionNotice = { kind: 'success', text: result.mode === 'merge' ? 'Đã gỡ route Gateway và giữ các thay đổi config khác.' : 'Đã khôi phục đúng snapshot cấu hình gốc.', at: Date.now() };
+    postViewState();
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  } catch (error) {
+    gatewayActionNotice = { kind: 'error', text: friendlyError(error), at: Date.now() };
+    await refreshGatewayManagedState();
+    postViewState();
+  }
+}
+
+async function sendGatewayPayload(traceId) {
+  const event = gateway && gateway.payloadByTraceId(traceId);
+  if (!trackerView) return;
+  trackerView.webview.postMessage({
+    type: 'gatewayPayload',
+    payload: event || { traceId: Number(traceId || 0), missing: true }
+  });
 }
 
 function gatewayThreadDiagnostics() {
