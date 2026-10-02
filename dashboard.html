@@ -401,7 +401,11 @@ function renderComposer(){
 function renderMain(){
   const ui=captureUiState(),old=document.getElementById('composerInput'),wasFocused=old&&document.activeElement===old,start=old&&old.selectionStart||0,end=old&&old.selectionEnd||0,d=state.selected;
   imageSources=[];
-  if(!d){main.innerHTML='<div class="empty">Chọn một chat để xem.</div>';return}
+  if(!d){
+    main.innerHTML=renderGateway()+'<div class="empty">Chọn một chat để xem hoạt động; Gateway vẫn cấu hình được ở trên.</div>';
+    bindGatewayUi();
+    return;
+  }
   const running=d.stateKind==='running',at=Number(d.lastActivityMs)||0;
   let html='<div class="head"><div class="head-left"><div class="title">'+esc(d.title||'Codex chat')+'</div><div class="sub" title="'+esc(d.cwd||'')+'">'+esc(baseName(d.cwd)||d.cwd||'')+' · hoạt động '+timeHtml(at,'head-time')+'</div></div><div class="state '+(running?'running':'stopped')+'">'+esc(d.state||'Unknown')+'</div></div>';
   html+='<div class="view-switch" role="tablist" aria-label="Cách xem lịch sử"><button type="button" id="summaryView" role="tab" aria-selected="'+String(viewMode==='summary')+'">Tổng quan</button><button type="button" id="chronologicalView" role="tab" aria-selected="'+String(viewMode==='chronological')+'">Theo thứ tự</button></div>';
