@@ -379,7 +379,7 @@ class CodexGateway {
   }
 
   trafficIndex(limit = 80) {
-    return this.trace.recent(Math.max(20, Math.min(250, Number(limit || 80))))
+    return this.trace.recent(Math.max(20, Math.min(2000, Number(limit || 80))))
       .filter(event => event && ['http_upstream', 'ws_connection', 'ws_frame', 'connect_tunnel', 'tunnel_bytes', 'http_hook', 'gateway_error', 'ws_upgrade_rejected'].includes(event.type))
       .map(event => ({
         traceId: event.traceId,
