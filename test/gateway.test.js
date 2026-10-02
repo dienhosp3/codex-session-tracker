@@ -466,6 +466,25 @@ test('managed Codex config creates an exact backup and exact revert when unchang
   assert.deepEqual(reverted.originalTrackerSettings, { enabled: true, port: 8765 });
 });
 
+
+test('managed config preserves a UTF-8 BOM at byte zero', async t => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gateway-config-bom-'));
+  t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, '.codex');
+  const storageDir = path.join(root, 'storage');
+  await fs.promises.mkdir(codexHome, { recursive: true });
+  const file = path.join(codexHome, 'config.toml');
+  await fs.promises.writeFile(file, '\uFEFF[features]\nresponses_websockets = true\n', 'utf8');
+  await gatewayConfig.applyManagedConfig({
+    codexHome,
+    storageDir,
+    baseUrl: 'http://127.0.0.1:8765/backend-api'
+  });
+  const managed = await fs.promises.readFile(file, 'utf8');
+  assert.equal(managed.charCodeAt(0), 0xFEFF);
+  assert.match(managed, /^\uFEFFchatgpt_base_url = "http:\/\/127\.0\.0\.1:8765\/backend-api"/);
+});
+
 test('managed Codex config merge-revert preserves unrelated edits after routing', async t => {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gateway-config-drift-'));
   t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
