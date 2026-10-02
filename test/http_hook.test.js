@@ -165,3 +165,35 @@ test('Codex source patcher is pinned to the installed 0.159.2 source revision', 
   );
   assert.throws(() => patcher.replaceOnce('none', 'TARGET', 'PATCHED', 'fixture'), /anchor not found/i);
 });
+
+
+test('Codex hook patch covers HTTP body consumers and shared WebSocket Stream/Sink', async () => {
+  const patchSource = await fs.promises.readFile(path.join(__dirname, '..', 'codex-hook', 'apply_patch.js'), 'utf8');
+  assert.match(patchSource, /execute_without_request_logging/);
+  assert.match(patchSource, /PolicyBody poll_frame hook/);
+  assert.match(patchSource, /tracker_intercept_websocket_text/);
+  assert.match(patchSource, /tracker_observe_websocket_text/);
+  assert.match(patchSource, /websocket outbound plaintext hook/);
+  assert.match(patchSource, /websocket inbound plaintext hook/);
+});
+
+test('instrumented build uses a verified complete official Windows package, not a bare exe', async () => {
+  const buildSource = await fs.promises.readFile(
+    path.join(__dirname, '..', 'codex-hook', 'build-instrumented-codex.ps1'),
+    'utf8'
+  );
+  assert.match(buildSource, /codex-package-\$Target\.tar\.gz/);
+  assert.match(buildSource, /codex-package_SHA256SUMS/);
+  assert.match(buildSource, /Get-FileHash -Algorithm SHA256/);
+  assert.match(buildSource, /bin\\codex-code-mode-host\.exe/);
+  assert.match(buildSource, /codex-resources\\codex-command-runner\.exe/);
+  assert.match(buildSource, /Copy-Item -Force \$Built \$TargetExe/);
+});
+
+test('extension installs from the complete package and restores through production daemon update', async () => {
+  const extensionSource = await fs.promises.readFile(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(extensionSource, /'package',\s*'bin'/);
+  assert.match(extensionSource, /\['app-server', 'daemon', 'update', '--from-cli', '--yes'\]/);
+  assert.match(extensionSource, /\['app-server', 'daemon', 'update'\]/);
+  assert.match(extensionSource, /Runtime Codex hiện tại không còn là/);
+});
