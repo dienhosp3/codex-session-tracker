@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
+const net = require('net');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -17,6 +18,7 @@ const { frameParser, upstreamTarget } = require('../gateway/websocket_proxy');
 const { CodexGateway } = require('../gateway');
 const gatewayConfig = require('../gateway/config_manager');
 const { ContentCapture } = require('../gateway/content_capture');
+const { parseAuthority } = require('../gateway/forward_proxy');
 
 function requestJson(port, path, options = {}) {
   return new Promise((resolve, reject) => {
@@ -555,13 +557,70 @@ test('large captured payloads are paged for the webview without losing content',
   assert.equal(second.contentCapture.complete, true);
 });
 
-test('dashboard contains UI-only gateway settings, managed revert and traffic body viewer controls', async () => {
+
+test('forward proxy authority parsing preserves the original HTTPS destination', () => {
+  assert.deepEqual(parseAuthority('chatgpt.com:443'), { host: 'chatgpt.com', port: 443 });
+  assert.deepEqual(parseAuthority('example.test:8443'), { host: 'example.test', port: 8443 });
+});
+
+test('Gateway CONNECT proxy passes bidirectional bytes without changing the target origin', async t => {
+  const echo = net.createServer(socket => socket.pipe(socket));
+  await new Promise(resolve => echo.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => echo.close(resolve)));
+  const echoPort = echo.address().port;
+
+  const trace = new TraceStore();
+  const gateway = new GatewayServer({
+    port: 0,
+    trace,
+    modelProxyEnabled: true
+  });
+  await gateway.start();
+  t.after(() => gateway.stop());
+  const gatewayPort = gateway.address().port;
+
+  const echoed = await new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: gatewayPort,
+      method: 'CONNECT',
+      path: '127.0.0.1:' + echoPort
+    });
+    req.once('connect', (res, socket) => {
+      assert.equal(res.statusCode, 200);
+      socket.once('data', chunk => {
+        resolve(chunk.toString('utf8'));
+        socket.destroy();
+      });
+      socket.write('PING_PROXY');
+    });
+    req.once('error', reject);
+    req.end();
+  });
+
+  assert.equal(echoed, 'PING_PROXY');
+  const events = trace.recent(50);
+  assert.ok(events.some(event => event.type === 'connect_tunnel' && event.stage === 'TUNNEL_OPEN'));
+  assert.ok(events.some(event => event.type === 'tunnel_bytes' && event.direction === 'out'));
+  assert.ok(events.some(event => event.type === 'tunnel_bytes' && event.direction === 'in'));
+});
+
+test('dashboard routes traffic inspection to the dedicated monitor without rewriting base URL controls', async () => {
   const html = await fs.promises.readFile(path.join(__dirname, '..', 'dashboard.html'), 'utf8');
-  assert.match(html, /Bật bắt toàn bộ \+ backup config \+ Reload/);
-  assert.match(html, /Revert an toàn \+ Reload/);
-  assert.match(html, /Khôi phục snapshot gốc \+ Reload/);
-  assert.match(html, /Capture và cho xem nội dung đầy đủ request\/response/);
-  assert.match(html, /data-gw-trace/);
+  assert.match(html, /Bật forward proxy \+ Reload/);
+  assert.match(html, /Mở Traffic Monitor/);
+  assert.match(html, /giữ nguyên HTTPS origin thật/);
+  assert.doesNotMatch(html, /id="gwUpstream"/);
+});
+
+test('traffic monitor exposes independent visual pause and direction/API filters', async () => {
+  const html = await fs.promises.readFile(path.join(__dirname, '..', 'traffic_monitor.html'), 'utf8');
+  assert.match(html, /id="pauseAll"/);
+  assert.match(html, /id="pauseOut"/);
+  assert.match(html, /id="pauseIn"/);
+  assert.match(html, /id="direction"/);
+  assert.match(html, /id="api"/);
+  assert.match(html, /PAUSE chỉ đóng băng màn hình, không chặn network thật/);
 });
 
 
