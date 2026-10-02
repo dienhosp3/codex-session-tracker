@@ -8,7 +8,7 @@
 <style>
 :root{color-scheme:light dark}
 *{box-sizing:border-box}
-body{margin:0;font-family:var(--vscode-font-family);font-size:12px;color:var(--vscode-foreground);background:var(--vscode-editor-background);overflow:hidden}
+body{margin:0;font-family:var(--vscode-font-family);font-size:12px;color:var(--vscode-foreground);background:var(--vscode-editor-background);overflow:hidden;display:flex;flex-direction:column;height:100vh}
 button,select,input{font:inherit}
 .toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;border-bottom:1px solid var(--vscode-panel-border);background:var(--vscode-sideBar-background)}
 button{border:1px solid var(--vscode-button-border);border-radius:4px;padding:5px 9px;background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);cursor:pointer}
@@ -16,8 +16,12 @@ button.primary{background:var(--vscode-button-background);color:var(--vscode-but
 button.active{outline:1px solid var(--vscode-focusBorder);background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground)}
 select,input{border:1px solid var(--vscode-input-border);border-radius:4px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);padding:5px 7px}
 input{min-width:220px;flex:1}
+.log-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--vscode-panel-border)}
+.log-controls input[type=number]{min-width:65px;max-width:85px;flex:none}.log-controls input[type=checkbox]{min-width:0;flex:none}
+.log-path{flex:1;min-width:150px;overflow-wrap:anywhere;color:var(--vscode-descriptionForeground)}
+.toolbar input[type=datetime-local]{min-width:155px;flex:none;width:165px}
 .status{padding:5px 8px;border-bottom:1px solid var(--vscode-panel-border);color:var(--vscode-descriptionForeground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.grid{display:grid;grid-template-columns:minmax(520px,1fr) minmax(360px,.8fr);height:calc(100vh - 79px);min-height:0}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.8fr);flex:1;min-height:0}
 .list-wrap{overflow:auto;border-right:1px solid var(--vscode-panel-border)}
 table{width:100%;border-collapse:collapse;table-layout:fixed}
 th{position:sticky;top:0;z-index:2;background:var(--vscode-sideBar-background);text-align:left;font-weight:600;padding:6px;border-bottom:1px solid var(--vscode-panel-border)}
@@ -36,7 +40,9 @@ pre{margin:8px 0 0;padding:9px;border:1px solid var(--vscode-panel-border);borde
 .warn{color:var(--vscode-editorWarning-foreground)}
 .bad{color:var(--vscode-errorForeground)}
 .count{margin-left:auto;color:var(--vscode-descriptionForeground)}
-@media(max-width:900px){.grid{grid-template-columns:1fr}.detail{display:none}.list-wrap{border-right:0}.toolbar input{min-width:140px}}
+.rules{padding:6px 8px;border-bottom:1px solid var(--vscode-panel-border)}
+.rules textarea{width:100%;min-height:110px;max-height:28vh;resize:vertical;font-family:var(--vscode-editor-font-family);background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border)}
+@media(max-width:900px){.grid{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) minmax(0,.8fr)}.list-wrap{border-right:0}.detail{border-top:1px solid var(--vscode-panel-border)}.toolbar input{min-width:140px}}
 </style>
 </head>
 <body>
@@ -50,16 +56,41 @@ pre{margin:8px 0 0;padding:9px;border:1px solid var(--vscode-panel-border);borde
     <option value="in">IN</option>
     <option value="neutral">Control/CONNECT</option>
   </select>
+  <select id="backend" aria-label="Backend"><option value="">All backends</option></select>
+  <select id="category" aria-label="Endpoint group"><option value="">All endpoints</option><option value="responses">Codex responses</option><option value="other">Other endpoints</option></select>
   <select id="api"><option value="">All API</option></select>
+  <select id="method" aria-label="HTTP method">
+    <option value="">All methods</option><option>POST</option><option>GET</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option><option>CONNECT</option>
+  </select>
+  <select id="layer" aria-label="Traffic layer"><option value="api">API requests</option><option value="transport">Transport / TLS</option><option value="all">All events</option></select>
   <input id="search" placeholder="Lọc host, API, stage, kind, request id...">
+  <input id="timeFrom" type="datetime-local" aria-label="Từ thời điểm"><input id="timeTo" type="datetime-local" aria-label="Đến thời điểm">
+  <select id="session" aria-label="Phiên"><option value="">All sessions</option></select>
   <button id="refresh">↻</button>
+  <button id="setupHook">Cài hook</button>
+  <button id="owners">↻ Codex PID</button>
+  <select id="owner"><option value="">Chọn app-server</option></select>
+  <button id="hook" class="primary">Bật plaintext</button>
+  <button id="clientRuntime" class="primary">Bật hook JSON + Reload</button>
   <span class="count" id="count"></span>
 </div>
+<div class="log-controls">
+  <select id="captureMode" aria-label="Chế độ bắt gói"><option value="post-get">Chỉ bắt POST / GET</option><option value="all">Bắt cả transport / tunnel</option></select>
+  <label>Tối đa request/phiên <input id="maxRequests" type="number" min="1" max="10000" value="1000"></label>
+  <label><input id="saveLogs" type="checkbox" checked>Lưu POST/GET</label>
+  <button id="chooseLogs">Chọn nơi lưu</button><span id="logDirectory" class="log-path"></span>
+  <button id="openLogs">Mở log</button><button id="liveLogs">Live</button><button id="newSession">Phiên mới</button>
+</div>
 <div class="status" id="status">Đang chờ Gateway...</div>
+<details class="rules"><summary>Bộ lọc JSON outbound</summary>
+  <div class="note">Rule khớp host, method, path; operations dùng JSON Pointer với add/replace/remove. [] giữ nguyên request. Áp dụng cho request tiếp theo; không gửi lại request cũ.</div>
+  <textarea id="jsonRules" aria-label="JSON filter rules" spellcheck="false">[]</textarea>
+  <button id="saveJsonRules">Lưu bộ lọc</button><span id="rulesNotice" class="note"></span>
+</details>
 <div class="grid">
   <div class="list-wrap">
     <table>
-      <thead><tr><th style="width:82px">Time</th><th style="width:42px">Dir</th><th style="width:145px">Host</th><th>API / Event</th><th style="width:92px">Size</th><th style="width:90px">Status</th></tr></thead>
+      <thead><tr><th style="width:82px">Time</th><th style="width:42px">Dir</th><th style="width:145px">Host</th><th>Method / Endpoint / Event</th><th style="width:92px">Size</th><th style="width:90px">Status</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
   </div>
@@ -69,6 +100,8 @@ pre{margin:8px 0 0;padding:9px;border:1px solid var(--vscode-panel-border);borde
 const vscode=acquireVsCodeApi();
 let state={traffic:[],gateway:{}},payload=null,selectedId=0;
 let pauseOut=false,pauseIn=false,freezeOut=Infinity,freezeIn=Infinity;
+let rulesDirty=false;
+let selectedPart='request';
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -76,6 +109,8 @@ const fmtTime=ms=>{const d=new Date(Number(ms)||0);return d.toLocaleTimeString('
 const fmtBytes=n=>{n=Number(n)||0;if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(2)+' MB'};
 
 function eventDir(e){
+  if(e.type==='saved_request'||String(e.type).startsWith('client_'))return e.direction || 'neutral';
+  if(e.type==='native_plaintext'||e.type==='native_tls_record'||e.type==='native_hook_status')return e.direction || 'neutral';
   if(e.type==='tunnel_bytes'||e.type==='ws_frame')return e.direction==='out'?'out':e.direction==='in'?'in':'neutral';
   if(e.type==='http_upstream'){
     if(['UPSTREAM_REQUEST_CHUNK','UPSTREAM_BODY_FINISHED','UPSTREAM_BODY_FINGERPRINT','UPSTREAM_BYTES_SENT','UPSTREAM_REQUEST_OPENED'].includes(e.stage))return 'out';
@@ -92,6 +127,7 @@ function apiName(e){
   return e.kind||e.type||'';
 }
 function eventTitle(e){
+  if(e.eventType)return e.eventType;
   if(e.type==='tunnel_bytes')return 'TLS tunnel bytes';
   if(e.type==='connect_tunnel')return e.stage||'CONNECT';
   if(e.type==='ws_frame')return 'WebSocket frame opcode '+String(e.opcode??'');
@@ -133,17 +169,33 @@ function toggleDir(which){
   syncPauseButtons();render();
 }
 function rebuildApis(){
-  const old=$('api').value,values=[...new Set((state.traffic||[]).map(apiName).filter(Boolean))].sort();
+  const oldBackend=$('backend').value,backends=[...new Set((state.traffic||[]).map(e=>e.targetHost).filter(Boolean))].sort();
+  $('backend').innerHTML='<option value="">All backends</option>'+backends.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+  if(backends.includes(oldBackend))$('backend').value=oldBackend;
+  const old=$('api').value,values=[...new Set((state.traffic||[]).filter(e=>!$('backend').value||e.targetHost===$('backend').value).map(e=>e.path).filter(Boolean))].sort();
   $('api').innerHTML='<option value="">All API</option>'+values.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
   if(values.includes(old))$('api').value=old;
+  const oldSession=$('session').value,sessions=[...new Set((state.traffic||[]).map(e=>e.session).filter(Boolean))].sort().reverse();
+  $('session').innerHTML='<option value="">All sessions</option>'+sessions.map(v=>'<option value="'+esc(v)+'">'+esc(new Date(v).toLocaleString('vi-VN'))+'</option>').join('');
+  if(sessions.includes(oldSession))$('session').value=oldSession;
 }
 function filtered(){
-  const dir=$('direction').value,api=$('api').value,q=$('search').value.trim().toLowerCase();
+  const dir=$('direction').value,api=$('api').value,method=$('method').value,layer=$('layer').value,q=$('search').value.trim().toLowerCase();
   return (state.traffic||[]).filter(visibleByPause).filter(e=>{
+    const transport=['tunnel_bytes','connect_tunnel','native_tls_record'].includes(e.type);
+    if(layer==='api'&&transport)return false;
+    if(layer==='transport'&&!transport)return false;
+    if(method&&e.method!==method)return false;
     const d=eventDir(e);if(dir!=='all'&&d!==dir)return false;
-    if(api&&apiName(e)!==api)return false;
+    if(api&&e.path!==api)return false;
+    if($('backend').value&&e.targetHost!==$('backend').value)return false;
+    const responses=e.path==='/backend-api/codex/responses';
+    if($('category').value==='responses'&&!responses||$('category').value==='other'&&responses)return false;
+    if($('session').value&&e.session!==$('session').value)return false;
+    if($('timeFrom').value&&e.at<new Date($('timeFrom').value).getTime())return false;
+    if($('timeTo').value&&e.at>new Date($('timeTo').value).getTime())return false;
     if(q){
-      const hay=[e.targetHost,e.path,e.stage,e.kind,e.requestId,e.connectionId,e.type,e.method].join(' ').toLowerCase();
+      const hay=[e.targetHost,e.path,e.stage,e.kind,e.requestId,e.connectionId,e.type,e.method,e.eventType,e.responseId,e.itemId].join(' ').toLowerCase();
       if(!hay.includes(q))return false;
     }
     return true;
@@ -155,11 +207,13 @@ function renderRows(){
   $('rows').innerHTML=events.map(e=>{
     const d=eventDir(e),id=Number(e.traceId)||0;
     const st=e.statusCode?('HTTP '+e.statusCode):(e.error?'ERROR':'');
-    return '<tr data-id="'+id+'" class="'+(id===selectedId?'selected':'')+'"><td class="mono">'+esc(fmtTime(e.at))+'</td><td class="dir '+d+'">'+(d==='out'?'↑':d==='in'?'↓':'•')+'</td><td title="'+esc(e.targetHost||'')+'">'+esc(e.targetHost||'')+'</td><td title="'+esc(apiName(e))+'"><b>'+esc(eventTitle(e))+'</b><div class="mono">'+esc(e.path||e.kind||'')+'</div></td><td>'+esc(fmtBytes(eventBytes(e)))+'</td><td>'+esc(st)+'</td></tr>';
-  }).join('');
+    const transport=['tunnel_bytes','connect_tunnel','native_tls_record'].includes(e.type);
+    const endpoint=e.path?[e.method,e.path].filter(Boolean).join(' '):transport?eventTitle(e):'Thiếu header request · xem chi tiết';
+    return '<tr data-id="'+id+'" class="'+(id===selectedId?'selected':'')+'"><td class="mono">'+esc(fmtTime(e.at))+'</td><td class="dir '+d+'">'+(d==='out'?'↑':d==='in'?'↓':'•')+'</td><td title="'+esc(e.targetHost||'')+'">'+esc(e.targetHost||'')+'</td><td title="'+esc(apiName(e))+'"><b>'+esc(endpoint)+'</b><div class="mono">'+esc(eventTitle(e))+'</div></td><td>'+esc(fmtBytes(eventBytes(e)))+'</td><td>'+esc(st)+'</td></tr>';
+  }).join('') || '<tr><td colspan="6">'+esc($('layer').value==='api'?'Chưa có request API khớp bộ lọc. CONNECT chỉ có transport; endpoint cần header HTTP hoặc hook client.':'Không có event khớp bộ lọc.')+'</td></tr>';
   for(const row of document.querySelectorAll('tr[data-id]'))row.onclick=()=>{
     selectedId=Number(row.dataset.id)||0;payload=null;
-    vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:0});
+    vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:0,part:selectedPart});
     renderRows();renderDetail();
   };
 }
@@ -168,38 +222,67 @@ function renderDetail(){
   if(!e){$('detail').innerHTML='<div class="note">Chọn một event để xem chi tiết.</div>';return}
   const meta={
     traceId:e.traceId,time:fmtTime(e.at),direction:eventDir(e),type:e.type,stage:e.stage,kind:e.kind,
-    host:e.targetHost,port:e.targetPort,method:e.method,path:e.path,status:e.statusCode,
-    requestId:e.requestId,connectionId:e.connectionId,size:eventBytes(e),error:e.error
+    host:e.targetHost,port:e.targetPort,method:e.method,path:e.path||'',status:e.statusCode,protocol:e.protocol,streamId:e.streamId,
+    requestId:e.requestId,connectionId:e.connectionId,size:eventBytes(e),event:e.eventType,responseId:e.responseId,itemId:e.itemId,sequence:e.sequenceNumber,
+    modified:e.modified,error:e.error,bodySha256:e.bodySha256,originalSha256:e.originalSha256
   };
   let html='<h2>'+esc(eventTitle(e))+'</h2><div class="meta">'+Object.entries(meta).filter(([,v])=>v!==''&&v!==0&&v!==undefined).map(([k,v])=>'<div class="k">'+esc(k)+'</div><div class="mono">'+esc(v)+'</div>').join('')+'</div>';
+  if(state.savedTraffic)html+='<div>'+['request','response','events','timeline','captures'].map(part=>'<button data-part="'+part+'" class="'+(part===selectedPart?'active':'')+'">'+esc(part)+'</button>').join(' ')+'</div>';
   if(e.type==='tunnel_bytes'||e.type==='connect_tunnel'){
     html+='<div class="note">Đây là HTTPS CONNECT pass-through. Origin HTTPS thật của Codex được giữ nguyên nên login/workspace routing không bị đổi. Payload TLS ở event này là encrypted transport bytes; UI không giả vờ đây là plaintext API body.</div>';
+  }else if(e.type==='native_tls_record'){
+    html+='<div class="note">Đã quan sát byte plaintext tại Schannel. Chọn event PLAINTEXT_HTTP_HEADERS / REQUEST_BODY / RESPONSE_BODY / WEBSOCKET_FRAME để xem endpoint và nội dung đã tách. Bản ghi TLS này không lưu raw header đăng nhập.</div>';
   }else if(payload&&Number(payload.traceId)===selectedId&&payload.contentCapture){
     const c=payload.contentCapture;
     html+='<div class="note">'+esc([c.contentType,c.encoding,c.truncated?'truncated':''].filter(Boolean).join(' · '))+'</div><pre>'+esc(c.content||'')+'</pre>';
     if(!c.complete)html+='<button id="more">Tải thêm</button>';
+  }else if(payload&&Number(payload.traceId)===selectedId&&payload.headers){
+    html+='<pre>'+esc(JSON.stringify(payload.headers,null,2))+'</pre>';
   }else if(e.hasContent){
     html+='<div class="note">Đang tải nội dung capture...</div>';
   }else{
     html+='<div class="note">Event này không có plaintext body được capture.</div>';
   }
   $('detail').innerHTML=html;
-  const more=$('more');if(more&&payload&&payload.contentCapture)more.onclick=()=>vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:Number(payload.contentCapture.nextOffset||0)});
+  for(const button of document.querySelectorAll('[data-part]'))button.onclick=()=>{selectedPart=button.dataset.part;payload=null;vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:0,part:selectedPart});renderDetail()};
+  const more=$('more');if(more&&payload&&payload.contentCapture)more.onclick=()=>vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:Number(payload.contentCapture.nextOffset||0),part:selectedPart});
 }
 function renderStatus(){
   const g=state.gateway||{};
   const proxy=g.modelProxyReady?'proxy READY':'proxy OFF';
   const env=g.proxyEnvironmentApplied?'env proxy APPLIED':'env proxy NOT APPLIED';
   const seen=g.transportTrafficObserved?'traffic SEEN':'no traffic yet';
-  $('status').textContent='Gateway '+(g.running?'RUNNING':'STOPPED')+' · '+proxy+' · '+env+' · '+seen+' · PAUSE chỉ đóng băng màn hình, không chặn network thật';
+  const h=g.nativeHook||{};
+  const hook=h.attached?(h.plaintextObserved?'plaintext SEEN':'hook ATTACHED · chưa thấy plaintext'):'hook OFF';
+  const client=g.clientHookObserved?'client JSON SEEN · '+g.responseEventsObserved+' events':g.clientRuntimeEnabled?'client runtime ON · chưa thấy request':'client runtime OFF';
+  $('status').textContent='Gateway '+(g.running?'RUNNING':'STOPPED')+' · '+client+' · '+proxy+' · '+env+' · '+seen+' · '+hook+' · '+(h.error||h.setup||g.nativeHookNotice||'')+' · PAUSE chỉ đóng băng màn hình, không chặn network thật';
+  $('clientRuntime').textContent=g.clientRuntimeEnabled?'Gỡ hook JSON + Reload':'Bật hook JSON + Reload';
+  $('rulesNotice').textContent=g.clientHookNotice||'';
+  $('captureMode').value=g.trafficCaptureMode||'post-get';
+  if(document.activeElement!==$('maxRequests'))$('maxRequests').value=g.trafficMaxRequests||1000;
+  $('saveLogs').checked=g.trafficLogsEnabled!==false;
+  $('logDirectory').textContent=g.trafficLogsDirectory||'';
+  $('logDirectory').title=g.trafficLogsDirectory||'';
+  const saved=state.savedTraffic;
+  $('status').textContent=(saved?'LOG '+saved.directory+' · '+saved.loaded+'/'+saved.total+' requests':'LIVE · '+(g.trafficRequestsCaptured||0)+'/'+(g.trafficMaxRequests||1000)+' requests'+(g.trafficCaptureLimitReached?' · Đã đạt giới hạn, dùng Phiên mới':''))+' · '+client+(g.clientCaptureGaps?' · CAPTURE GAP: '+g.clientCaptureGaps:'')+' · '+(g.trafficLogsError||g.clientHookNotice||'');
+  $('liveLogs').disabled=!saved;
+  if(!rulesDirty)$('jsonRules').value=JSON.stringify(g.clientJsonRules||[],null,2);
+  $('hook').textContent=h.attached?'Tắt plaintext':'Bật plaintext';
+  $('hook').disabled=Boolean(h.starting)||['creating-environment','installing-frida'].includes(h.setup);
+  const old=$('owner').value;
+  $('owner').innerHTML='<option value="">Chọn app-server</option>'+(g.nativeHookOwners||[]).map(p=>'<option value="'+p.pid+'">Codex PID '+p.pid+'</option>').join('');
+  if(old)$('owner').value=old;
+  else if((g.nativeHookOwners||[]).length===1)$('owner').value=g.nativeHookOwners[0].pid;
+  $('setupHook').disabled=Boolean(h.attached||h.starting)||['creating-environment','installing-frida'].includes(h.setup);
 }
 function render(){renderStatus();rebuildApis();renderRows();renderDetail()}
 window.addEventListener('message',ev=>{
   const m=ev.data||{};
-  if(m.type==='trafficState'){state=m.data||state;render()}
+  if(m.type==='trafficState'){if(Boolean(state.savedTraffic)!==Boolean(m.data?.savedTraffic)||state.savedTraffic?.directory!==m.data?.savedTraffic?.directory){selectedId=0;payload=null;}state=m.data||state;render()}
+  if(m.type==='jsonRulesSaved'){rulesDirty=false;}
   if(m.type==='trafficPayload'){
     const next=m.payload||null;
-    if(next&&payload&&next.traceId===payload.traceId&&next.contentCapture&&payload.contentCapture&&Number(next.contentCapture.offset||0)>0){
+    if(next&&payload&&next.traceId===payload.traceId&&next.part===payload.part&&next.contentCapture&&payload.contentCapture&&Number(next.contentCapture.offset||0)>0){
       next.contentCapture.content=String(payload.contentCapture.content||'')+String(next.contentCapture.content||'');
     }
     payload=next;renderDetail();
@@ -207,7 +290,24 @@ window.addEventListener('message',ev=>{
 });
 $('pauseAll').onclick=()=>toggleDir('all');$('pauseOut').onclick=()=>toggleDir('out');$('pauseIn').onclick=()=>toggleDir('in');
 $('direction').onchange=render;$('api').onchange=render;$('search').oninput=render;
+$('method').onchange=render;$('layer').onchange=render;
+$('backend').onchange=render;$('category').onchange=render;$('session').onchange=render;$('timeFrom').onchange=render;$('timeTo').onchange=render;
+const saveCaptureSettings=()=>vscode.postMessage({command:'configureTraffic',settings:{mode:$('captureMode').value,maxRequests:Number($('maxRequests').value),enabled:$('saveLogs').checked}});
+$('captureMode').onchange=saveCaptureSettings;$('maxRequests').onchange=saveCaptureSettings;$('saveLogs').onchange=saveCaptureSettings;
+$('chooseLogs').onclick=()=>vscode.postMessage({command:'chooseTrafficLogDirectory'});
+$('openLogs').onclick=()=>vscode.postMessage({command:'openSavedTraffic'});$('liveLogs').onclick=()=>vscode.postMessage({command:'liveTraffic'});
+$('newSession').onclick=()=>vscode.postMessage({command:'newTrafficSession'});
 $('refresh').onclick=()=>vscode.postMessage({command:'refreshTraffic'});
+$('owners').onclick=()=>vscode.postMessage({command:'refreshNativeOwners'});
+$('clientRuntime').onclick=()=>vscode.postMessage({command:state.gateway?.clientRuntimeEnabled?'disableClientRuntime':'enableClientRuntime'});
+$('jsonRules').oninput=()=>{rulesDirty=true};
+$('saveJsonRules').onclick=()=>{try{vscode.postMessage({command:'saveJsonFilters',rules:JSON.parse($('jsonRules').value)})}catch{$('rulesNotice').textContent='JSON rule chưa hợp lệ.'}};
+$('setupHook').onclick=()=>vscode.postMessage({command:'setupNativeHook'});
+$('hook').onclick=()=>{
+  if(state.gateway?.nativeHook?.attached)vscode.postMessage({command:'stopNativeHook'});
+  else if($('owner').value)vscode.postMessage({command:'startNativeHook',pid:Number($('owner').value)});
+};
+vscode.postMessage({command:'refreshNativeOwners'});
 syncPauseButtons();vscode.postMessage({command:'refreshTraffic'});
 </script>
 </body>

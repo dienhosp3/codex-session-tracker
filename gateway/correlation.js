@@ -68,7 +68,7 @@ async function observeRolloutEvidence(file, options = {}) {
 function correlateNetwork(commands, request = {}, now = Date.now()) {
   const list = Array.from(commands || []).filter(Boolean);
   const active = list
-    .filter(item => item.action === 'steer' && !(item.state && item.state.terminal))
+    .filter(item => item.action === 'steer' && !(item.state && item.state.terminal) && (!request.threadId||item.threadId===request.threadId))
     .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   const exactTurn = String(request.turnId || '').trim();
   if (exactTurn) {

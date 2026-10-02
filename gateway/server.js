@@ -9,6 +9,9 @@ const { redactHeaders, sanitizePath, sha256, safeError } = require('./redaction'
 const { proxyWebSocket } = require('./websocket_proxy');
 const { ContentCapture } = require('./content_capture');
 const { tunnelConnect } = require('./forward_proxy');
+const { ClientInstrumentation } = require('./client_instrumentation');
+const { TrafficLogs } = require('./traffic_logs');
+const { TrafficPolicy } = require('./traffic_policy');
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -60,6 +63,9 @@ class GatewayServer {
     this.captureMaxBytes = Math.max(1024, Number(options.captureMaxBytes || 16 * 1024 * 1024));
     this.sockets = new Set();
     this.tunnels = new Set();
+    this.trafficLogs = new TrafficLogs({directory:options.trafficLogsDirectory,enabled:options.trafficLogsEnabled});
+    this.trafficPolicy = new TrafficPolicy({mode:options.trafficCaptureMode||'all',maxRequests:options.trafficMaxRequests||1000});
+    this.clientHook = new ClientInstrumentation({record:(event,payload)=>this.record(event,payload),maxBytes:this.captureMaxBytes});
   }
 
   async start() {
@@ -154,6 +160,7 @@ class GatewayServer {
 
     await tunnelWait;
     await closePromise;
+    await this.trafficLogs.flush();
     for(const tunnel of tunnels)this.tunnels.delete(tunnel);
     for(const socket of sockets)this.sockets.delete(socket);
   }
@@ -163,9 +170,12 @@ class GatewayServer {
     return { host:this.host, port:a&&typeof a==='object'?a.port:this.port, token:this.token };
   }
 
-  async record(event) {
-    if(this.trace) await this.trace.append(event).catch(()=>{});
-    if(this.onNetworkEvent && event && ['http_upstream','ws_connection','connect_tunnel','tunnel_bytes'].includes(event.type)) await this.onNetworkEvent(event).catch(()=>{});
+  async record(event,payload) {
+    if(this.trafficPolicy.allows(event)){
+      await this.trafficLogs.append(event,payload);
+      if(this.trace) await this.trace.append(event).catch(()=>{});
+    }
+    if(this.onNetworkEvent && event && ['http_upstream','ws_connection','connect_tunnel','tunnel_bytes','client_request','client_response','client_response_event'].includes(event.type)) await this.onNetworkEvent(event).catch(()=>{});
   }
 
   authorized(req) {
@@ -178,6 +188,14 @@ class GatewayServer {
       const absolute = absoluteProxyTarget(req.url);
       if (this.modelProxyEnabled && absolute) return this.proxyAbsoluteHttp(req, res, absolute);
       const pathOnly=sanitizePath(req.url);
+      if(pathOnly.startsWith('/instrumentation/v1/')){
+        if(!this.authorized(req))return json(res,401,{error:'unauthorized'});
+        if(req.method!=='POST')return json(res,405,{error:'POST required'});
+        const input=await readJson(req,64*1024*1024);
+        if(pathOnly==='/instrumentation/v1/outbound')return json(res,200,await this.clientHook.outbound(input));
+        if(pathOnly==='/instrumentation/v1/observe'){await this.clientHook.observe(input);return json(res,200,{schemaVersion:1,ok:true});}
+        return json(res,404,{error:'unsupported instrumentation action'});
+      }
       if(req.method==='GET'&&pathOnly==='/health') {
         return json(res,200,{
           running:true,version:this.version,uptimeMs:Date.now()-this.startedAt,

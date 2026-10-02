@@ -17,7 +17,9 @@ ENGINE="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).engines.vscode")"
 DISPLAY="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).displayName")"
 DESCRIPTION="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).description")"
 VSIX="$ROOT/${NAME}-${VERSION}.vsix"
-STAGE="$(mktemp -d)"
+mkdir -p "$ROOT/.runtime-build"
+STAGE="$(mktemp -d "$ROOT/.runtime-build/vsix-stage-XXXXXX")"
+case "$STAGE" in "$ROOT"/.runtime-build/vsix-stage-*) ;; *) exit 1 ;; esac
 trap 'rm -rf "$STAGE"' EXIT
 
 mkdir -p "$STAGE/extension"
@@ -27,8 +29,20 @@ cp "$ROOT/tracker.js" "$STAGE/extension/tracker.js"
 cp "$ROOT/codex_queue.js" "$STAGE/extension/codex_queue.js"
 cp "$ROOT/codex_steer.js" "$STAGE/extension/codex_steer.js"
 cp "$ROOT/codex_delete.js" "$STAGE/extension/codex_delete.js"
+cp "$ROOT/runtime_versions.js" "$STAGE/extension/runtime_versions.js"
+if [[ ! -f "$ROOT/runtime/bin/windows-x86_64/codex.exe" || ! -f "$ROOT/runtime/manifest.json" ]]; then
+  echo "Build the client runtime with scripts/build-runtime.ps1 first." >&2
+  exit 1
+fi
+mkdir -p "$STAGE/extension/runtime/bin/windows-x86_64"
+# Same-volume staging avoids rewriting the large runtime binary during packaging.
+ln "$ROOT/runtime/bin/windows-x86_64/codex.exe" "$STAGE/extension/runtime/bin/windows-x86_64/codex.exe" || cp "$ROOT/runtime/bin/windows-x86_64/codex.exe" "$STAGE/extension/runtime/bin/windows-x86_64/"
+cp "$ROOT/runtime/manifest.json" "$ROOT/runtime/LICENSE-Codex.txt" "$ROOT/runtime/NOTICE-Codex.txt" "$STAGE/extension/runtime/"
+cp "$ROOT/runtime/tracker_hook.rs" "$STAGE/extension/runtime/"
 mkdir -p "$STAGE/extension/gateway"
 cp "$ROOT"/gateway/*.js "$STAGE/extension/gateway/"
+cp "$ROOT"/gateway/*.py "$STAGE/extension/gateway/"
+cp "$ROOT/gateway/hook-requirements.txt" "$STAGE/extension/gateway/"
 cp "$ROOT/dashboard.html" "$STAGE/extension/dashboard.html"
 cp "$ROOT/traffic_monitor.html" "$STAGE/extension/traffic_monitor.html"
 mkdir -p "$STAGE/extension/media"
@@ -80,6 +94,9 @@ cat > "$STAGE/[Content_Types].xml" <<'XML'
   <Default Extension="html" ContentType="text/html" />
   <Default Extension="svg" ContentType="image/svg+xml" />
   <Default Extension="txt" ContentType="text/plain" />
+  <Default Extension="exe" ContentType="application/octet-stream" />
+  <Default Extension="py" ContentType="text/plain" />
+  <Default Extension="rs" ContentType="text/plain" />
   <Default Extension="vsixmanifest" ContentType="text/xml" />
 </Types>
 XML

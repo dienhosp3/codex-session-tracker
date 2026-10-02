@@ -9,6 +9,13 @@ const codexSteer = require('./codex_steer');
 const codexDelete = require('./codex_delete');
 const { CodexGateway } = require('./gateway');
 const gatewayConfig = require('./gateway/config_manager');
+const { NativeInstrumentation, discoverOwners } = require('./gateway/native_instrumentation');
+const runtimeVersions = require('./runtime_versions');
+const clientRuntime = require('./gateway/client_runtime');
+const {SavedTraffic}=require('./gateway/saved_traffic');
+const TRAFFIC_SETTINGS_KEY='codexSessionTracker.trafficSettings.v1';
+let trafficSettings={directory:path.join(require('os').homedir(),'Documents','Codex Logs'),enabled:true,mode:'post-get',maxRequests:1000};
+let savedTraffic=null;
 
 let contextRef = null;
 let statusBar = null;
@@ -37,6 +44,11 @@ let steerCapabilityConversationId = '';
 let steerBusy = false;
 let steerNotice = null;
 let gateway = null;
+let nativeHook = null;
+let nativeHookOwners = [];
+let nativeHookNotice = '';
+let clientHookNotice = '';
+const CLIENT_HOOK_RULES_KEY='codexSessionTracker.clientJsonRules.v1';
 let gatewayStatus = { enabled: false, running: false, error: '', address: null };
 let gatewayManagedState = { active: false, managed: false, drifted: false };
 let gatewayActionNotice = null;
@@ -49,6 +61,13 @@ let gatewayProxyEnvApplied = false;
 
 async function activate(context) {
   contextRef = context;
+  trafficSettings={...trafficSettings,...context.globalState.get(TRAFFIC_SETTINGS_KEY,{})};
+  if(process.platform==='win32'&&!context.globalState.get(TRAFFIC_SETTINGS_KEY)?.directory){
+    try{
+      const docs=await new Promise((resolve,reject)=>require('child_process').execFile('powershell.exe',['-NoProfile','-NonInteractive','-Command',"[Environment]::GetFolderPath('MyDocuments')"],{windowsHide:true,timeout:5000},(error,stdout)=>error?reject(error):resolve(stdout.trim())));
+      if(docs)trafficSettings.directory=path.join(docs,'Codex Logs');
+    }catch{}
+  }
   applyGatewayProcessEnvironment();
 
   const migratedLegacyRoute = await migrateLegacyGatewayRoute();
@@ -98,6 +117,8 @@ async function deactivate() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
   trackerView = null;
+  await clientRuntime.removeBridge(contextRef?.globalState.get('codexSessionTracker.clientRuntime.v1')?.executable).catch(()=>{});
+  if (nativeHook) await nativeHook.stop();
   if (trafficPanel) {
     try { trafficPanel.dispose(); } catch {}
     trafficPanel = null;
@@ -241,6 +262,10 @@ async function startGateway() {
     version: String(contextRef.extension && contextRef.extension.packageJSON && contextRef.extension.packageJSON.version || 'dev'),
     port: cfg.gatewayPort,
     traceDir,
+    trafficLogsDirectory:trafficSettings.directory,
+    trafficLogsEnabled:trafficSettings.enabled,
+    trafficCaptureMode:trafficSettings.mode,
+    trafficMaxRequests:trafficSettings.maxRequests,
     modelProxyEnabled: cfg.gatewayModelProxyEnabled,
     upstreamBaseUrl: cfg.gatewayUpstreamBaseUrl,
     captureContent: cfg.gatewayCaptureContent,
@@ -276,8 +301,16 @@ async function startGateway() {
   });
   try {
     const address = await gateway.start();
+    gateway.server.clientHook.filters.configure(contextRef.globalState.get(CLIENT_HOOK_RULES_KEY,[]));
     gatewayStatus = { enabled: true, running: true, error: '', address: { host: address.host, port: address.port } };
+    const managedRuntime=contextRef.globalState.get('codexSessionTracker.clientRuntime.v1');
+    if(managedRuntime?.enabled){
+      await clientRuntime.publishBridge(managedRuntime.executable,address);
+      process.env.CODEX_TRACKER_GATEWAY_PORT=String(address.port);
+      process.env.CODEX_TRACKER_GATEWAY_TOKEN=address.token;
+    }
   } catch (error) {
+    if(gateway)await gateway.stop().catch(()=>{});
     gatewayStatus = { enabled: true, running: false, error: friendlyError(error), address: null };
     gateway = null;
   }
@@ -609,8 +642,132 @@ async function openTrafficMonitor() {
   trafficPanel.webview.onDidReceiveMessage(async message => {
     if (!message || typeof message !== 'object') return;
     if (message.command === 'refreshTraffic') postTrafficState();
-    if (message.command === 'loadTrafficPayload') await sendTrafficPayload(message.traceId, message.offset);
+    if (message.command === 'loadTrafficPayload') await sendTrafficPayload(message.traceId, message.offset,message.part);
+    if (message.command === 'refreshNativeOwners') await refreshNativeOwners();
+    if (message.command === 'setupNativeHook') await setupNativeHook();
+    if (message.command === 'startNativeHook') await startNativeHook(Number(message.pid));
+    if (message.command === 'stopNativeHook' && nativeHook) {await nativeHook.stop();postTrafficState();}
+    if (message.command === 'saveJsonFilters') await saveJsonFilters(message.rules);
+    if (message.command === 'enableClientRuntime') await enableClientRuntime();
+    if (message.command === 'disableClientRuntime') await disableClientRuntime();
+    if (message.command === 'configureTraffic') await configureTraffic(message.settings);
+    if (message.command === 'chooseTrafficLogDirectory') await chooseTrafficLogDirectory();
+    if (message.command === 'openSavedTraffic') await openSavedTraffic();
+    if (message.command === 'liveTraffic') {savedTraffic=null;postTrafficState();}
+    if (message.command === 'newTrafficSession') {
+      gateway?.server.trafficLogs.newSession();if(gateway)gateway.server.trafficPolicy.count=0;postTrafficState();
+    }
   }, null, contextRef.subscriptions);
+  postTrafficState();
+}
+
+async function saveJsonFilters(rules){
+  try{
+    const active=await startGateway();if(!active)throw new Error('Gateway đang tắt.');
+    const {JsonFilters}=require('./gateway/json_filters');const validated=new JsonFilters();validated.configure(rules);
+    await contextRef.globalState.update(CLIENT_HOOK_RULES_KEY,validated.rules);
+    active.server.clientHook.filters.configure(validated.rules);
+    clientHookNotice='Đã lưu bộ lọc JSON. Áp dụng cho request tiếp theo khớp rule.';
+    trafficPanel?.webview.postMessage({type:'jsonRulesSaved'});
+  }catch(error){clientHookNotice=error.message;}
+  postTrafficState();
+}
+
+async function configureTraffic(settings={}){
+  try{
+    const {TrafficPolicy}=require('./gateway/traffic_policy');
+    const validated=new TrafficPolicy({mode:settings.mode??trafficSettings.mode,maxRequests:Number(settings.maxRequests??trafficSettings.maxRequests)});
+    trafficSettings={...trafficSettings,mode:validated.mode,maxRequests:validated.maxRequests,enabled:settings.enabled===undefined?trafficSettings.enabled:Boolean(settings.enabled)};
+    await contextRef.globalState.update(TRAFFIC_SETTINGS_KEY,trafficSettings);
+    gateway?.server.trafficPolicy.configure(trafficSettings);
+    gateway?.server.trafficLogs.configure(trafficSettings);
+    if(savedTraffic)await savedTraffic.open(savedTraffic.root,trafficSettings.maxRequests);
+    clientHookNotice='Đã cập nhật giới hạn và chế độ bắt gói.';
+  }catch(error){clientHookNotice=error.message;}
+  postTrafficState();
+}
+async function chooseTrafficLogDirectory(){
+  const selected=await vscode.window.showOpenDialog({canSelectFiles:false,canSelectFolders:true,canSelectMany:false,defaultUri:vscode.Uri.file(trafficSettings.directory),openLabel:'Chọn thư mục lưu POST/GET'});
+  if(!selected?.length)return;
+  trafficSettings.directory=selected[0].fsPath;
+  await contextRef.globalState.update(TRAFFIC_SETTINGS_KEY,trafficSettings);
+  gateway?.server.trafficLogs.configure(trafficSettings);postTrafficState();
+}
+async function openSavedTraffic(){
+  const selected=await vscode.window.showOpenDialog({canSelectFiles:false,canSelectFolders:true,canSelectMany:false,defaultUri:vscode.Uri.file(trafficSettings.directory),openLabel:'Mở thư mục log'});
+  if(!selected?.length)return;
+  try{
+    const reader=new SavedTraffic();
+    clientHookNotice='Đang đọc thư mục log...';postTrafficState();
+    await reader.open(selected[0].fsPath,trafficSettings.maxRequests);savedTraffic=reader;
+    clientHookNotice='Đã mở log. Lọc theo host/backend, endpoint, method và thời gian.';
+  }catch(error){clientHookNotice='Không mở được thư mục log: '+friendlyError(error);}
+  postTrafficState();
+}
+
+async function enableClientRuntime(){
+  try{
+    const active=await startGateway();if(!active)throw new Error('Gateway đang tắt.');
+    const settings=vscode.workspace.getConfiguration('chatgpt');
+    const existing=contextRef.globalState.get('codexSessionTracker.clientRuntime.v1');
+    if(existing?.enabled&&settings.get('cliExecutable')!==existing.executable)throw new Error('CLI đã được thay đổi bên ngoài Tracker. Tắt hook để xử lý cấu hình này trước.');
+    const installed=await clientRuntime.deploy({extensionRoot:contextRef.extensionPath,storageDir:contextRef.globalStorageUri.fsPath,bundledExecutable:await installedCodexExecutable()});
+    const previous=existing?.enabled?existing.previous:settings.inspect('cliExecutable')?.globalValue;
+    const state={enabled:true,executable:installed.executable,previous:previous??null,previousWasUnset:existing?.enabled?existing.previousWasUnset:previous===undefined,cliVersion:installed.metadata.cliVersion};
+    await clientRuntime.publishBridge(state.executable,active.server.address());
+    await contextRef.globalState.update('codexSessionTracker.clientRuntime.v1',state);
+    await settings.update('cliExecutable',state.executable,vscode.ConfigurationTarget.Global);
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  }catch(error){clientHookNotice=error.message;postTrafficState();}
+}
+
+async function disableClientRuntime(){
+  try{
+    const state=contextRef.globalState.get('codexSessionTracker.clientRuntime.v1');
+    if(!state?.enabled)return;
+    const settings=vscode.workspace.getConfiguration('chatgpt');
+    if(settings.get('cliExecutable')===state.executable)await settings.update('cliExecutable',state.previousWasUnset?undefined:state.previous,vscode.ConfigurationTarget.Global);
+    await contextRef.globalState.update('codexSessionTracker.clientRuntime.v1',{...state,enabled:false});
+    await clientRuntime.removeBridge(state.executable);
+    delete process.env.CODEX_TRACKER_GATEWAY_PORT;delete process.env.CODEX_TRACKER_GATEWAY_TOKEN;
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  }catch(error){clientHookNotice=error.message;postTrafficState();}
+}
+
+async function installedCodexExecutable() {
+  const extension = vscode.extensions.getExtension('openai.chatgpt');
+  return extension ? runtimeVersions.findBundledCli(extension.extensionPath) : '';
+}
+
+function getNativeHook() {
+  if (!nativeHook) nativeHook = new NativeInstrumentation({
+    storageDir:gatewayStorageDir(),
+    maxBytes:config().gatewayCaptureMaxMb * 1024 * 1024,
+    record:event => gateway ? gateway.server.record(event) : Promise.resolve(),
+    onChange:() => postTrafficState()
+  });
+  return nativeHook;
+}
+
+async function refreshNativeOwners() {
+  try {nativeHookOwners=await discoverOwners(await installedCodexExecutable());nativeHookNotice='';}
+  catch {nativeHookOwners=[];nativeHookNotice='Không đọc được danh sách app-server của Codex.';}
+  postTrafficState();
+}
+
+async function setupNativeHook() {
+  try {await getNativeHook().setup();nativeHookNotice='Frida đã sẵn sàng. Chọn tiến trình và bật plaintext.';}
+  catch(error) {nativeHookNotice=error.message;}
+  postTrafficState();
+}
+
+async function startNativeHook(pid) {
+  try {
+    const active=await startGateway();
+    if(!active)throw new Error('Bật Gateway trước khi gắn native hook.');
+    await getNativeHook().start(pid,await installedCodexExecutable());
+    nativeHookNotice='Hook đã gắn. Chỉ báo plaintext khi quan sát được dữ liệu TLS thực tế.';
+  } catch(error) {nativeHookNotice=error.message;}
   postTrafficState();
 }
 
@@ -628,7 +785,19 @@ function trafficGatewayState() {
       captureContent: false,
       captureMaxBytes: 0
     }),
-    proxyEnvironmentApplied: gatewayProxyEnvApplied
+    proxyEnvironmentApplied: gatewayProxyEnvApplied,
+    nativeHook:nativeHook ? nativeHook.snapshot() : null,
+    nativeHookOwners,
+    nativeHookNotice,
+    clientHookNotice,
+    ...gateway?.server.trafficLogs.snapshot(),
+    ...gateway?.server.trafficPolicy.snapshot(),
+    trafficLogsDirectory:trafficSettings.directory,
+    trafficLogsEnabled:trafficSettings.enabled,
+    trafficCaptureMode:trafficSettings.mode,
+    trafficMaxRequests:trafficSettings.maxRequests,
+    clientJsonRules:gateway?.server.clientHook.filters.rules||[],
+    clientRuntimeEnabled:Boolean(contextRef?.globalState.get('codexSessionTracker.clientRuntime.v1')?.enabled)
   };
 }
 
@@ -638,13 +807,16 @@ function postTrafficState() {
     type: 'trafficState',
     data: {
       gateway: trafficGatewayState(),
-      traffic: gateway ? gateway.trafficIndex(1000) : []
+      traffic: savedTraffic?savedTraffic.snapshot().traffic:gateway ? gateway.trafficIndex(2500) : [],
+      savedTraffic:savedTraffic?{directory:savedTraffic.root,total:savedTraffic.total,loaded:savedTraffic.items.size}:null
     }
   });
 }
 
-async function sendTrafficPayload(traceId, offset = 0) {
-  const event = gateway && gateway.payloadByTraceId(traceId, { offset, limit: 512 * 1024 });
+async function sendTrafficPayload(traceId, offset = 0,part='request') {
+  let event;
+  try{event = savedTraffic?await savedTraffic.payload(traceId,part,offset):gateway && gateway.payloadByTraceId(traceId, { offset, limit: 512 * 1024 });}
+  catch(error){clientHookNotice=friendlyError(error);event={traceId,missing:true};postTrafficState();}
   if (!trafficPanel) return;
   trafficPanel.webview.postMessage({
     type: 'trafficPayload',

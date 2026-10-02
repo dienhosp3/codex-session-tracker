@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-02T13:09:12.026Z",
+  "label": "native-schannel-plaintext-preview",
+  "repository": {
+    "revision": "6eac98eeaa1cd43d81fbf4fa5189ae600b784555",
+    "shortRevision": "6eac98eeaa1c",
+    "dirty": true,
+    "trackerVersion": "0.11.0"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.928.31416"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.159.2",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "",
+      "model": ""
+    }
+  },
+  "verification": {
+    "node": "v24.15.0",
+    "python": "Python 3.14.4",
+    "frida": "17.5.1",
+    "hpack": "4.1.0",
+    "nodeTests": {
+      "passed": 94,
+      "failed": 0
+    },
+    "hpackTests": {
+      "passed": 3,
+      "failed": 0
+    },
+    "nativeTlsLoopback": {
+      "passed": true,
+      "endpoint": "POST /fixture/responses",
+      "outboundPlaintext": true,
+      "inboundPlaintext": true,
+      "upstreamReceivedModifiedBody": true
+    },
+    "installedCodexObservation": {
+      "endpoint": "POST /otlp/v1/metrics",
+      "outboundPlaintextBytes": 100561,
+      "inboundPlaintextBytes": 1537,
+      "modelPayloadVerified": false
+    },
+    "coverage": {
+      "schannel": true,
+      "rustls": false,
+      "outboundSameLengthOnly": true
+    }
+  },
+  "artifact": {
+    "name": "codex-session-tracker-0.11.0.vsix",
+    "sha256": "37ba94f7d068c5c1c866d5e460cb02725b2835ff8eeaa8def10db784502a7eba"
+  }
+}

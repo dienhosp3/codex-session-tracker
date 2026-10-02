@@ -1,8 +1,195 @@
-# Codex Session Tracker 0.10.2
+# Codex Session Tracker 0.12.0
 
 VS Code tracker for Codex sessions with lifecycle-aware activity, queue/steer controls, a loopback transport Gateway, reversible proxy routing, and a dedicated traffic monitor.
 
 This build targets **Codex in VS Code on Windows 10**.
+
+## Client JSON hook, raw events and traffic files
+
+Open **Codex Tracker: Open Traffic Monitor**, then **Bật hook JSON + Reload**.
+This release bundles a Windows x64 Codex runtime built from upstream
+`rust-v0.159.2` (`ff6aec96948b70d94983af2641a6b67c94faeff5`). It replaces
+`chatgpt.cliExecutable` reversibly and retains the installed extension's sandbox
+and code-mode helpers. Enabling checks the installed bundled CLI version and
+the runtime SHA-256. **Gỡ hook JSON + Reload** restores the previous setting.
+The original bundled executable is not overwritten.
+
+The hook runs before JSON compression/signing and WebSocket framing/TLS.
+Requests with no matching rules retain their exact JSON bytes. Responses are
+observed in the shared HTTP body and WebSocket client before Codex reduces them.
+SSE parsing preserves all event types, including `response.in_progress` and
+unknown future events. The UI displays actual method, host, endpoint, response
+ID, item ID, sequence number, and before/after body hashes. WebSocket JSON frames
+are associated with their actual **GET** upgrade endpoint.
+
+**Bộ lọc JSON outbound** accepts an array of exact host/method/path rules.
+Operations use JSON Pointer (`add`, `replace`, `remove`), with optional
+`conditions` and `protocol`. An empty array leaves requests unchanged.
+For example, adapting the pointer to the observed payload:
+
+```json
+[
+  {
+    "id": "steer-text",
+    "host": "chatgpt.com",
+    "method": "POST",
+    "path": "/backend-api/codex/responses",
+    "conditions": [{"path": "/type", "equals": "response.create"}],
+    "operations": [{"op": "replace", "path": "/input/0/content/0/text", "value": "New message"}]
+  }
+]
+```
+
+Filters can change JSON length. Model changes and unsafe JSON pointers are
+rejected. A filter error or missing Gateway acknowledgement blocks that request
+before upstream send. The temporary loopback bridge credential lives in a
+directory with access restricted to the current Windows user and is removed on
+deactivation; Codex authentication headers/files are not read by the bridge.
+Request and response bodies are captured as requested.
+
+### Capture limits and saved folders
+
+Default capture mode is **Chỉ bắt POST / GET**. Other methods and transport-only
+CONNECT/tunnel/TLS records are excluded when recording, independently of display
+filters. **Tối đa request/phiên** accepts 1–10000 (default 1000). It counts logical
+requests; accepted requests keep receiving their full response/events after the
+limit is reached. Use **Phiên mới** to start a new capture session. This limit
+does not block Codex network requests. Live display retains the latest 2500
+events; saved files remain available after those rows leave the display.
+
+POST/GET saving defaults to the Windows Documents folder's **Codex Logs**.
+**Chọn nơi lưu** selects another directory. Existing requests finish in their
+original folders; new requests use the new directory. Folder timestamps are UTC:
+
+```text
+Documents/Codex Logs/
+  2026-10-02/<session timestamp>/backends/
+    chatgpt.com/
+      codex-responses/<request timestamp>-POST-<request key>/
+        request.json
+        request.body
+        request.original.body         (only when modified)
+        response.json
+        response.body
+        response.events.jsonl
+        timeline.jsonl
+      endpoints/<other endpoint>-<key>/<request folder>/
+```
+
+`/backend-api/codex/responses` has its own `codex-responses` directory. Backend
+hosts are separate. Client-hook body files retain complete received chunks even
+when the live UI payload preview is truncated. Optional proxy/native captures
+retain their original encoding and truncation metadata in `captures.jsonl`.
+Capture gaps and disk errors are explicit; gaps have their own JSONL records.
+Streaming outbound bodies that do not expose buffered bytes are marked
+unavailable. The loopback bridge accepts at most 64 MiB per message; observation
+queues and previews are bounded. This is not an unlimited packet sniffer.
+
+**Mở log** opens a saved folder inside Traffic Monitor. Filter separately by
+backend, endpoint, Responses group, method, session, and time. Saved requests
+have request/response/events/timeline tabs with paged payload loading. **Live**
+returns to active capture. Opening a folder never replays requests.
+
+### Build and verification
+
+`scripts/build-runtime.ps1` requires Git, Rust/MSVC, Node and OpenSSL for the
+loopback TLS fixture. It pins the source revision, runs the client integration
+fixture, copies the binary/licenses, records `runtime/manifest.json`, and runs
+the checkpoint helper with fresh VS Code discovery. Incremental compilation is
+disabled. It removes its Cargo target cache by default after retaining artifacts;
+`-KeepBuildCache` opts into keeping that cache.
+
+The shipped runtime uses the `dev-small` profile. Its runtime/version/hash and
+source/toolchain provenance are separate from the installed Extension and its
+official `bundledCli` provenance. Identical CLI version strings do not make the
+two binaries identical.
+
+Verification uses an ephemeral HTTPS/WSS loopback backend with a fixture-only
+trusted leaf, without installing certificates or sending real model requests.
+It checks longer JSON edits before zstd and WebSocket framing, unchanged model,
+server-confirmed body hashes, all five requested events in order, rejected sends,
+and complete POST/GET log files. See `artifacts/verification/client-runtime.json`.
+
+```powershell
+node --test test/*.test.js
+powershell -NoProfile -File scripts/build-runtime.ps1
+bash build-vsix.sh
+```
+
+## Optional Schannel instrumentation
+
+Traffic Monitor now includes **Cài hook**, **↻ Codex PID**, and **Bật plaintext**.
+Install the helper once, select the existing Extension app-server PID, then attach.
+Python must be available on PATH. Dependencies are pinned in
+`gateway/hook-requirements.txt` and installed in an isolated environment under
+VS Code global storage. They are not installed into system Python.
+
+This mode uses Frida to intercept Windows Schannel `EncryptMessage` before TLS
+encryption and `DecryptMessage` after decryption, inside the existing process.
+It does not change the backend URL, certificate trust, model, or thread owner.
+Stopping capture detaches the interceptor; restarting Codex requires attaching
+to its new PID. Hooks run without waiting synchronously for the dashboard.
+
+Parsed events show **method + endpoint path**, not just the destination host:
+
+```text
+POST /backend-api/codex/responses
+GET /v1/models
+```
+
+HTTP/1 headers and bodies are reconstructed across TLS records. HTTP/2 HPACK
+headers are decoded with a separate decoder for each direction; DATA is linked
+to the endpoint by stream ID. WebSocket frames retain their upgrade endpoint.
+Authorization/cookie headers and query values are excluded from recorded
+metadata. Body capture is explicitly enabled by **Bật plaintext** and is bounded
+by the configured capture limit. Header details are available by selecting the
+corresponding `PLAINTEXT_HTTP_HEADERS` event. HTTP bodies are available as live
+fragments and a bounded assembled `PLAINTEXT_HTTP_BODY_FINISHED` event.
+
+If the hook attaches after a connection's headers were sent, the endpoint can
+be unknown. Missing HPACK state is reported as `ENDPOINT_UNAVAILABLE`; unknown
+raw bytes are discarded rather than guessed or persisted as an HTTP body.
+
+### Outbound modification
+
+`NativeInstrumentation.setOutboundRules()` installs host-scoped, equal-length
+byte substitutions before `EncryptMessage`. No rules are active by default;
+the user-specific filter interface is pending the requested filter definition.
+Each actual edit produces `PLAINTEXT_OUTBOUND_MODIFIED` with before/after hashes.
+This event proves a local plaintext edit, not remote server acceptance.
+
+This primitive cannot change HTTP body lengths, repair compressed bodies,
+reassemble matches spanning TLS records, or edit decoded masked WebSocket JSON.
+Those operations need an HTTP client hook before compression/framing. The
+Schannel adapter does **not** support arbitrary JSON transformation; use the
+client JSON runtime above for that.
+
+### Verified coverage and remaining limitation
+
+The installed Extension discovered for this work is `openai.chatgpt`
+`26.928.31416`, with bundled CLI `0.159.2`. The binary contains both Schannel
+and Rustls. The Schannel interceptor attaches to the existing bundled
+app-server and has been verified with a real Windows loopback TLS exchange:
+outbound and inbound plaintext, endpoint extraction, and a server-confirmed
+same-length body edit. No real model request was generated by this test.
+An additional observe-only attach to the installed Codex app-server saw real
+outbound/inbound Schannel plaintext for `POST /otlp/v1/metrics`. This is
+telemetry evidence; it does not establish model/steer payload coverage.
+
+**Rustls traffic is not intercepted by this Schannel hook.** In particular,
+the presence of hooks in a Codex process is not proof that its Responses or
+WebSocket transport uses them. The UI distinguishes `hook ATTACHED` from
+`plaintext SEEN`. Full coverage of the current native client still requires a
+verified Rustls/client-level adapter or an instrumented Codex runtime. This
+adapter is experimental. The client JSON runtime above observes the shared
+HTTP/WebSocket client across both TLS implementations.
+
+Native helper tests (Windows, with the pinned dependencies installed):
+
+```powershell
+python test/h2_headers_test.py
+python test/native_hook_integration.py
+```
 
 ## Transport architecture
 

@@ -27,6 +27,10 @@ class CodexGateway {
       upstreamBaseUrl: options.upstreamBaseUrl,
       captureContent: Boolean(options.captureContent),
       captureMaxBytes: options.captureMaxBytes,
+      trafficLogsDirectory:options.trafficLogsDirectory,
+      trafficLogsEnabled:options.trafficLogsEnabled,
+      trafficCaptureMode:options.trafficCaptureMode,
+      trafficMaxRequests:options.trafficMaxRequests,
       diagnostics: () => this.diagnostics(),
       onNetworkEvent: event => this.onNetworkEvent(event),
       handlers: {
@@ -53,6 +57,7 @@ class CodexGateway {
     this.networkFingerprints.clear();
     for (const event of this.trace.recent(this.trace.memoryLimit)) {
       if (!event) continue;
+      if(event.type==='client_request'&&event.stage==='CLIENT_JSON_PREPARED')continue;
       if (['http_upstream','ws_connection','connect_tunnel','tunnel_bytes'].includes(event.type)) {
         this.lastTransportNetworkAt = Math.max(this.lastTransportNetworkAt, Number(event.at || 0));
       }
@@ -288,8 +293,14 @@ class CodexGateway {
 
   async onNetworkEvent(event) {
     if (!event) return;
+    const clientEvent=String(event.type).startsWith('client_');
+    if(clientEvent){
+      const stages={CLIENT_TRANSPORT_SENT:'UPSTREAM_BYTES_SENT',CLIENT_RESPONSE_HEADERS:'UPSTREAM_RESPONSE_HEADERS',CLIENT_RESPONSE_CHUNK:'UPSTREAM_FIRST_EVENT',RESPONSE_EVENT:'UPSTREAM_FIRST_EVENT'};
+      if(!stages[event.stage])return;
+      event={...event,stage:stages[event.stage]};
+    }
     const at = Number(event.at || Date.now());
-    if (['http_upstream','ws_connection','connect_tunnel','tunnel_bytes'].includes(event.type)) {
+    if (clientEvent||['http_upstream','ws_connection','connect_tunnel','tunnel_bytes'].includes(event.type)) {
       this.lastTransportNetworkAt = Math.max(this.lastTransportNetworkAt, at);
     }
     const isModel = event.kind === 'MODEL_REQUEST' || event.kind === 'MODEL_STREAM';
@@ -304,7 +315,7 @@ class CodexGateway {
     ) {
       await this.progress(match.command, {
         stage: event.stage,
-        source: 'gateway-model-proxy',
+        source: clientEvent?'codex-client-hook':'gateway-model-proxy',
         confidence: match.confidence,
         connectionId: event.connectionId,
         requestId: event.requestId,
@@ -313,7 +324,7 @@ class CodexGateway {
       });
     }
 
-    if (event.bodySha256) {
+    if (event.bodySha256&&(!clientEvent||event.direction==='out')) {
       const previous = this.networkFingerprints.get(event.bodySha256);
       if (previous && at - previous.at > 10000 && match) {
         await this.progress(match.command, {
@@ -348,8 +359,8 @@ class CodexGateway {
   }
 
   trafficIndex(limit = 80) {
-    return this.trace.recent(Math.max(20, Math.min(250, Number(limit || 80))))
-      .filter(event => event && ['http_upstream', 'ws_connection', 'ws_frame', 'connect_tunnel', 'tunnel_bytes', 'gateway_error', 'ws_upgrade_rejected'].includes(event.type))
+    return this.trace.recent(Math.max(20, Math.min(2500, Number(limit || 80))))
+      .filter(event => event && ['http_upstream', 'ws_connection', 'ws_frame', 'connect_tunnel', 'tunnel_bytes', 'gateway_error', 'ws_upgrade_rejected', 'native_plaintext', 'native_tls_record', 'native_hook_status','client_request','client_response','client_response_event','client_hook_status'].includes(event.type))
       .map(event => ({
         traceId: event.traceId,
         type: event.type,
@@ -357,6 +368,13 @@ class CodexGateway {
         at: event.at || 0,
         kind: event.kind || '',
         method: event.method || '',
+        protocol:event.protocol || '',
+        streamId:event.streamId || 0,
+        eventType:event.eventType || '',
+        responseId:event.responseId || '',
+        itemId:event.itemId || '',
+        modified:Boolean(event.modified),
+        sequenceNumber:event.sequenceNumber,
         path: event.path || '',
         requestId: event.requestId || '',
         connectionId: event.connectionId || '',
@@ -368,6 +386,7 @@ class CodexGateway {
         responseBytes: event.responseBytes || 0,
         totalMs: event.totalMs || 0,
         bodySha256: event.bodySha256 || '',
+        originalSha256:event.originalSha256 || '',
         error: event.error || '',
         targetHost: event.targetHost || '',
         targetPort: event.targetPort || 0,
@@ -408,6 +427,11 @@ class CodexGateway {
       at: event.at || 0,
       kind: event.kind || '',
       method: event.method || '',
+      protocol:event.protocol || '',
+      streamId:event.streamId || 0,
+      eventType:event.eventType || '',
+      responseId:event.responseId || '',
+      itemId:event.itemId || '',
       path: event.path || '',
       requestId: event.requestId || '',
       connectionId: event.connectionId || '',
@@ -416,6 +440,7 @@ class CodexGateway {
       statusCode: event.statusCode || 0,
       headers: event.headers || null,
       bodySha256: event.bodySha256 || '',
+      originalSha256:event.originalSha256 || '',
       contentCapture: capture
     };
   }
@@ -447,6 +472,9 @@ class CodexGateway {
 
   diagnostics() {
     return {
+      ...this.server.clientHook.diagnostics(),
+      ...this.server.trafficLogs.snapshot(),
+      ...this.server.trafficPolicy.snapshot(),
       modelProxyConfigured: this.server.modelProxyEnabled,
       modelProxyReady: Boolean(this.server.modelProxyEnabled && this.server.server),
       modelTrafficObserved: Boolean(this.lastModelNetworkAt),

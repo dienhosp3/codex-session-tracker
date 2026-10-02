@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-02T15:29:34.871Z",
+  "label": "tracker-0.12.0-client-hook-logs",
+  "repository": {
+    "revision": "6eac98eeaa1cd43d81fbf4fa5189ae600b784555",
+    "shortRevision": "6eac98eeaa1c",
+    "dirty": true,
+    "trackerVersion": "0.12.0"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.928.31416"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.159.2",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "",
+      "model": ""
+    },
+    "instrumentedRuntime": {
+      "schemaVersion": 1,
+      "cliVersion": "0.159.2",
+      "instrumentationVersion": 1,
+      "sourceRevision": "ff6aec96948b70d94983af2641a6b67c94faeff5",
+      "sourceTag": "rust-v0.159.2",
+      "profile": "dev-small",
+      "platform": "windows-x86_64",
+      "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+      "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+      "node": "v24.15.0",
+      "builtAt": "2026-10-02T15:18:24.2574300Z",
+      "hookSha256": "1059d3cc70409ac3d8d03bc6e40fe35c989cf00a1b1f74b5f8df752f8c206ec4",
+      "patchSha256": "14df4b672e4df1bc549be19f2c77a504e80b612f953fdddb5ee4ec37ec4c87ec",
+      "sha256": "3afab8618ff8bc388870649820dbb03166c8303cd3384f0c98dfe4dad21044c1"
+    },
+    "verificationTools": {
+      "node": "v24.15.0",
+      "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+      "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+      "openssl": "OpenSSL 3.5.4 30 Sep 2025 (Library: OpenSSL 3.5.4 30 Sep 2025)",
+      "python": "Python 3.14.4",
+      "bash": "GNU bash, version 5.2.37(1)-release (x86_64-pc-msys)",
+      "zip": "This is Zip 3.1b BETA (Apr 9th 2009), by Info-ZIP."
+    }
+  },
+  "artifact": {
+    "name": "codex-session-tracker-0.12.0.vsix",
+    "bytes": 94770918,
+    "sha256": "7b2eaea376814df8d7a24784830b4dcadd4fa70b90efb282b1110be7de5598eb",
+    "runtimeDigestMatches": true
+  },
+  "verification": {
+    "nodeTestsPassed": 110,
+    "nodeTestsFailed": 0,
+    "clientIntegration": {
+      "passed": true,
+      "tls": true,
+      "fixtureOutput": "HTTP zstd + shared HTTP + WebSocket fixture passed",
+      "upstreamRequests": 5,
+      "httpMethod": "POST",
+      "websocketMethod": "GET",
+      "endpoint": "/backend-api/codex/responses",
+      "httpZstdEdited": true,
+      "websocketEdited": true,
+      "sharedHttpEdited": true,
+      "wireHashesMatch": true,
+      "eventsPerTransport": [
+        "response.created",
+        "response.in_progress",
+        "response.output_item.added",
+        "response.output_item.done",
+        "response.completed"
+      ],
+      "rejectedBeforeSend": true,
+      "captureGaps": 0,
+      "savedPostGetRequests": 4,
+      "completeLogBodyDespiteUiLimit": true
+    },
+    "appServerInitialize": true,
+    "isolatedCodexHome": true,
+    "realModelRequestsSent": 0,
+    "buildCacheRemoved": true,
+    "incrementalCompilationDisabled": true
+  }
+}

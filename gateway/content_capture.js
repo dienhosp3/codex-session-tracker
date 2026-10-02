@@ -45,9 +45,11 @@ class ContentCapture {
     let decodeError = '';
     if (this.contentEncoding && this.contentEncoding !== 'identity' && !truncated) {
       try {
-        if (this.contentEncoding.includes('gzip')) decodedBuffer = zlib.gunzipSync(wireBuffer);
-        else if (this.contentEncoding.includes('deflate')) decodedBuffer = zlib.inflateSync(wireBuffer);
-        else if (this.contentEncoding.includes('br')) decodedBuffer = zlib.brotliDecompressSync(wireBuffer);
+        const limits = { maxOutputLength:this.maxBytes };
+        if (this.contentEncoding.includes('gzip')) decodedBuffer = zlib.gunzipSync(wireBuffer,limits);
+        else if (this.contentEncoding.includes('deflate')) decodedBuffer = zlib.inflateSync(wireBuffer,limits);
+        else if (this.contentEncoding.includes('br')) decodedBuffer = zlib.brotliDecompressSync(wireBuffer,limits);
+        else if (this.contentEncoding === 'zstd' && typeof zlib.zstdDecompressSync === 'function') decodedBuffer = zlib.zstdDecompressSync(wireBuffer,limits);
         else throw new Error('unsupported content-encoding ' + this.contentEncoding);
         decoded = true;
       } catch (error) {

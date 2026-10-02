@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "tls": true,
+  "fixtureOutput": "HTTP zstd + shared HTTP + WebSocket fixture passed",
+  "upstreamRequests": 5,
+  "httpMethod": "POST",
+  "websocketMethod": "GET",
+  "endpoint": "/backend-api/codex/responses",
+  "httpZstdEdited": true,
+  "websocketEdited": true,
+  "sharedHttpEdited": true,
+  "wireHashesMatch": true,
+  "eventsPerTransport": [
+    "response.created",
+    "response.in_progress",
+    "response.output_item.added",
+    "response.output_item.done",
+    "response.completed"
+  ],
+  "rejectedBeforeSend": true,
+  "captureGaps": 0,
+  "savedPostGetRequests": 4,
+  "completeLogBodyDespiteUiLimit": true
+}

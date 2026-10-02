@@ -1,4 +1,8 @@
 node_modules/
+.hook-venv/
+.runtime-build/
+runtime/bin/
+__pycache__/
 *.vsix
 .DS_Store
 .vscode-test/
