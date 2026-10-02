@@ -13,6 +13,7 @@ const gatewayConfig = require('./gateway/config_manager');
 let contextRef = null;
 let statusBar = null;
 let trackerView = null;
+let trafficPanel = null;
 let pollTimer = null;
 let selected = null;
 let selectedTree = [];
@@ -70,6 +71,7 @@ function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.clearSelection', clearSelection),
     vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }),
     vscode.commands.registerCommand('codexSessionTracker.exportGatewayDiagnostics', exportGatewayDiagnostics),
+    vscode.commands.registerCommand('codexSessionTracker.openTrafficMonitor', openTrafficMonitor),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (!event.affectsConfiguration('codexSessionTracker')) return;
       restartPolling();
@@ -89,6 +91,10 @@ async function deactivate() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
   trackerView = null;
+  if (trafficPanel) {
+    try { trafficPanel.dispose(); } catch {}
+    trafficPanel = null;
+  }
   if (gateway) {
     try { await gateway.stop(); } catch {}
     gateway = null;
@@ -545,6 +551,72 @@ function restartPolling() {
   if (pollTimer) clearInterval(pollTimer);
   const interval = Math.max(500, Math.min(10000, Number(config().pollIntervalMs) || 1500));
   pollTimer = setInterval(() => refreshAll(false), interval);
+}
+
+function trafficMonitorHtml() {
+  const nonce = String(Date.now());
+  const template = fs.readFileSync(path.join(__dirname, 'traffic_monitor.html'), 'utf8');
+  return template.replaceAll('__NONCE__', nonce);
+}
+
+async function openTrafficMonitor() {
+  if (trafficPanel) {
+    trafficPanel.reveal(vscode.ViewColumn.Two, true);
+    postTrafficState();
+    return;
+  }
+  trafficPanel = vscode.window.createWebviewPanel(
+    'codexSessionTracker.trafficMonitor',
+    'Codex Traffic Monitor',
+    vscode.ViewColumn.Two,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+  trafficPanel.webview.html = trafficMonitorHtml();
+  trafficPanel.onDidDispose(() => { trafficPanel = null; }, null, contextRef.subscriptions);
+  trafficPanel.webview.onDidReceiveMessage(async message => {
+    if (!message || typeof message !== 'object') return;
+    if (message.command === 'refreshTraffic') postTrafficState();
+    if (message.command === 'loadTrafficPayload') await sendTrafficPayload(message.traceId, message.offset);
+  }, null, contextRef.subscriptions);
+  postTrafficState();
+}
+
+function trafficGatewayState() {
+  return {
+    ...gatewayStatus,
+    ...(gateway ? gateway.diagnostics() : {
+      modelProxyConfigured: false,
+      modelProxyReady: false,
+      modelTrafficObserved: false,
+      lastModelNetworkAt: 0,
+      transportTrafficObserved: false,
+      lastTransportNetworkAt: 0,
+      websocketProxyReady: false,
+      captureContent: false,
+      captureMaxBytes: 0
+    }),
+    proxyEnvironmentApplied: gatewayProxyEnvApplied
+  };
+}
+
+function postTrafficState() {
+  if (!trafficPanel) return;
+  trafficPanel.webview.postMessage({
+    type: 'trafficState',
+    data: {
+      gateway: trafficGatewayState(),
+      traffic: gateway ? gateway.trafficIndex(1000) : []
+    }
+  });
+}
+
+async function sendTrafficPayload(traceId, offset = 0) {
+  const event = gateway && gateway.payloadByTraceId(traceId, { offset, limit: 512 * 1024 });
+  if (!trafficPanel) return;
+  trafficPanel.webview.postMessage({
+    type: 'trafficPayload',
+    payload: event || { traceId: Number(traceId || 0), missing: true }
+  });
 }
 
 async function openTracker() {
@@ -1054,6 +1126,7 @@ function humanChatTitle(session) {
 }
 
 function postViewState() {
+  postTrafficState();
   if (!trackerView) return;
   trackerView.webview.postMessage({
     type: 'state',
