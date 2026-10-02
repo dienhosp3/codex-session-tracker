@@ -563,10 +563,18 @@ test('forward proxy authority parsing preserves the original HTTPS destination',
   assert.deepEqual(parseAuthority('example.test:8443'), { host: 'example.test', port: 8443 });
 });
 
-test('Gateway CONNECT proxy passes bidirectional bytes without changing the target origin', async t => {
-  const echo = net.createServer(socket => socket.pipe(socket));
+test('Gateway CONNECT proxy passes bidirectional bytes without changing the target origin', { timeout: 5000 }, async t => {
+  const echoSockets = new Set();
+  const echo = net.createServer(socket => {
+    echoSockets.add(socket);
+    socket.on('close', () => echoSockets.delete(socket));
+    socket.pipe(socket);
+  });
   await new Promise(resolve => echo.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => echo.close(resolve)));
+  t.after(async () => {
+    for (const socket of echoSockets) socket.destroy();
+    await new Promise(resolve => echo.close(resolve));
+  });
   const echoPort = echo.address().port;
 
   const trace = new TraceStore();
@@ -589,7 +597,8 @@ test('Gateway CONNECT proxy passes bidirectional bytes without changing the targ
     req.once('connect', (res, socket) => {
       assert.equal(res.statusCode, 200);
       socket.once('data', chunk => {
-        resolve(chunk.toString('utf8'));
+        const value = chunk.toString('utf8');
+        socket.once('close', () => resolve(value));
         socket.destroy();
       });
       socket.write('PING_PROXY');
@@ -604,6 +613,44 @@ test('Gateway CONNECT proxy passes bidirectional bytes without changing the targ
   assert.ok(events.some(event => event.type === 'connect_tunnel' && event.stage === 'TUNNEL_OPEN'));
   assert.ok(events.some(event => event.type === 'tunnel_bytes' && event.direction === 'out'));
   assert.ok(events.some(event => event.type === 'tunnel_bytes' && event.direction === 'in'));
+});
+
+
+test('Gateway stop does not hang with an active CONNECT tunnel', { timeout: 5000 }, async t => {
+  const echoSockets = new Set();
+  const echo = net.createServer(socket => {
+    echoSockets.add(socket);
+    socket.on('close', () => echoSockets.delete(socket));
+  });
+  await new Promise(resolve => echo.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    for (const socket of echoSockets) socket.destroy();
+    await new Promise(resolve => echo.close(resolve));
+  });
+
+  const gateway = new GatewayServer({ port: 0, modelProxyEnabled: true });
+  await gateway.start();
+
+  const req = http.request({
+    hostname: '127.0.0.1',
+    port: gateway.address().port,
+    method: 'CONNECT',
+    path: '127.0.0.1:' + echo.address().port
+  });
+
+  const socket = await new Promise((resolve, reject) => {
+    req.once('connect', (res, connectedSocket) => {
+      assert.equal(res.statusCode, 200);
+      resolve(connectedSocket);
+    });
+    req.once('error', reject);
+    req.end();
+  });
+
+  const started = Date.now();
+  await gateway.stop();
+  assert.ok(Date.now() - started < 2500);
+  assert.equal(socket.destroyed, true);
 });
 
 test('dashboard routes traffic inspection to the dedicated monitor without rewriting base URL controls', async () => {
