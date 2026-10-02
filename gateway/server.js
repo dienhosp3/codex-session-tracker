@@ -7,6 +7,7 @@ const { URL } = require('url');
 const { classifyRequest } = require('./classifier');
 const { redactHeaders, sanitizePath, sha256, safeError } = require('./redaction');
 const { proxyWebSocket } = require('./websocket_proxy');
+const { ContentCapture } = require('./content_capture');
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -48,6 +49,8 @@ class GatewayServer {
     this.onNetworkEvent = typeof options.onNetworkEvent === 'function' ? options.onNetworkEvent : null;
     this.modelProxyEnabled = Boolean(options.modelProxyEnabled);
     this.upstreamBaseUrl = String(options.upstreamBaseUrl || '').trim();
+    this.captureContent = Boolean(options.captureContent);
+    this.captureMaxBytes = Math.max(1024, Number(options.captureMaxBytes || 16 * 1024 * 1024));
   }
 
   async start() {
@@ -61,6 +64,8 @@ class GatewayServer {
       if (this.modelProxyEnabled && this.upstreamBaseUrl) {
         proxyWebSocket(req, socket, head, {
           upstreamBaseUrl: this.upstreamBaseUrl,
+          captureContent: this.captureContent,
+          captureMaxBytes: this.captureMaxBytes,
           record: event => this.record(event)
         });
         return;
@@ -107,7 +112,7 @@ class GatewayServer {
           running:true,version:this.version,uptimeMs:Date.now()-this.startedAt,
           listen:{host:this.address().host,port:this.address().port},modelProxyConfigured:this.modelProxyEnabled,
           modelProxyEnabled:Boolean(this.modelProxyEnabled&&this.upstreamBaseUrl),
-          websocketProxy:Boolean(this.modelProxyEnabled&&this.upstreamBaseUrl),...this.diagnostics()
+          websocketProxy:Boolean(this.modelProxyEnabled&&this.upstreamBaseUrl),captureContent:this.captureContent,captureMaxBytes:this.captureMaxBytes,...this.diagnostics()
         });
       }
       if(req.method==='GET'&&pathOnly==='/diagnostics') {
@@ -152,6 +157,11 @@ class GatewayServer {
     delete headers['proxy-connection'];
     const transport=target.protocol==='http:'?http:https;
     const hash=createHash('sha256');
+    const requestCapture=new ContentCapture({
+      enabled:this.captureContent,
+      maxBytes:this.captureMaxBytes,
+      contentType:req.headers['content-type'] || ''
+    });
     let requestBytes=0;
     let responseBytes=0;
     let firstRequestByte=true;
@@ -168,9 +178,15 @@ class GatewayServer {
     const result=await new Promise(resolve=>{
       const upstream=transport.request(target,{method:req.method,headers},upstreamRes=>{
         const headersAt=Date.now();
+        const responseCapture=new ContentCapture({
+          enabled:this.captureContent,
+          maxBytes:this.captureMaxBytes,
+          contentType:upstreamRes.headers['content-type'] || ''
+        });
         this.record({...eventBase,stage:'UPSTREAM_RESPONSE_HEADERS',at:headersAt,statusCode:upstreamRes.statusCode||0,headers:redactHeaders(upstreamRes.headers)}).catch(()=>{});
         res.writeHead(upstreamRes.statusCode||502,upstreamRes.headers);
         upstreamRes.on('data',chunk=>{
+          responseCapture.add(chunk);
           responseBytes+=chunk.length;
           if(firstResponseByte){
             firstResponseByte=false;
@@ -181,7 +197,15 @@ class GatewayServer {
         res.on('drain',()=>upstreamRes.resume());
         upstreamRes.on('end',()=>{
           res.end();
-          this.record({...eventBase,stage:'UPSTREAM_FINISHED',at:Date.now(),responseBytes,totalMs:Date.now()-started,statusCode:upstreamRes.statusCode||0}).catch(()=>{});
+          this.record({
+            ...eventBase,
+            stage:'UPSTREAM_FINISHED',
+            at:Date.now(),
+            responseBytes,
+            totalMs:Date.now()-started,
+            statusCode:upstreamRes.statusCode||0,
+            ...(this.captureContent?{contentCapture:responseCapture.finish()}: {})
+          }).catch(()=>{});
           finishResponse(resolve);
         });
         upstreamRes.on('error',error=>finishResponse(resolve,error));
@@ -194,6 +218,7 @@ class GatewayServer {
             requestBytes+=chunk.length;
             if(requestBytes>64*1024*1024)throw Object.assign(new Error('Proxy request body exceeds 64 MiB.'),{statusCode:413});
             hash.update(chunk);
+            requestCapture.add(chunk);
             if(firstRequestByte){
               firstRequestByte=false;
               await this.record({...eventBase,stage:'UPSTREAM_BYTES_SENT',at:Date.now(),requestBytes:chunk.length});
@@ -201,7 +226,14 @@ class GatewayServer {
             if(!upstream.write(chunk))await new Promise(wait=>upstream.once('drain',wait));
           }
           const bodySha256=requestBytes?hash.digest('hex'):'';
-          await this.record({...eventBase,stage:'UPSTREAM_BODY_FINISHED',at:Date.now(),requestBytes,bodySha256});
+          await this.record({
+            ...eventBase,
+            stage:'UPSTREAM_BODY_FINISHED',
+            at:Date.now(),
+            requestBytes,
+            bodySha256,
+            ...(this.captureContent?{contentCapture:requestCapture.finish()}: {})
+          });
           upstream.end();
         }catch(error){
           try{upstream.destroy(error);}catch{}
