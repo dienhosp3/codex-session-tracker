@@ -28,7 +28,49 @@ function tunnelConnect(req, clientSocket, head, options = {}) {
   const upstream = net.connect(target.port, target.host);
   let clientToServerBytes = 0;
   let serverToClientBytes = 0;
+  let pendingOut = 0;
+  let pendingIn = 0;
+  let flushTimer = null;
   let opened = false;
+
+  const flushTraffic = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    const at = Date.now();
+    if (pendingOut) {
+      const size = pendingOut;
+      pendingOut = 0;
+      record({
+        type: 'tunnel_bytes',
+        direction: 'out',
+        connectionId,
+        at,
+        targetHost: target.host,
+        targetPort: target.port,
+        size
+      }).catch(() => {});
+    }
+    if (pendingIn) {
+      const size = pendingIn;
+      pendingIn = 0;
+      record({
+        type: 'tunnel_bytes',
+        direction: 'in',
+        connectionId,
+        at,
+        targetHost: target.host,
+        targetPort: target.port,
+        size
+      }).catch(() => {});
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (flushTimer) return;
+    flushTimer = setTimeout(flushTraffic, 100);
+  };
 
   const closeBoth = () => {
     try { clientSocket.destroy(); } catch {}
@@ -51,29 +93,15 @@ function tunnelConnect(req, clientSocket, head, options = {}) {
 
     if (head && head.length) {
       clientToServerBytes += head.length;
+      pendingOut += head.length;
       upstream.write(head);
-      record({
-        type: 'tunnel_bytes',
-        direction: 'out',
-        connectionId,
-        at: Date.now(),
-        targetHost: target.host,
-        targetPort: target.port,
-        size: head.length
-      }).catch(() => {});
+      scheduleFlush();
     }
 
     clientSocket.on('data', chunk => {
       clientToServerBytes += chunk.length;
-      record({
-        type: 'tunnel_bytes',
-        direction: 'out',
-        connectionId,
-        at: Date.now(),
-        targetHost: target.host,
-        targetPort: target.port,
-        size: chunk.length
-      }).catch(() => {});
+      pendingOut += chunk.length;
+      scheduleFlush();
       if (!upstream.write(chunk)) clientSocket.pause();
     });
 
@@ -81,15 +109,8 @@ function tunnelConnect(req, clientSocket, head, options = {}) {
 
     upstream.on('data', chunk => {
       serverToClientBytes += chunk.length;
-      record({
-        type: 'tunnel_bytes',
-        direction: 'in',
-        connectionId,
-        at: Date.now(),
-        targetHost: target.host,
-        targetPort: target.port,
-        size: chunk.length
-      }).catch(() => {});
+      pendingIn += chunk.length;
+      scheduleFlush();
       if (!clientSocket.write(chunk)) upstream.pause();
     });
 
@@ -114,6 +135,7 @@ function tunnelConnect(req, clientSocket, head, options = {}) {
   });
 
   const finish = stage => {
+    flushTraffic();
     record({
       type: 'connect_tunnel',
       stage,
