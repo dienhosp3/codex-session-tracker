@@ -110,7 +110,7 @@ class TrackerViewProvider {
       if (message.command === 'enableGatewayFullCapture') await enableGatewayFullCapture(message.settings || {});
       if (message.command === 'revertGatewayManaged') await revertGatewayManaged(false);
       if (message.command === 'forceRestoreGatewayManaged') await revertGatewayManaged(true);
-      if (message.command === 'loadGatewayPayload') await sendGatewayPayload(message.traceId);
+      if (message.command === 'loadGatewayPayload') await sendGatewayPayload(message.traceId, message.offset);
     }, null, contextRef.subscriptions);
 
     webviewView.onDidChangeVisibility(() => {
@@ -396,8 +396,8 @@ async function revertGatewayManaged(forceExact) {
   }
 }
 
-async function sendGatewayPayload(traceId) {
-  const event = gateway && gateway.payloadByTraceId(traceId);
+async function sendGatewayPayload(traceId, offset = 0) {
+  const event = gateway && gateway.payloadByTraceId(traceId, { offset, limit: 512 * 1024 });
   if (!trackerView) return;
   trackerView.webview.postMessage({
     type: 'gatewayPayload',
