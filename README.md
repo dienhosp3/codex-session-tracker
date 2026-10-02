@@ -1,178 +1,244 @@
-# Codex Session Tracker 0.10.2
+# Codex Session Tracker 0.11.0
 
-VS Code tracker for Codex sessions with lifecycle-aware activity, queue/steer controls, a loopback transport Gateway, reversible proxy routing, and a dedicated traffic monitor.
+VS Code tracker for Codex sessions with lifecycle-aware activity, queue/steer controls, an origin-preserving local transport Gateway, a dedicated Traffic Monitor, and an optional **plaintext hook inside Codex before/after TLS**.
 
-This build targets **Codex in VS Code on Windows 10**.
-
-## Transport architecture
-
-0.10.0/0.10.1 experimented with rewriting `chatgpt_base_url` to an HTTP localhost backend. That was the wrong layer for ChatGPT-authenticated Codex because workspace routing validates the application backend as an HTTPS origin.
-
-0.10.2 no longer rewrites the ChatGPT backend URL.
-
-Instead:
+This branch targets the user's current Windows 10 / VS Code runtime:
 
 ```text
-VS Code Codex
-    |
-    | HTTP_PROXY / HTTPS_PROXY
-    v
-127.0.0.1:<gateway-port>
-    |
-    | CONNECT / ordinary forward proxy
-    v
-original HTTPS backend
+Codex CLI: 0.159.2
+OpenAI source tag: rust-v0.159.2
+OpenAI source commit: ff6aec96948b70d94983af2641a6b67c94faeff5
+Target: x86_64-pc-windows-msvc
 ```
 
-The original destination remains `https://...`, so account/workspace routing still sees the real HTTPS origin.
+The hook is pinned to that exact source revision and refuses to install if the bundled Codex runtime has moved to a different version.
 
-When proxy mode or the proxy port changes, the Tracker reloads the VS Code window so the Codex extension starts with the new proxy environment.
+## What changed in 0.11.0
 
-Any legacy localhost `chatgpt_base_url` override created by 0.10.0/0.10.1 is automatically reverted before normal 0.10.2 startup.
+The 0.10.2 CONNECT proxy remains available for routing/timing diagnostics, but it cannot see HTTPS plaintext.
 
-## Gateway UI
-
-Gateway settings are controlled from the Tracker UI rather than requiring manual edits.
-
-Available controls include:
-
-- local Gateway on/off;
-- loopback port;
-- Codex forward-proxy on/off;
-- optional content capture where plaintext is available;
-- capture-size limit;
-- local trace rotation limit;
-- one-click proxy enable + VS Code reload;
-- one-click proxy disable / legacy route restore;
-- dedicated Traffic Monitor.
-
-The Gateway listens on `127.0.0.1` only.
-
-## Dedicated Traffic Monitor
-
-Open it with:
+0.11.0 adds an application-layer hook at the actual Codex network clients:
 
 ```text
-Codex Tracker: Open Traffic Monitor
+Codex request object
+      |
+      |  OUT hook: plaintext, mutation point
+      v
+reqwest / Tungstenite
+      |
+      | TLS
+      v
+ChatGPT backend
+
+ChatGPT backend
+      |
+      | TLS
+      v
+reqwest / Tungstenite
+      |
+      |  IN hook: plaintext
+      v
+Codex parser / model stream
 ```
 
-or **Mở Traffic Monitor** in the Tracker panel.
+HTTP traffic is hooked in `codex-http-client`. Shared WebSocket traffic is hooked in `codex-websocket-client`, so Responses WebSocket frames are visible as plaintext too.
 
-The monitor provides:
+The hook does **not** replace `chatgpt_base_url`, does not MITM certificates, and does not require a custom CA.
 
-- visual **PAUSE ALL**;
-- independent **PAUSE OUT**;
-- independent **PAUSE IN**;
-- direction filter: All / OUT / IN / Control;
-- host/API filter when path information is available;
+## Plaintext capture
+
+The Tracker receives loopback-only hook events on a separate port (default `127.0.0.1:8767`).
+
+Captured event types include:
+
+- HTTP outbound request body before TLS;
+- HTTP response headers/body/chunks after TLS;
+- WebSocket text/binary outbound frames before framing/TLS;
+- WebSocket text/binary inbound frames after TLS/decompression;
+- exact destination URL/path, direction, request id and timestamp.
+
+Authorization/cookie/API-key style headers are redacted before they leave the instrumented Codex process. Body content is retained up to the configured capture limit because the purpose of this mode is to inspect the actual prompt/model protocol.
+
+The Traffic Monitor marks these events explicitly as **PLAINTEXT**. Encrypted CONNECT transport events remain separately labeled and are never presented as plaintext.
+
+## Outbound mutation pipeline
+
+0.11.0 includes the mutation transport but intentionally has no user rules yet.
+
+When mutation is disabled, capture is observation-only.
+
+When mutation is enabled, every mutable outbound HTTP request or WebSocket application frame can perform a loopback preflight:
+
+```text
+original plaintext
+      |
+      v
+Tracker filter
+  PASS / MODIFY
+      |
+      v
+final plaintext
+      |
+      v
+TLS
+```
+
+The preflight is **fail-open** and bounded to 50 ms. If the Tracker is unavailable, times out, returns invalid data, or a rule fails, Codex sends the original request. Observation events are queued asynchronously so the UI cannot stall normal traffic.
+
+The rule language/filter set will be added separately once the desired rules are specified.
+
+## Exact Codex patch points
+
+The source patch is generated by `codex-hook/apply_patch.js` and is deliberately anchored to exact 0.159.2 source text.
+
+It patches:
+
+```text
+codex-rs/http-client/src/client.rs
+  TransportClient::execute_without_request_logging()
+  -> finalized request, immediately before reqwest/TLS
+
+codex-rs/http-client/src/response.rs
+  bytes / text / json / chunk / bytes_stream / PolicyBody
+  -> plaintext response consumption after TLS
+
+codex-rs/websocket-client/src/lib.rs
+  WebSocketConnection Stream + Sink
+  -> plaintext inbound/outbound Text/Binary frames
+
+codex-rs/http-client/src/tap.rs
+  Tracker hook implementation
+```
+
+The patcher first verifies the exact release revision through the build script. If an expected source anchor changes, it fails instead of guessing a patch location.
+
+## Reversible instrumented daemon
+
+The OpenAI extension files are not overwritten.
+
+The build flow:
+
+1. clones exact OpenAI Codex `rust-v0.159.2`;
+2. verifies commit `ff6aec96948b70d94983af2641a6b67c94faeff5`;
+3. applies the hook;
+4. builds only the instrumented `codex.exe`;
+5. downloads the official signed/released complete Windows x64 Codex package;
+6. verifies the official package SHA-256 using `codex-package_SHA256SUMS`;
+7. extracts the full package and replaces only `bin/codex.exe` with the locally built 0.159.2 instrumented binary.
+
+A complete package is necessary because `codex app-server daemon update --from-cli --yes` refuses a bare executable.
+
+Installation uses Codex's own managed daemon replacement command:
+
+```text
+codex app-server daemon update --from-cli --yes
+```
+
+**Khôi phục Codex chính thức** uses the production daemon updater:
+
+```text
+codex app-server daemon update
+```
+
+so the hook can be removed without manually editing the OpenAI extension.
+
+## UI workflow
+
+In the Tracker:
+
+```text
+1. Build Codex HTTP Hook 0.159.2
+2. Bật transport + plaintext hook
+3. Cài hook daemon
+4. VS Code reload
+5. Mở Traffic Monitor
+```
+
+Expected status after the instrumented daemon starts and a Codex request is made:
+
+```text
+HTTP hook: PLAINTEXT ĐANG CHẠY
+PLAINTEXT SEEN
+```
+
+If it only says `HTTP hook: LISTEN, CHỜ CODEX`, the local endpoint is alive but the running Codex owner is not the instrumented build yet.
+
+## Traffic Monitor
+
+The dedicated Traffic Monitor supports:
+
+- visual PAUSE ALL;
+- independent PAUSE OUT and PAUSE IN;
+- direction filtering;
+- host/API filtering;
 - text search;
-- timestamps, byte counts, status, connection/request IDs;
-- per-event details.
+- plaintext body/frame inspection;
+- transport byte/timing inspection;
+- mutation markers for packets changed by a future filter.
 
-Pause controls freeze only the monitor presentation. They never pause or delay live Codex network traffic.
+Pause only freezes presentation. It never pauses Codex network I/O.
 
-This is intentional: the diagnostic UI must not create the network stall it is trying to diagnose.
+## Build prerequisites
 
-## HTTPS visibility
+Building the instrumented Codex binary is a real Rust release build and can take a while on the first run.
 
-The 0.10.2 default transport is an ordinary HTTPS CONNECT pass-through proxy.
-
-Therefore it can authoritatively observe:
-
-- CONNECT destination;
-- connection open/close/error;
-- OUT byte flow;
-- IN byte flow;
-- timing;
-- reconnect behavior;
-- total bytes.
-
-But HTTPS payload bytes remain encrypted inside the tunnel.
-
-The UI must not label encrypted CONNECT bytes as a plaintext API request or response body.
-
-Plaintext body/frame capture remains available for traffic that reaches the Gateway without an encrypted CONNECT tunnel. Exact HTTPS body inspection requires a separate trusted TLS-inspection or application-layer instrumentation mode.
-
-## Steer semantics
-
-A local steer acknowledgement is not proof that the remote server consumed the steer.
-
-The Gateway keeps stages such as:
+Windows requires:
 
 ```text
-LOCAL_CREATED
-IPC_SENT
-OWNER_DISCOVERED
-OWNER_ROUTED
-CORE_ACCEPTED
-LOCAL_PERSISTED
-UPSTREAM_REQUEST_OPENED
-UPSTREAM_BYTES_SENT
-UPSTREAM_RESPONSE_HEADERS
-UPSTREAM_FIRST_EVENT
-TURN_COMPLETED
+Git
+Node.js
+Rust / cargo
+MSVC build tools compatible with x86_64-pc-windows-msvc
+tar
 ```
 
-Only evidence actually observed is emitted.
+The Tracker build command opens a terminal and runs:
 
-If the current transport exposes only encrypted tunnel bytes, the Tracker reports transport activity separately rather than fabricating model/API confirmation.
+```powershell
+codex-hook\build-instrumented-codex.ps1
+```
 
-## Queue and Steer
+The resulting complete package is kept under the extension global-storage HTTP-hook directory, not committed to the repository.
 
-### Steer ngay
+## Extension tests
 
-Uses the currently running Codex Extension owner through its IPC path. It does not start a competing long-lived owner.
+Run the hook-focused tests first:
 
-If delivery may already have happened before a disconnect/timeout, state remains unknown. The Tracker never silently retries and never silently converts steer to queue.
+```powershell
+node --test test/http_hook.test.js
+node --test --test-name-pattern="plaintext|HTTP hook|Traffic Monitor" test/gateway.test.js
+```
 
-### Gửi sau
-
-Uses the official Codex queue CLI flow for the exact thread.
-
-## Legacy config recovery
-
-The repository keeps the old config snapshot/revert helper only to safely migrate users who enabled the 0.10.0/0.10.1 localhost backend experiment.
-
-0.10.2 does not create a new localhost `chatgpt_base_url` override.
-
-## Privacy
-
-Runtime traces are stored under the extension's VS Code `globalStorageUri`, not in the repository.
-
-Authorization, cookies, API keys and secret-like headers are redacted from diagnostic logs. Sanitized diagnostic export excludes raw body content and headers.
-
-## Build and install
-
-Run tests:
+Then run the full suite:
 
 ```powershell
 npm test
 ```
 
-Build on Windows with Git Bash:
+Build the VSIX:
 
 ```powershell
 & "C:\Program Files\Git\bin\bash.exe" ./build-vsix.sh
 ```
 
-Expected artifact:
+Expected extension artifact:
 
 ```text
-codex-session-tracker-0.10.2.vsix
+codex-session-tracker-0.11.0.vsix
 ```
 
 Install:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.10.2.vsix --force
+code --install-extension .\codex-session-tracker-0.11.0.vsix --force
 ```
 
-Then run **Developer: Reload Window** once.
+Then run **Developer: Reload Window**.
 
-## Automated tests
+## Safety / rollback behavior
 
-```powershell
-npm test
-```
+The hook is loopback-only and token-authenticated.
 
-Gateway integration tests use local fake endpoints only. They do not call the real OpenAI service.
+Outbound mutation is off by default. Even when enabled, a missing Tracker or failed preflight does not block normal Codex traffic.
+
+The existing 0.10.x legacy `chatgpt_base_url = http://127.0.0.1:...` migration remains in place only to clean up old installs. 0.11.0 never creates that rewrite.
