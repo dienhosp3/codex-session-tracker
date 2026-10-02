@@ -188,6 +188,15 @@ class GatewayServer {
         upstreamRes.on('data',chunk=>{
           responseCapture.add(chunk);
           responseBytes+=chunk.length;
+          if(this.captureContent){
+            const liveCapture=new ContentCapture({
+              enabled:true,
+              maxBytes:this.captureMaxBytes,
+              contentType:upstreamRes.headers['content-type'] || ''
+            });
+            liveCapture.add(chunk);
+            this.record({...eventBase,stage:'UPSTREAM_RESPONSE_CHUNK',at:Date.now(),responseBytes:chunk.length,contentCapture:liveCapture.finish()}).catch(()=>{});
+          }
           if(firstResponseByte){
             firstResponseByte=false;
             this.record({...eventBase,stage:'UPSTREAM_FIRST_EVENT',at:Date.now(),statusCode:upstreamRes.statusCode||0}).catch(()=>{});
@@ -219,6 +228,15 @@ class GatewayServer {
             if(requestBytes>64*1024*1024)throw Object.assign(new Error('Proxy request body exceeds 64 MiB.'),{statusCode:413});
             hash.update(chunk);
             requestCapture.add(chunk);
+            if(this.captureContent){
+              const liveCapture=new ContentCapture({
+                enabled:true,
+                maxBytes:this.captureMaxBytes,
+                contentType:req.headers['content-type'] || ''
+              });
+              liveCapture.add(chunk);
+              await this.record({...eventBase,stage:'UPSTREAM_REQUEST_CHUNK',at:Date.now(),requestBytes:chunk.length,contentCapture:liveCapture.finish()});
+            }
             if(firstRequestByte){
               firstRequestByte=false;
               await this.record({...eventBase,stage:'UPSTREAM_BYTES_SENT',at:Date.now(),requestBytes:chunk.length});
