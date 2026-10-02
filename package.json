@@ -1,8 +1,8 @@
 {
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
-  "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
-  "version": "0.10.2",
+  "description": "Codex activity tracker with origin-preserving transport diagnostics, a pre-TLS/post-TLS plaintext HTTP hook, reversible daemon instrumentation, and lifecycle-accurate steer diagnostics.",
+  "version": "0.11.0",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -55,6 +55,18 @@
       {
         "command": "codexSessionTracker.openTrafficMonitor",
         "title": "Codex Tracker: Open Traffic Monitor"
+      },
+      {
+        "command": "codexSessionTracker.buildInstrumentedCodex",
+        "title": "Codex Tracker: Build Instrumented Codex HTTP Hook"
+      },
+      {
+        "command": "codexSessionTracker.installInstrumentedCodex",
+        "title": "Codex Tracker: Install Instrumented Codex Daemon"
+      },
+      {
+        "command": "codexSessionTracker.restoreOfficialCodexDaemon",
+        "title": "Codex Tracker: Restore Official Codex Daemon"
       }
     ],
     "configuration": {
@@ -164,6 +176,23 @@
           "minimum": 8,
           "maximum": 512,
           "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
+        },
+        "codexSessionTracker.gateway.httpHookEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Compatibility setting. Plaintext HTTP hook settings are managed from the Codex Session Tracker UI."
+        },
+        "codexSessionTracker.gateway.httpHookPort": {
+          "type": "number",
+          "default": 8767,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Compatibility setting. Plaintext HTTP hook settings are managed from the Codex Session Tracker UI."
+        },
+        "codexSessionTracker.gateway.httpHookMutationEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Compatibility setting. Enables the fail-open outbound mutation preflight pipeline; rules are managed by the Tracker UI."
         }
       }
     },
@@ -202,6 +231,7 @@
     "traffic_monitor.html",
     "media/tracker.svg",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "codex-hook"
   ]
 }
