@@ -270,6 +270,7 @@ async function startGateway() {
     captureContent: cfg.gatewayCaptureContent,
     captureMaxBytes: Math.max(1, Number(cfg.gatewayCaptureMaxMb || 16)) * 1024 * 1024,
     traceMaxBytes: Math.max(8, Number(cfg.gatewayTraceMaxMb || 64)) * 1024 * 1024,
+    httpHookEnabled: cfg.gatewayHttpHookEnabled,
     httpHookPort: cfg.gatewayHttpHookPort,
     httpHookMutationEnabled: cfg.gatewayHttpHookMutationEnabled,
     handlers: {
