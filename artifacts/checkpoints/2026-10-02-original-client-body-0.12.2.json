@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-02T16:46:29.019Z",
+  "label": "original-client-body-0.12.2",
+  "repository": {
+    "revision": "d3ca06fd0715f7b67a8d0d5b7f4069e9a68f8755",
+    "shortRevision": "d3ca06fd0715",
+    "dirty": true,
+    "trackerVersion": "0.12.2"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.928.31416"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.159.2",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "",
+      "model": ""
+    }
+  },
+  "verification": {
+    "node": "v24.15.0",
+    "nodeTests": {
+      "passed": 117,
+      "failed": 0
+    },
+    "clientRuntime": {
+      "passed": true,
+      "tls": true,
+      "fixtureOutput": "HTTP zstd + shared HTTP + WebSocket fixture passed",
+      "upstreamRequests": 5,
+      "httpMethod": "POST",
+      "websocketMethod": "GET",
+      "endpoint": "/backend-api/codex/responses",
+      "httpZstdEdited": true,
+      "websocketEdited": true,
+      "sharedHttpEdited": true,
+      "wireHashesMatch": true,
+      "eventsPerTransport": [
+        "response.created",
+        "response.in_progress",
+        "response.output_item.added",
+        "response.output_item.done",
+        "response.completed"
+      ],
+      "rejectedBeforeSend": true,
+      "captureGaps": 0,
+      "savedPostGetRequests": 4,
+      "originalChunkSizes": [
+        0,
+        65536,
+        65537,
+        262151
+      ],
+      "trackerResegmentation": false,
+      "completeBodyCapture": true
+    },
+    "appServerSmoke": {
+      "passed": true,
+      "isolatedCodexHome": true,
+      "modelRequestsSent": 0
+    },
+    "rustHttpClientTests": {
+      "total": 126,
+      "passed": 121,
+      "failed": 5,
+      "baselineComparison": {
+        "filter": "tls_fallback_tests",
+        "total": 7,
+        "passed": 2,
+        "failed": 5,
+        "sameFailuresWithoutTracker": true,
+        "reason": "Windows Schannel protocol error classification before response BODY observation"
+      }
+    },
+    "format": {
+      "rust": "passed",
+      "repository": "incomplete: Python and Bazel formatter dependencies uv/dotslash missing"
+    },
+    "instrumentedRuntime": {
+      "schemaVersion": 1,
+      "cliVersion": "0.159.2",
+      "instrumentationVersion": 2,
+      "httpCaptureBoundary": "http-client-body-frame",
+      "websocketCaptureBoundary": "websocket-message",
+      "trackerResegmentation": false,
+      "sourceRevision": "ff6aec96948b70d94983af2641a6b67c94faeff5",
+      "sourceTag": "rust-v0.159.2",
+      "profile": "dev-small",
+      "platform": "windows-x86_64",
+      "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+      "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+      "node": "v24.15.0",
+      "builtAt": "2026-10-02T16:42:23.9249608Z",
+      "hookSha256": "d5d5a0cfd8925e3a8cef813df2ae46b0af37e0eb7253929a6b658a66d68f67c6",
+      "patchSha256": "14df4b672e4df1bc549be19f2c77a504e80b612f953fdddb5ee4ec37ec4c87ec",
+      "sha256": "3080adfae0c661fa9b5b47de90c800a30907a8a092729e0cab75e704e174aacd"
+    },
+    "artifact": "codex-session-tracker-0.12.2.vsix",
+    "tools": {
+      "just": "just 1.58.0",
+      "nextest": "cargo-nextest 0.9.146 (8af696ddc 2026-09-21)",
+      "powershell": "7.6.6"
+    },
+    "packagedArtifactVerified": true,
+    "cleanup": {
+      "cargoClean": true,
+      "removedBuildCacheGiB": 7.9,
+      "temporaryToolsRemoved": true
+    }
+  }
+}

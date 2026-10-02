@@ -50,7 +50,7 @@ async function main(){
   const rule=(method,path,pointer)=>({host:'127.0.0.1',method,path,operations:[{op:'replace',path:pointer,value:replacement}]});
   gateway.clientHook.filters.configure([rule('POST','/backend-api/codex/responses','/input/0/content/0/text'),rule('GET','/backend-api/codex/responses','/input/0/content/0/text'),rule('PUT','/metadata/update','/text')]);
   try{
-    const executable=process.argv[2]||'.runtime-build/target/dev-small/examples/tracker_client_fixture.exe';
+    const executable=process.argv[2]||path.join(process.env.CARGO_TARGET_DIR||'.runtime-build/target','dev-small/examples/tracker_client_fixture.exe');
     const output=await run(executable,base,address.port,address.token,'',certificate);
     assert.deepEqual(errors,[]);assert.equal(received.length,5);
     const httpRequest=received.find(e=>e.path==='/backend-api/codex/responses'&&e.method==='POST');
@@ -71,10 +71,23 @@ async function main(){
     assert.equal((await reader.payload(saved.traceId,'request')).contentCapture.content,httpRequest.body);
     const savedEvents=(await reader.payload(saved.traceId,'events')).contentCapture.content.trim().split('\n').map(line=>JSON.parse(line).eventType);
     assert.deepEqual(savedEvents,types);
+    await run(executable,base,address.port,address.token,'boundaries',certificate);
+    for(const protocol of ['http','websocket']){
+      const chunks=trace.filter(e=>e.stage==='CLIENT_RESPONSE_CHUNK'&&e.path===`/chunk-boundaries/${protocol}`);
+      assert.deepEqual(chunks.map(e=>e.size),[0,65536,65537,262151]);
+      assert.deepEqual(chunks.map(e=>e.chunkIndex),[0,1,2,3]);
+      for(const [index,event]of chunks.entries()){
+        const expected=Buffer.from(Array.from({length:event.size},(_,offset)=>(offset+index)%251));
+        assert.equal(event.captureBoundary,protocol==='http'?'http-client-body-frame':'websocket-message');
+        assert.equal(event.contentCapture.truncated,false);
+        assert.equal(event.contentCapture.totalBytes,expected.length);
+        assert.deepEqual(Buffer.from(event.contentCapture.content,event.contentCapture.encoding),expected);
+      }
+    }
     gateway.clientHook.filters.configure([rule('POST','/backend-api/codex/responses','/missing/field')]);
     const before=received.length;await run(executable,base,address.port,address.token,'blocked',certificate);assert.equal(received.length,before);
     await run(executable,base,address.port,'wrong-token-123456789','blocked',certificate);assert.equal(received.length,before);
-    console.log(JSON.stringify({passed:true,tls:true,fixtureOutput:output,upstreamRequests:received.length,httpMethod:'POST',websocketMethod:'GET',endpoint:'/backend-api/codex/responses',httpZstdEdited:true,websocketEdited:true,sharedHttpEdited:true,wireHashesMatch:true,eventsPerTransport:types,rejectedBeforeSend:true,captureGaps:0,savedPostGetRequests:reader.total,completeLogBodyDespiteUiLimit:true},null,2));
+    console.log(JSON.stringify({passed:true,tls:true,fixtureOutput:output,upstreamRequests:received.length,httpMethod:'POST',websocketMethod:'GET',endpoint:'/backend-api/codex/responses',httpZstdEdited:true,websocketEdited:true,sharedHttpEdited:true,wireHashesMatch:true,eventsPerTransport:types,rejectedBeforeSend:true,captureGaps:0,savedPostGetRequests:reader.total,originalChunkSizes:[0,65536,65537,262151],trackerResegmentation:false,completeBodyCapture:true},null,2));
   }finally{await gateway.stop();for(const socket of sockets)socket.destroy();await new Promise(resolve=>upstream.close(resolve));await fs.rm(temporary,{recursive:true,force:true});}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

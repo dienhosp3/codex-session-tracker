@@ -1,4 +1,37 @@
-# Codex Session Tracker 0.12.0
+# Codex Session Tracker 0.12.3
+
+## Saved event search (0.12.3)
+
+Opening a log folder indexes request summaries and the original timeline records,
+including `response.created`, delta events, completion, BODY, headers and errors.
+Search and IN/OUT filters work on those event rows. Selecting an event opens its
+own payload; the request/response/events tabs still open the corresponding files.
+Timeline metadata is streamed when indexing. Event payloads are loaded on demand
+with cached file offsets; opening a folder does not load all response bodies.
+
+## Original client BODY boundaries (0.12.2)
+
+- Each HTTP BODY record preserves one frame from the Codex HTTP client. Each
+  WebSocket BODY record preserves one complete client message. Tracker no longer
+  divides HTTP frames into 64 KiB pieces. These boundaries are not TCP packets or TLS records.
+- Client captures retain every byte of the observed frame, including binary and
+  UTF-8 fragments. SSE events are derived records alongside the original BODY.
+- Removed the content capture size setting and plaintext pagination controls.
+  Selected BODY records and saved files load in full. Historical divided/truncated
+  captures retain their original limitations; their boundaries cannot be restored.
+- Bridge messages that exceed its transport limit or cannot be queued produce
+  explicit capture gaps rather than being divided or silently shortened.
+- Runtime instrumentation version 2 must be deployed for this behavior. If the
+  JSON hook is already enabled, disable it and enable it again after installing.
+
+## Plaintext reader (0.12.1)
+
+- Copy plaintext or headers using the VS Code clipboard.
+- Live updates preserve the plaintext element and its scroll position; selecting
+  another event or saved-file tab resets it.
+- Colored HEADER/BODY/FINISHED labels explain metadata, content chunks and stream
+  end milestones. FINISHED alone does not mean model success; `response.completed`
+  is a separate semantic event. Proxy/native end records may include an assembled body.
 
 VS Code tracker for Codex sessions with lifecycle-aware activity, queue/steer controls, a loopback transport Gateway, reversible proxy routing, and a dedicated traffic monitor.
 
@@ -77,13 +110,13 @@ Documents/Codex Logs/
 ```
 
 `/backend-api/codex/responses` has its own `codex-responses` directory. Backend
-hosts are separate. Client-hook body files retain complete received chunks even
-when the live UI payload preview is truncated. Optional proxy/native captures
-retain their original encoding and truncation metadata in `captures.jsonl`.
+hosts are separate. Client-hook body files retain complete observed chunks;
+the plaintext viewer loads the selected capture in full. Optional proxy/native
+captures retain their encoding and any historical truncation metadata in `captures.jsonl`.
 Capture gaps and disk errors are explicit; gaps have their own JSONL records.
 Streaming outbound bodies that do not expose buffered bytes are marked
 unavailable. The loopback bridge accepts at most 64 MiB per message; observation
-queues and previews are bounded. This is not an unlimited packet sniffer.
+queues are bounded. These limits report gaps rather than dividing BODY records.
 
 **Mở log** opens a saved folder inside Traffic Monitor. Filter separately by
 backend, endpoint, Responses group, method, session, and time. Saved requests

@@ -1,0 +1,17 @@
+{
+  "recordedAt": "2026-10-02T17:17:09.301Z",
+  "command": "node test/client_http_stream_smoke.js",
+  "passed": true,
+  "runtimeModelHttpPath": true,
+  "method": "POST",
+  "endpoint": "/backend-api/codex/responses",
+  "stream": true,
+  "completeRequestBodyMatches": true,
+  "responseEvents": [
+    "response.created",
+    "response.output_item.done",
+    "response.completed"
+  ],
+  "isolatedCodexHome": true,
+  "externalModelRequestsSent": 0
+}

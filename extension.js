@@ -171,7 +171,6 @@ function storedGatewaySettings() {
       modelProxyEnabled: Boolean(value.modelProxyEnabled),
       upstreamBaseUrl: String(value.upstreamBaseUrl || ''),
       captureContent: Boolean(value.captureContent),
-      captureMaxMb: Number(value.captureMaxMb || 16),
       traceMaxMb: Number(value.traceMaxMb || 64)
     };
   }
@@ -183,7 +182,6 @@ function storedGatewaySettings() {
     modelProxyEnabled: legacy.get('gateway.modelProxyEnabled', false),
     upstreamBaseUrl: legacy.get('gateway.upstreamBaseUrl', ''),
     captureContent: legacy.get('gateway.captureContent', false),
-    captureMaxMb: legacy.get('gateway.captureMaxMb', 16),
     traceMaxMb: legacy.get('gateway.traceMaxMb', 64)
   };
 }
@@ -245,7 +243,6 @@ function config() {
     gatewayModelProxyEnabled: gatewaySettings.modelProxyEnabled,
     gatewayUpstreamBaseUrl: gatewaySettings.upstreamBaseUrl,
     gatewayCaptureContent: gatewaySettings.captureContent,
-    gatewayCaptureMaxMb: gatewaySettings.captureMaxMb,
     gatewayTraceMaxMb: gatewaySettings.traceMaxMb
   };
 }
@@ -269,7 +266,7 @@ async function startGateway() {
     modelProxyEnabled: cfg.gatewayModelProxyEnabled,
     upstreamBaseUrl: cfg.gatewayUpstreamBaseUrl,
     captureContent: cfg.gatewayCaptureContent,
-    captureMaxBytes: Math.max(1, Number(cfg.gatewayCaptureMaxMb || 16)) * 1024 * 1024,
+    captureMaxBytes: Number.MAX_SAFE_INTEGER,
     traceMaxBytes: Math.max(8, Number(cfg.gatewayTraceMaxMb || 64)) * 1024 * 1024,
     handlers: {
       steer: async input => codexSteer.steerViaExtensionIpc({
@@ -373,7 +370,6 @@ function gatewaySettingsSnapshot(cfg = config()) {
     modelProxyEnabled: Boolean(cfg.gatewayModelProxyEnabled),
     upstreamBaseUrl: String(cfg.gatewayUpstreamBaseUrl || ''),
     captureContent: Boolean(cfg.gatewayCaptureContent),
-    captureMaxMb: Number(cfg.gatewayCaptureMaxMb || 16),
     traceMaxMb: Number(cfg.gatewayTraceMaxMb || 64)
   };
 }
@@ -387,11 +383,9 @@ async function applyGatewaySettings(values) {
 
 function validateGatewaySettings(input = {}) {
   const port = Math.round(Number(input.port || 8765));
-  const captureMaxMb = Math.round(Number(input.captureMaxMb || 16));
   const traceMaxMb = Math.round(Number(input.traceMaxMb || 64));
   const upstreamBaseUrl = String(input.upstreamBaseUrl || '').trim();
   if (port < 1 || port > 65535) throw new Error('Gateway port phải nằm trong 1..65535.');
-  if (captureMaxMb < 1 || captureMaxMb > 64) throw new Error('Giới hạn nội dung phải nằm trong 1..64 MiB.');
   if (traceMaxMb < 8 || traceMaxMb > 512) throw new Error('Giới hạn trace phải nằm trong 8..512 MiB.');
   if (upstreamBaseUrl && !/^https?:\/\//i.test(upstreamBaseUrl)) throw new Error('Upstream phải là URL http/https.');
   return {
@@ -400,7 +394,6 @@ function validateGatewaySettings(input = {}) {
     modelProxyEnabled: Boolean(input.modelProxyEnabled),
     upstreamBaseUrl,
     captureContent: Boolean(input.captureContent),
-    captureMaxMb,
     traceMaxMb
   };
 }
@@ -473,7 +466,6 @@ async function enableGatewayFullCapture(input = {}) {
       modelProxyEnabled: true,
       upstreamBaseUrl: '',
       captureContent: true,
-      captureMaxMb: Math.max(16, Number(requested.captureMaxMb || 16)),
       traceMaxMb: Math.max(256, Number(requested.traceMaxMb || 64))
     });
 
@@ -506,7 +498,7 @@ async function enableGatewayFullCapture(input = {}) {
 async function restoreTrackerGatewaySettings(saved) {
   if (!saved || typeof saved !== 'object') return;
   const values = {};
-  for (const key of ['enabled','port','modelProxyEnabled','upstreamBaseUrl','captureContent','captureMaxMb','traceMaxMb']) {
+  for (const key of ['enabled','port','modelProxyEnabled','upstreamBaseUrl','captureContent','traceMaxMb']) {
     if (Object.prototype.hasOwnProperty.call(saved, key)) values[key] = saved[key];
   }
   await applyGatewaySettings(values);
@@ -642,7 +634,13 @@ async function openTrafficMonitor() {
   trafficPanel.webview.onDidReceiveMessage(async message => {
     if (!message || typeof message !== 'object') return;
     if (message.command === 'refreshTraffic') postTrafficState();
-    if (message.command === 'loadTrafficPayload') await sendTrafficPayload(message.traceId, message.offset,message.part);
+    if (message.command === 'loadTrafficPayload') await sendTrafficPayload(message.traceId, message.offset,message.part,message.viewToken);
+    if (message.command === 'copyTrafficPlaintext' && typeof message.text === 'string') {
+      let error;
+      try { await vscode.env.clipboard.writeText(message.text); }
+      catch (failure) { error = friendlyError(failure); }
+      trafficPanel?.webview.postMessage({type:'trafficCopyResult',viewToken:message.viewToken,copySequence:message.copySequence,error});
+    }
     if (message.command === 'refreshNativeOwners') await refreshNativeOwners();
     if (message.command === 'setupNativeHook') await setupNativeHook();
     if (message.command === 'startNativeHook') await startNativeHook(Number(message.pid));
@@ -742,7 +740,7 @@ async function installedCodexExecutable() {
 function getNativeHook() {
   if (!nativeHook) nativeHook = new NativeInstrumentation({
     storageDir:gatewayStorageDir(),
-    maxBytes:config().gatewayCaptureMaxMb * 1024 * 1024,
+    maxBytes:Number.MAX_SAFE_INTEGER,
     record:event => gateway ? gateway.server.record(event) : Promise.resolve(),
     onChange:() => postTrafficState()
   });
@@ -808,18 +806,19 @@ function postTrafficState() {
     data: {
       gateway: trafficGatewayState(),
       traffic: savedTraffic?savedTraffic.snapshot().traffic:gateway ? gateway.trafficIndex(2500) : [],
-      savedTraffic:savedTraffic?{directory:savedTraffic.root,total:savedTraffic.total,loaded:savedTraffic.items.size}:null
+      savedTraffic:savedTraffic?{directory:savedTraffic.root,total:savedTraffic.total,loaded:savedTraffic.loaded,eventCount:savedTraffic.items.size-savedTraffic.loaded}:null
     }
   });
 }
 
-async function sendTrafficPayload(traceId, offset = 0,part='request') {
+async function sendTrafficPayload(traceId, offset = 0,part='request',viewToken) {
   let event;
-  try{event = savedTraffic?await savedTraffic.payload(traceId,part,offset):gateway && gateway.payloadByTraceId(traceId, { offset, limit: 512 * 1024 });}
+  try{event = savedTraffic?await savedTraffic.payload(traceId,part,0,{whole:true}):gateway && gateway.payloadByTraceId(traceId, { whole:true });}
   catch(error){clientHookNotice=friendlyError(error);event={traceId,missing:true};postTrafficState();}
   if (!trafficPanel) return;
   trafficPanel.webview.postMessage({
     type: 'trafficPayload',
+    viewToken,
     payload: event || { traceId: Number(traceId || 0), missing: true }
   });
 }

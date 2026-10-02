@@ -15,7 +15,7 @@ test('POST/GET logs preserve complete bodies, separate responses and support fol
   const logs=new TrafficLogs({directory}),body=Buffer.from('Tiếng Việt ✓ '.repeat(20000));
   await logs.append({...request('post'),contentCapture:{encoding:'utf8',content:'truncated',truncated:true}},{bytes:body});
   await logs.append({...request('post'),type:'client_response',stage:'CLIENT_RESPONSE_HEADERS',statusCode:200,headers:{'content-type':'text/event-stream'}});
-  for(const bytes of [Buffer.from('data: {"type":"response.'),Buffer.from('completed"}\n\n')])await logs.append({...request('post'),type:'client_response',stage:'CLIENT_RESPONSE_CHUNK',direction:'in'},{bytes});
+  for(const bytes of [Buffer.from('data: {"type":"response.'),Buffer.from('completed"}\n\n')])await logs.append({...request('post'),type:'client_response',stage:'CLIENT_RESPONSE_CHUNK',direction:'in',size:bytes.length},{bytes});
   await logs.append({...request('post'),type:'client_response_event',stage:'RESPONSE_EVENT',eventType:'response.completed',direction:'in'},{bytes:Buffer.from('{"type":"response.completed"}')});
   await logs.append(request('get','GET','/backend-api/models'),{bytes:Buffer.alloc(0)});
   await logs.append(request('put','PUT','/backend-api/models'),{bytes:Buffer.from('excluded')});
@@ -29,6 +29,31 @@ test('POST/GET logs preserve complete bodies, separate responses and support fol
   const first=await reader.payload(post.traceId,'request');assert.equal(first.contentCapture.complete,true);
   await reader.open(directory,1);assert.equal(reader.snapshot().loaded,1);assert.equal(reader.snapshot().total,2);
   await assert.rejects(reader.payload(reader.snapshot().traffic[0].traceId,'../../outside'),/Invalid/);
+});
+
+test('saved logs index response events and recover each original BODY and event payload',async t=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'tracker-log-events-'));t.after(()=>fs.rm(directory,{recursive:true,force:true}));
+  const logs=new TrafficLogs({directory}),base={...request('events','GET'),protocol:'websocket',kind:'MODEL_REQUEST'};
+  await logs.append(base,{bytes:Buffer.from('{"stream":true}')});
+  const frames=[Buffer.from('response first ✓'),Buffer.from([0xe2,0x9c]),Buffer.alloc(65537,65)];
+  for(const [chunkIndex,bytes]of frames.entries())await logs.append({...base,type:'client_response',stage:'CLIENT_RESPONSE_CHUNK',direction:'in',size:bytes.length,chunkIndex,captureBoundary:'websocket-message'},{bytes});
+  for(const eventType of ['response.created','response.output_text.delta','response.completed'])await logs.append({...base,type:'client_response_event',stage:'RESPONSE_EVENT',direction:'in',eventType},{bytes:Buffer.from(JSON.stringify({type:eventType,delta:'Tiếng Việt ✓'}))});
+  const reader=new SavedTraffic();await reader.open(directory,1);const snapshot=reader.snapshot();
+  assert.equal(snapshot.loaded,1);assert.equal(snapshot.total,1);assert.equal(snapshot.eventCount,7);
+  const events=snapshot.traffic.filter(e=>e.type==='client_response_event');
+  assert.deepEqual(events.map(e=>e.eventType),['response.created','response.output_text.delta','response.completed']);
+  for(const event of events){
+    assert.equal(event.direction,'in');assert.equal(event.method,'GET');assert.equal(event.kind,'MODEL_REQUEST');
+    const payload=await reader.payload(event.traceId,'event');assert.equal(JSON.parse(payload.contentCapture.content).type,event.eventType);
+  }
+  // Re-select a preceding event after a later one: the cached byte offset remains correct.
+  assert.equal(JSON.parse((await reader.payload(events[0].traceId,'event')).contentCapture.content).type,'response.created');
+  for(const [index,event]of snapshot.traffic.filter(e=>e.stage==='CLIENT_RESPONSE_CHUNK').entries()){
+    const payload=await reader.payload(event.traceId,'event');assert.deepEqual(Buffer.from(payload.contentCapture.content,payload.contentCapture.encoding),frames[index]);
+  }
+  const selected=snapshot.traffic.find(e=>e.savedEvent&&e.stage==='CLIENT_JSON_PREPARED');
+  assert.equal((await reader.payload(selected.traceId,'event')).contentCapture.content,'{"stream":true}');
+  assert.equal((await reader.payload(events[0].traceId,'response')).contentCapture.totalBytes,Buffer.concat(frames).length);
 });
 test('directory changes affect new requests; in-flight replies stay with their original request',async t=>{
   const directory=await fs.mkdtemp(path.join(os.tmpdir(),'tracker-logs-'));t.after(()=>fs.rm(directory,{recursive:true,force:true}));
@@ -51,4 +76,6 @@ test('saved payload pagination preserves Unicode across byte boundaries',async t
   const reader=new SavedTraffic();await reader.open(directory);const id=reader.snapshot().traffic[0].traceId;
   const first=await reader.payload(id),second=await reader.payload(id,'request',first.contentCapture.nextOffset);
   assert.equal(first.contentCapture.content+second.contentCapture.content,text);
+  const whole=await reader.payload(id,'request',0,{whole:true});
+  assert.equal(whole.contentCapture.content,text);assert.equal(whole.contentCapture.complete,true);
 });

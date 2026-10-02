@@ -565,6 +565,9 @@ test('large captured payloads are paged for the webview without losing content',
   const second = gateway.payloadByTraceId(event.traceId, { offset: first.contentCapture.nextOffset, limit: 512 * 1024 });
   assert.equal(first.contentCapture.content + second.contentCapture.content, content);
   assert.equal(second.contentCapture.complete, true);
+  const whole = gateway.payloadByTraceId(event.traceId, { whole:true });
+  assert.equal(whole.contentCapture.content, event.contentCapture.content);
+  assert.equal(whole.contentCapture.complete, true);
 });
 
 

@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-02T17:10:27.616Z",
+  "label": "saved-event-search-0.12.3",
+  "repository": {
+    "revision": "d3ca06fd0715f7b67a8d0d5b7f4069e9a68f8755",
+    "shortRevision": "d3ca06fd0715",
+    "dirty": true,
+    "trackerVersion": "0.12.3"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.928.31416"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.159.2",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "",
+      "model": ""
+    }
+  },
+  "verification": {
+    "node": "v24.15.0",
+    "nodeTests": {
+      "command": "npm test",
+      "passed": 119,
+      "failed": 0
+    },
+    "syntaxChecks": [
+      "gateway/saved_traffic.js",
+      "extension.js",
+      "test/client_http_stream_smoke.js"
+    ],
+    "diffCheck": "passed",
+    "instrumentedRuntime": {
+      "rebuilt": false,
+      "manifest": {
+        "schemaVersion": 1,
+        "cliVersion": "0.159.2",
+        "instrumentationVersion": 2,
+        "httpCaptureBoundary": "http-client-body-frame",
+        "websocketCaptureBoundary": "websocket-message",
+        "trackerResegmentation": false,
+        "sourceRevision": "ff6aec96948b70d94983af2641a6b67c94faeff5",
+        "sourceTag": "rust-v0.159.2",
+        "profile": "dev-small",
+        "platform": "windows-x86_64",
+        "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+        "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+        "node": "v24.15.0",
+        "builtAt": "2026-10-02T16:42:23.9249608Z",
+        "hookSha256": "d5d5a0cfd8925e3a8cef813df2ae46b0af37e0eb7253929a6b658a66d68f67c6",
+        "patchSha256": "14df4b672e4df1bc549be19f2c77a504e80b612f953fdddb5ee4ec37ec4c87ec",
+        "sha256": "3080adfae0c661fa9b5b47de90c800a30907a8a092729e0cab75e704e174aacd"
+      }
+    },
+    "artifact": "codex-session-tracker-0.12.3.vsix",
+    "httpModelStreamSmoke": {
+      "recordedAt": "2026-10-02T17:17:09.301Z",
+      "command": "node test/client_http_stream_smoke.js",
+      "passed": true,
+      "runtimeModelHttpPath": true,
+      "method": "POST",
+      "endpoint": "/backend-api/codex/responses",
+      "stream": true,
+      "completeRequestBodyMatches": true,
+      "responseEvents": [
+        "response.created",
+        "response.output_item.done",
+        "response.completed"
+      ],
+      "isolatedCodexHome": true,
+      "externalModelRequestsSent": 0
+    },
+    "packagedArtifactVerified": true
+  }
+}

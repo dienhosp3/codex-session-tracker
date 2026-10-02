@@ -324,7 +324,7 @@ function renderGatewayPayload(){
   const headers=p.headers?'<details><summary class="gateway-meta" style="cursor:pointer;margin-top:5px">Headers đã lọc</summary><pre>'+esc(JSON.stringify(p.headers,null,2))+'</pre></details>':'';
   return '<div class="payload-view"><div class="card-title">Nội dung input/output đã capture</div><div class="gateway-meta">'+esc(meta)+'</div>'+
     (c.decodeError?'<div class="gateway-warn gateway-meta">Không giải nén được nội dung capture: '+esc(c.decodeError)+'</div>':'')+
-    (c.truncated?'<div class="gateway-warn gateway-meta">Đã capture '+esc(String(c.capturedBytes))+'/'+esc(String(c.totalBytes))+' bytes theo giới hạn UI; transport thực tế không bị cắt.</div>':'')+
+    (c.truncated?'<div class="gateway-warn gateway-meta">Log cũ đã bị cắt: '+esc(String(c.capturedBytes))+'/'+esc(String(c.totalBytes))+' bytes.</div>':'')+
     headers+'<pre>'+esc(c.content||'')+'</pre>'+(c.complete?'':'<div class="gateway-actions"><button id="gwLoadMorePayload">Tải thêm nội dung</button></div>')+'</div>';
 }
 function renderGateway(){
@@ -352,7 +352,6 @@ function renderGateway(){
     '<div class="gateway-setting"><label>Port</label><input id="gwPort" type="number" min="1" max="65535" value="'+esc(settings.port||8765)+'"></div>'+
     '<label class="gateway-check"><input id="gwProxy" type="checkbox" '+(settings.modelProxyEnabled?'checked':'')+'> Route Codex qua local forward proxy, giữ nguyên HTTPS origin thật</label>'+
     '<label class="gateway-check"><input id="gwCapture" type="checkbox" '+(settings.captureContent?'checked':'')+'> Lưu plaintext khi transport cung cấp; HTTPS CONNECT pass-through chỉ có byte/timing</label>'+
-    '<div class="gateway-setting"><label>Giới hạn content capture (MiB)</label><input id="gwCaptureMax" type="number" min="1" max="64" value="'+esc(settings.captureMaxMb||16)+'"></div>'+
     '<div class="gateway-setting"><label>Trace local trước khi rotate (MiB)</label><input id="gwTraceMax" type="number" min="8" max="512" value="'+esc(settings.traceMaxMb||64)+'"></div>'+
     '<div class="gateway-actions"><button id="gwSave">Lưu cài đặt</button><button id="gwEnableFull" class="primary">Bật forward proxy + Reload</button><button id="gwTraffic">Mở Traffic Monitor</button>'+
       (settings.modelProxyEnabled||managed.active?'<button id="gwRevert">Tắt proxy + khôi phục route + Reload</button>':'')+
@@ -374,12 +373,11 @@ function readGatewaySettingsFromUi(){
     modelProxyEnabled:Boolean(document.getElementById('gwProxy')&&document.getElementById('gwProxy').checked),
     upstreamBaseUrl:'',
     captureContent:Boolean(document.getElementById('gwCapture')&&document.getElementById('gwCapture').checked),
-    captureMaxMb:Number(document.getElementById('gwCaptureMax')&&document.getElementById('gwCaptureMax').value||16),
     traceMaxMb:Number(document.getElementById('gwTraceMax')&&document.getElementById('gwTraceMax').value||64)
   };
 }
 function bindGatewayUi(){
-  const ids=['gwEnabled','gwPort','gwProxy','gwCapture','gwCaptureMax','gwTraceMax'];
+  const ids=['gwEnabled','gwPort','gwProxy','gwCapture','gwTraceMax'];
   const updateDraft=()=>{gatewaySettingsDraft=readGatewaySettingsFromUi()};
   for(const id of ids){const el=document.getElementById(id);if(el){el.oninput=updateDraft;el.onchange=updateDraft}}
   const save=document.getElementById('gwSave');if(save)save.onclick=()=>{const value=readGatewaySettingsFromUi();gatewaySettingsDraft=value;vscode.postMessage({command:'saveGatewaySettings',settings:value})};

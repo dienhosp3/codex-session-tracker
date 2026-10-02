@@ -57,7 +57,8 @@ class ContentCapture {
         decodeError = String(error && error.message || error);
       }
     }
-    const text = isTextContentType(this.contentType) && (!this.contentEncoding || this.contentEncoding === 'identity' || decoded);
+    const text = isTextContentType(this.contentType) && (!this.contentEncoding || this.contentEncoding === 'identity' || decoded)
+      && require('buffer').isUtf8(decodedBuffer);
     return {
       contentType: this.contentType,
       wireContentEncoding: this.contentEncoding,

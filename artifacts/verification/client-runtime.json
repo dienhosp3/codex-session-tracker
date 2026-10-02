@@ -20,5 +20,12 @@
   "rejectedBeforeSend": true,
   "captureGaps": 0,
   "savedPostGetRequests": 4,
-  "completeLogBodyDespiteUiLimit": true
+  "originalChunkSizes": [
+    0,
+    65536,
+    65537,
+    262151
+  ],
+  "trackerResegmentation": false,
+  "completeBodyCapture": true
 }

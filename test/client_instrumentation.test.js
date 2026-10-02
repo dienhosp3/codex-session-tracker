@@ -9,6 +9,31 @@ const meta={requestId:'r1',host:'chatgpt.com',method:'POST',path:'/backend-api/c
 const rule={id:'steer',host:meta.host,method:meta.method,path:meta.path,conditions:[{path:'/type',equals:'response.create'}],operations:[{op:'replace',path:'/input/0/content/0/text',value:'Nội dung mới dài hơn bản gốc rất nhiều ✓'}]};
 const body=JSON.stringify({type:'response.create',model:'unchanged',input:[{content:[{text:'old'}]}]});
 
+test('client capture keeps one complete BODY per original frame and preserves binary fragments',async()=>{
+  const trace=[],client=new ClientInstrumentation({maxBytes:1024,record:async(event,payload)=>trace.push({event,payload})});
+  await client.outbound({schemaVersion:1,...meta,url:'https://chatgpt.com'+meta.path,bodyJson:body});
+  await client.observe({...meta,kind:'response_headers',headers:{'content-type':'text/plain'}});
+  const frames=[Buffer.from([0xe2,0x9c]),Buffer.from([0x93]),Buffer.alloc(65537,65),Buffer.alloc(262151,66)];
+  for(const [index,bytes]of frames.entries())await client.observe({...meta,kind:'response_chunk',bytes:bytes.toString('base64'),chunkIndex:index,captureBoundary:'http-client-body-frame'});
+  const chunks=trace.filter(x=>x.event.stage==='CLIENT_RESPONSE_CHUNK');
+  assert.equal(chunks.length,frames.length);
+  for(const [index,{event,payload}]of chunks.entries()){
+    assert.equal(event.chunkIndex,index);assert.equal(event.captureBoundary,'http-client-body-frame');assert.equal(event.contentCapture.truncated,false);
+    assert.deepEqual(payload.bytes,frames[index]);assert.deepEqual(Buffer.from(event.contentCapture.content,event.contentCapture.encoding),frames[index]);
+  }
+});
+
+test('derived SSE parsing failure does not discard the original BODY',async()=>{
+  const trace=[],client=new ClientInstrumentation({record:async(event,payload)=>trace.push({event,payload})});
+  await client.outbound({schemaVersion:1,...meta,url:'https://chatgpt.com'+meta.path,bodyJson:body});
+  await client.observe({...meta,kind:'response_headers',headers:{'content-type':'text/event-stream'}});
+  client.events.maxBytes=3;
+  const bytes=Buffer.from('data: {"type":"response.completed"}\n\n');
+  await client.observe({...meta,kind:'response_chunk',bytes:bytes.toString('base64'),chunkIndex:0,captureBoundary:'http-client-body-frame'});
+  assert.deepEqual(trace.find(x=>x.event.stage==='CLIENT_RESPONSE_CHUNK').payload.bytes,bytes);
+  assert.equal(trace.at(-1).event.stage,'RESPONSE_EVENT_PARSE_ERROR');
+});
+
 test('JSON filters change arbitrary length and preserve model, nested fields and hashes',()=>{
   const filters=new JsonFilters();filters.configure([rule]);const result=filters.apply(meta,body);
   assert.equal(JSON.parse(result.bodyJson).input[0].content[0].text,rule.operations[0].value);

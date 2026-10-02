@@ -2,7 +2,7 @@
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
   "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
-  "version": "0.12.0",
+  "version": "0.12.3",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -149,13 +149,6 @@
         "codexSessionTracker.gateway.captureContent": {
           "type": "boolean",
           "default": false,
-          "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
-        },
-        "codexSessionTracker.gateway.captureMaxMb": {
-          "type": "number",
-          "default": 16,
-          "minimum": 1,
-          "maximum": 64,
           "description": "Compatibility setting. Gateway settings are managed from the Codex Session Tracker UI."
         },
         "codexSessionTracker.gateway.traceMaxMb": {

@@ -7,7 +7,7 @@ const {ContentCapture}=require('./content_capture');
 
 class ClientInstrumentation{
   constructor(options={}){
-    this.record=options.record||(()=>{});this.maxBytes=options.maxBytes||16*1024*1024;
+    this.record=options.record||(()=>{});this.maxBytes=64*1024*1024;
     this.filters=new JsonFilters();this.lastSeenAt=0;this.runtimeVersion='';this.observedEvents=0;this.droppedEvents=0;this.requests=new Map();
     this.pendingRecords=[];
     this.events=new ResponseEvents(event=>{
@@ -16,7 +16,7 @@ class ClientInstrumentation{
         contentCapture:this.capture(data,'application/json')},{bytes:Buffer.from(data)})));
     },{maxBytes:this.maxBytes});
   }
-  capture(text,contentType){const c=new ContentCapture({enabled:true,maxBytes:this.maxBytes,contentType});c.add(Buffer.from(text));return c.finish();}
+  capture(text,contentType){const bytes=Buffer.from(text);const c=new ContentCapture({enabled:true,maxBytes:Math.max(1,bytes.length),contentType});c.add(bytes);return c.finish();}
   meta(input){
     const url=new URL(input.url);
     if(!['http:','https:','ws:','wss:'].includes(url.protocol))throw new Error('Unsupported client URL.');
@@ -51,11 +51,17 @@ class ClientInstrumentation{
       await this.record({...meta,type:'client_response',stage:'CLIENT_RESPONSE_HEADERS',direction:'in',at:this.lastSeenAt,headers:redactHeaders(input.headers)});
     }else if(input.kind==='response_chunk'){
       const bytes=Buffer.from(input.bytes||'','base64');
-      if(meta.protocol==='websocket')this.events.websocket(meta,bytes.toString('utf8'));
-      else if(meta.contentType?.includes('event-stream'))this.events.chunk(meta,bytes);
-      const pending=this.pendingRecords.splice(0);await Promise.all(pending);
       await this.record({...meta,type:'client_response',stage:'CLIENT_RESPONSE_CHUNK',direction:'in',at:this.lastSeenAt,
-        size:bytes.length,contentCapture:this.capture(bytes,meta.contentType||'application/octet-stream')},{bytes});
+        size:bytes.length,chunkIndex:input.chunkIndex,captureBoundary:input.captureBoundary||'legacy-client-chunk',
+        contentCapture:this.capture(bytes,meta.contentType||'application/octet-stream')},{bytes});
+      try{
+        if(meta.protocol==='websocket')this.events.websocket(meta,bytes.toString('utf8'));
+        else if(meta.contentType?.includes('event-stream'))this.events.chunk(meta,bytes);
+      }catch(error){
+        this.events.end(meta.requestId);
+        await this.record({...meta,type:'client_hook_status',stage:'RESPONSE_EVENT_PARSE_ERROR',direction:'in',at:this.lastSeenAt,error:String(error.message||error).slice(0,200)});
+      }
+      const pending=this.pendingRecords.splice(0);await Promise.all(pending);
     }else if(input.kind==='finished'){
       this.events.end(meta.requestId);this.requests.delete(meta.requestId);
       await this.record({...meta,type:'client_response',stage:'CLIENT_RESPONSE_FINISHED',direction:'in',at:this.lastSeenAt});

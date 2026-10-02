@@ -17,7 +17,8 @@ async function deploy({extensionRoot,storageDir,bundledExecutable}){
   const metadata=JSON.parse(await fs.readFile(path.join(extensionRoot,'runtime','manifest.json'),'utf8'));
   const {stdout}=await execFile(bundledExecutable,['--version'],{windowsHide:true,timeout:10000});
   if(stdout.trim()!==`codex-cli ${metadata.cliVersion}`)throw new Error('CLI bundled đã đổi phiên bản. Cần build runtime tương ứng trước khi bật hook.');
-  const directory=path.join(storageDir,'client-runtime',metadata.cliVersion);
+  // A new hook build gets its own executable path; Windows may still hold the old binary open.
+  const directory=path.join(storageDir,'client-runtime',metadata.cliVersion,`hook-${metadata.instrumentationVersion||1}-${metadata.sha256.slice(0,12)}`);
   await secureDirectory(directory);
   const binary=await fs.readFile(path.join(extensionRoot,'runtime','bin','windows-x86_64','codex.exe'));
   if(crypto.createHash('sha256').update(binary).digest('hex')!==metadata.sha256)throw new Error('Runtime digest không khớp manifest.');

@@ -1,4 +1,4 @@
-param([int]$Jobs = 6, [switch]$KeepBuildCache, [switch]$UseExistingBuild)
+param([int]$Jobs = 6, [switch]$KeepBuildCache, [switch]$UseExistingBuild, [string]$BuildCacheDirectory = '')
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path $PSScriptRoot -Parent
 Push-Location $repository
@@ -11,7 +11,7 @@ try {
   $cargo = Join-Path $env:USERPROFILE '.cargo/bin/cargo.exe'
   $rustc = Join-Path $env:USERPROFILE '.cargo/bin/rustc.exe'
   $env:CARGO_NET_GIT_FETCH_WITH_CLI = 'true'
-  $env:CARGO_TARGET_DIR = Join-Path $repository '.runtime-build/target'
+  $env:CARGO_TARGET_DIR = if ($BuildCacheDirectory) { [IO.Path]::GetFullPath($BuildCacheDirectory) } else { Join-Path $repository '.runtime-build/target' }
   $env:CARGO_INCREMENTAL = '0'
   if (-not $UseExistingBuild) {
     & node scripts/patch-runtime.js $source
@@ -34,7 +34,8 @@ try {
   $version = (& (Join-Path $destination 'codex.exe') --version).Trim()
   if ($version -ne 'codex-cli 0.159.2') { throw 'Unexpected runtime version.' }
   $manifest = [ordered]@{
-    schemaVersion = 1; cliVersion = '0.159.2'; instrumentationVersion = 1
+    schemaVersion = 1; cliVersion = '0.159.2'; instrumentationVersion = 2
+    httpCaptureBoundary = 'http-client-body-frame'; websocketCaptureBoundary = 'websocket-message'; trackerResegmentation = $false
     sourceRevision = (& git -C $source rev-parse HEAD).Trim()
     sourceTag = 'rust-v0.159.2'; profile = 'dev-small'; platform = 'windows-x86_64'
     rustc = (& $rustc +stable --version).Trim(); cargo = (& $cargo +stable --version).Trim()

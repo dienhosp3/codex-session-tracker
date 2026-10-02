@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-02T15:49:11.349Z",
+  "label": "plaintext-reader-0.12.1",
+  "repository": {
+    "revision": "d3ca06fd0715f7b67a8d0d5b7f4069e9a68f8755",
+    "shortRevision": "d3ca06fd0715",
+    "dirty": true,
+    "trackerVersion": "0.12.1"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.928.31416"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.159.2",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "",
+      "model": ""
+    }
+  },
+  "verification": {
+    "node": "v24.15.0",
+    "tests": {
+      "command": "npm test",
+      "passed": 115,
+      "failed": 0
+    },
+    "syntaxCheck": "node --check extension.js",
+    "diffCheck": "git diff --check",
+    "instrumentedRuntime": {
+      "rebuilt": false,
+      "manifest": {
+        "schemaVersion": 1,
+        "cliVersion": "0.159.2",
+        "instrumentationVersion": 1,
+        "sourceRevision": "ff6aec96948b70d94983af2641a6b67c94faeff5",
+        "sourceTag": "rust-v0.159.2",
+        "profile": "dev-small",
+        "platform": "windows-x86_64",
+        "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+        "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+        "node": "v24.15.0",
+        "builtAt": "2026-10-02T15:18:24.2574300Z",
+        "hookSha256": "1059d3cc70409ac3d8d03bc6e40fe35c989cf00a1b1f74b5f8df752f8c206ec4",
+        "patchSha256": "14df4b672e4df1bc549be19f2c77a504e80b612f953fdddb5ee4ec37ec4c87ec",
+        "sha256": "3afab8618ff8bc388870649820dbb03166c8303cd3384f0c98dfe4dad21044c1"
+      }
+    },
+    "artifact": "codex-session-tracker-0.12.1.vsix"
+  }
+}

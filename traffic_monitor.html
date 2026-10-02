@@ -37,6 +37,8 @@ tr.selected{background:var(--vscode-list-activeSelectionBackground);color:var(--
 .meta .k{color:var(--vscode-descriptionForeground)}
 pre{margin:8px 0 0;padding:9px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:var(--vscode-textCodeBlock-background);white-space:pre-wrap;word-break:break-word;max-height:58vh;overflow:auto}
 .note{color:var(--vscode-descriptionForeground);line-height:1.45}
+.phase{font-weight:600}.phase.header{color:var(--vscode-textLink-foreground)}.phase.body{color:var(--vscode-testing-iconPassed)}.phase.finished{color:var(--vscode-editorWarning-foreground)}
+.payload-tools{display:flex;align-items:center;gap:8px;margin-top:8px}
 .warn{color:var(--vscode-editorWarning-foreground)}
 .bad{color:var(--vscode-errorForeground)}
 .count{margin-left:auto;color:var(--vscode-descriptionForeground)}
@@ -102,6 +104,7 @@ let state={traffic:[],gateway:{}},payload=null,selectedId=0;
 let pauseOut=false,pauseIn=false,freezeOut=Infinity,freezeIn=Infinity;
 let rulesDirty=false;
 let selectedPart='request';
+let selectedEvent=null,viewToken=0,detailKey='',detailHtml='',copySequence=0;
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -132,6 +135,19 @@ function eventTitle(e){
   if(e.type==='connect_tunnel')return e.stage||'CONNECT';
   if(e.type==='ws_frame')return 'WebSocket frame opcode '+String(e.opcode??'');
   return e.stage||e.type||'event';
+}
+function eventPhase(e){
+  const stage=String(e.stage||'');
+  if(/HEADERS$/.test(stage)||stage==='UPSTREAM_REQUEST_OPENED')return {name:'HEADER',css:'header',note:'Metadata HTTP: method/endpoint, status và các header được capture. Không phải nội dung body.'};
+  if(/FINISHED$/.test(stage))return {name:'FINISHED',css:'finished',note:'Mốc kết thúc gửi body hoặc đọc stream. Không tự chứng minh tác vụ model thành công; xem response.completed hoặc lỗi. Một số capture proxy/native kèm body tổng hợp; CLIENT_RESPONSE_FINISHED chỉ là mốc kết thúc.'};
+  if(/CHUNK$|_BODY$/.test(stage)||stage==='CLIENT_JSON_PREPARED')return {name:'BODY',css:'body',note:stage==='CLIENT_JSON_PREPARED'?'JSON request trước khi gửi qua mạng.':e.captureBoundary==='http-client-body-frame'?'Nguyên chunk tại HTTP client của Codex; Tracker không chia lại. Đây không phải ranh giới gói TCP/TLS.':e.captureBoundary==='websocket-message'?'Nguyên message WebSocket tại client; Tracker không chia lại.':'Nội dung request/response theo nguồn capture. Log cũ có thể đã bị Tracker chia nhỏ; cập nhật không khôi phục được ranh giới cũ.'};
+  return null;
+}
+function loadSelected(offset=0){vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset,part:selectedPart,viewToken})}
+function selectTraffic(id){
+  selectedId=Number(id)||0;selectedEvent=(state.traffic||[]).find(e=>Number(e.traceId)===selectedId)||null;
+  if(state.savedTraffic)selectedPart=selectedEvent?.savedEvent?'event':'request';
+  payload=null;viewToken++;loadSelected();renderRows();renderDetail();
 }
 function eventBytes(e){
   return e.totalContentBytes||e.requestBytes||e.responseBytes||e.size||e.clientToServerBytes||e.serverToClientBytes||0;
@@ -209,43 +225,56 @@ function renderRows(){
     const st=e.statusCode?('HTTP '+e.statusCode):(e.error?'ERROR':'');
     const transport=['tunnel_bytes','connect_tunnel','native_tls_record'].includes(e.type);
     const endpoint=e.path?[e.method,e.path].filter(Boolean).join(' '):transport?eventTitle(e):'Thiếu header request · xem chi tiết';
-    return '<tr data-id="'+id+'" class="'+(id===selectedId?'selected':'')+'"><td class="mono">'+esc(fmtTime(e.at))+'</td><td class="dir '+d+'">'+(d==='out'?'↑':d==='in'?'↓':'•')+'</td><td title="'+esc(e.targetHost||'')+'">'+esc(e.targetHost||'')+'</td><td title="'+esc(apiName(e))+'"><b>'+esc(endpoint)+'</b><div class="mono">'+esc(eventTitle(e))+'</div></td><td>'+esc(fmtBytes(eventBytes(e)))+'</td><td>'+esc(st)+'</td></tr>';
+    const phase=eventPhase(e);
+    return '<tr data-id="'+id+'" class="'+(id===selectedId?'selected':'')+'"><td class="mono">'+esc(fmtTime(e.at))+'</td><td class="dir '+d+'">'+(d==='out'?'↑':d==='in'?'↓':'•')+'</td><td title="'+esc(e.targetHost||'')+'">'+esc(e.targetHost||'')+'</td><td title="'+esc(apiName(e))+'"><b>'+esc(endpoint)+'</b><div class="mono">'+(phase?'<span class="phase '+phase.css+'">'+phase.name+'</span> · ':'')+esc(eventTitle(e))+'</div></td><td>'+esc(fmtBytes(eventBytes(e)))+'</td><td>'+esc(st)+'</td></tr>';
   }).join('') || '<tr><td colspan="6">'+esc($('layer').value==='api'?'Chưa có request API khớp bộ lọc. CONNECT chỉ có transport; endpoint cần header HTTP hoặc hook client.':'Không có event khớp bộ lọc.')+'</td></tr>';
-  for(const row of document.querySelectorAll('tr[data-id]'))row.onclick=()=>{
-    selectedId=Number(row.dataset.id)||0;payload=null;
-    vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:0,part:selectedPart});
-    renderRows();renderDetail();
-  };
+  for(const row of document.querySelectorAll('tr[data-id]'))row.onclick=()=>selectTraffic(row.dataset.id);
 }
 function renderDetail(){
-  const e=(state.traffic||[]).find(x=>Number(x.traceId)===selectedId);
-  if(!e){$('detail').innerHTML='<div class="note">Chọn một event để xem chi tiết.</div>';return}
+  const e=(state.traffic||[]).find(x=>Number(x.traceId)===selectedId)||selectedEvent;
+  if(!e){if(detailKey!=='empty'){$('detail').innerHTML='<div class="note">Chọn một event để xem chi tiết.</div>';detailKey='empty';detailHtml='';}return}
+  selectedEvent=e;
   const meta={
     traceId:e.traceId,time:fmtTime(e.at),direction:eventDir(e),type:e.type,stage:e.stage,kind:e.kind,
     host:e.targetHost,port:e.targetPort,method:e.method,path:e.path||'',status:e.statusCode,protocol:e.protocol,streamId:e.streamId,
     requestId:e.requestId,connectionId:e.connectionId,size:eventBytes(e),event:e.eventType,responseId:e.responseId,itemId:e.itemId,sequence:e.sequenceNumber,
-    modified:e.modified,error:e.error,bodySha256:e.bodySha256,originalSha256:e.originalSha256
+    modified:e.modified,error:e.error,bodySha256:e.bodySha256,originalSha256:e.originalSha256,chunkIndex:e.chunkIndex,captureBoundary:e.captureBoundary
   };
-  let html='<h2>'+esc(eventTitle(e))+'</h2><div class="meta">'+Object.entries(meta).filter(([,v])=>v!==''&&v!==0&&v!==undefined).map(([k,v])=>'<div class="k">'+esc(k)+'</div><div class="mono">'+esc(v)+'</div>').join('')+'</div>';
-  if(state.savedTraffic)html+='<div>'+['request','response','events','timeline','captures'].map(part=>'<button data-part="'+part+'" class="'+(part===selectedPart?'active':'')+'">'+esc(part)+'</button>').join(' ')+'</div>';
+  let html='<h2>'+esc(eventTitle(e))+'</h2><div class="meta">'+Object.entries(meta).filter(([k,v])=>v!==''&&(v!==0||k==='chunkIndex')&&v!==undefined).map(([k,v])=>'<div class="k">'+esc(k)+'</div><div class="mono">'+esc(v)+'</div>').join('')+'</div>';
+  const phase=eventPhase(e);
+  if(phase)html+='<div class="note"><span class="phase '+phase.css+'">'+phase.name+'</span> — '+esc(phase.note)+'</div>';
+  let copyText=null;
+  if(state.savedTraffic)html+='<div>'+(e.savedEvent?['event','request','response','events','timeline','captures']:['request','response','events','timeline','captures']).map(part=>'<button data-part="'+part+'" class="'+(part===selectedPart?'active':'')+'">'+esc(part==='event'?'Event này':part)+'</button>').join(' ')+'</div>';
   if(e.type==='tunnel_bytes'||e.type==='connect_tunnel'){
     html+='<div class="note">Đây là HTTPS CONNECT pass-through. Origin HTTPS thật của Codex được giữ nguyên nên login/workspace routing không bị đổi. Payload TLS ở event này là encrypted transport bytes; UI không giả vờ đây là plaintext API body.</div>';
   }else if(e.type==='native_tls_record'){
     html+='<div class="note">Đã quan sát byte plaintext tại Schannel. Chọn event PLAINTEXT_HTTP_HEADERS / REQUEST_BODY / RESPONSE_BODY / WEBSOCKET_FRAME để xem endpoint và nội dung đã tách. Bản ghi TLS này không lưu raw header đăng nhập.</div>';
   }else if(payload&&Number(payload.traceId)===selectedId&&payload.contentCapture){
     const c=payload.contentCapture;
-    html+='<div class="note">'+esc([c.contentType,c.encoding,c.truncated?'truncated':''].filter(Boolean).join(' · '))+'</div><pre>'+esc(c.content||'')+'</pre>';
-    if(!c.complete)html+='<button id="more">Tải thêm</button>';
+    copyText=String(c.content||'');
+    html+='<div class="note">'+esc([c.contentType,c.encoding,c.truncated?'Log cũ đã bị cắt nội dung':''].filter(Boolean).join(' · '))+'</div><div class="payload-tools"><button id="copyPlaintext">Copy plaintext</button><span id="copyStatus" class="note" role="status" aria-live="polite"></span></div><pre id="plaintext">'+esc(copyText)+'</pre>';
   }else if(payload&&Number(payload.traceId)===selectedId&&payload.headers){
-    html+='<pre>'+esc(JSON.stringify(payload.headers,null,2))+'</pre>';
+    copyText=JSON.stringify(payload.headers,null,2);
+    html+='<div class="payload-tools"><button id="copyPlaintext">Copy headers</button><span id="copyStatus" class="note" role="status" aria-live="polite"></span></div><pre id="plaintext">'+esc(copyText)+'</pre>';
+  }else if(payload&&Number(payload.traceId)===selectedId&&payload.missing){
+    html+='<div class="note">Log không có payload riêng cho event này. Chọn request/response để xem dữ liệu tổng hợp.</div>';
   }else if(e.hasContent){
     html+='<div class="note">Đang tải nội dung capture...</div>';
   }else{
     html+='<div class="note">Event này không có plaintext body được capture.</div>';
   }
-  $('detail').innerHTML=html;
-  for(const button of document.querySelectorAll('[data-part]'))button.onclick=()=>{selectedPart=button.dataset.part;payload=null;vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:0,part:selectedPart});renderDetail()};
-  const more=$('more');if(more&&payload&&payload.contentCapture)more.onclick=()=>vscode.postMessage({command:'loadTrafficPayload',traceId:selectedId,offset:Number(payload.contentCapture.nextOffset||0),part:selectedPart});
+  const key=String(viewToken),sameView=detailKey===key;
+  if(sameView&&detailHtml===html)return;
+  const detail=$('detail'),oldText=$('plaintext');
+  const scroll=sameView?{top:detail.scrollTop,left:detail.scrollLeft,textTop:oldText?.scrollTop||0,textLeft:oldText?.scrollLeft||0}:null;
+  detail.innerHTML=html;detailHtml=html;detailKey=key;
+  if(scroll){detail.scrollTop=scroll.top;detail.scrollLeft=scroll.left;const text=$('plaintext');if(text){text.scrollTop=scroll.textTop;text.scrollLeft=scroll.textLeft;}}
+  else{detail.scrollTop=0;detail.scrollLeft=0;}
+  for(const button of document.querySelectorAll('[data-part]'))button.onclick=()=>{selectedPart=button.dataset.part;payload=null;viewToken++;loadSelected();renderDetail()};
+  const copy=$('copyPlaintext');if(copy&&copyText!==null)copy.onclick=()=>{
+    $('copyStatus').textContent='Đang copy…';
+    vscode.postMessage({command:'copyTrafficPlaintext',text:copyText,viewToken,copySequence:++copySequence});
+  };
 }
 function renderStatus(){
   const g=state.gateway||{};
@@ -264,7 +293,7 @@ function renderStatus(){
   $('logDirectory').textContent=g.trafficLogsDirectory||'';
   $('logDirectory').title=g.trafficLogsDirectory||'';
   const saved=state.savedTraffic;
-  $('status').textContent=(saved?'LOG '+saved.directory+' · '+saved.loaded+'/'+saved.total+' requests':'LIVE · '+(g.trafficRequestsCaptured||0)+'/'+(g.trafficMaxRequests||1000)+' requests'+(g.trafficCaptureLimitReached?' · Đã đạt giới hạn, dùng Phiên mới':''))+' · '+client+(g.clientCaptureGaps?' · CAPTURE GAP: '+g.clientCaptureGaps:'')+' · '+(g.trafficLogsError||g.clientHookNotice||'');
+  $('status').textContent=(saved?'LOG '+saved.directory+' · '+saved.loaded+'/'+saved.total+' requests · '+(saved.eventCount||0)+' events':'LIVE · '+(g.trafficRequestsCaptured||0)+'/'+(g.trafficMaxRequests||1000)+' requests'+(g.trafficCaptureLimitReached?' · Đã đạt giới hạn, dùng Phiên mới':''))+' · '+client+(g.clientCaptureGaps?' · CAPTURE GAP: '+g.clientCaptureGaps:'')+' · '+(g.trafficLogsError||g.clientHookNotice||'');
   $('liveLogs').disabled=!saved;
   if(!rulesDirty)$('jsonRules').value=JSON.stringify(g.clientJsonRules||[],null,2);
   $('hook').textContent=h.attached?'Tắt plaintext':'Bật plaintext';
@@ -278,13 +307,13 @@ function renderStatus(){
 function render(){renderStatus();rebuildApis();renderRows();renderDetail()}
 window.addEventListener('message',ev=>{
   const m=ev.data||{};
-  if(m.type==='trafficState'){if(Boolean(state.savedTraffic)!==Boolean(m.data?.savedTraffic)||state.savedTraffic?.directory!==m.data?.savedTraffic?.directory){selectedId=0;payload=null;}state=m.data||state;render()}
+  if(m.type==='trafficState'){if(Boolean(state.savedTraffic)!==Boolean(m.data?.savedTraffic)||state.savedTraffic?.directory!==m.data?.savedTraffic?.directory){selectedId=0;selectedEvent=null;payload=null;viewToken++;}state=m.data||state;render()}
   if(m.type==='jsonRulesSaved'){rulesDirty=false;}
+  if(m.type==='trafficCopyResult'&&m.viewToken===viewToken&&m.copySequence===copySequence){const status=$('copyStatus');if(status)status.textContent=m.error?'Copy thất bại: '+m.error:'Đã copy.';}
   if(m.type==='trafficPayload'){
+    if(m.viewToken!==viewToken)return;
     const next=m.payload||null;
-    if(next&&payload&&next.traceId===payload.traceId&&next.part===payload.part&&next.contentCapture&&payload.contentCapture&&Number(next.contentCapture.offset||0)>0){
-      next.contentCapture.content=String(payload.contentCapture.content||'')+String(next.contentCapture.content||'');
-    }
+    if(!next||Number(next.traceId)!==selectedId)return;
     payload=next;renderDetail();
   }
 });

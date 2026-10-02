@@ -387,6 +387,8 @@ class CodexGateway {
         totalMs: event.totalMs || 0,
         bodySha256: event.bodySha256 || '',
         originalSha256:event.originalSha256 || '',
+        chunkIndex:event.chunkIndex,
+        captureBoundary:event.captureBoundary || '',
         error: event.error || '',
         targetHost: event.targetHost || '',
         targetPort: event.targetPort || 0,
@@ -407,8 +409,8 @@ class CodexGateway {
     const content = event.contentCapture && typeof event.contentCapture.content === 'string'
       ? event.contentCapture.content
       : '';
-    const offset = Math.max(0, Number(options.offset || 0));
-    const limit = Math.max(4096, Math.min(1024 * 1024, Number(options.limit || 512 * 1024)));
+    const offset = options.whole ? 0 : Math.max(0, Number(options.offset || 0));
+    const limit = options.whole ? content.length : Math.max(4096, Math.min(1024 * 1024, Number(options.limit || 512 * 1024)));
     const chunk = content.slice(offset, offset + limit);
     const nextOffset = offset + chunk.length;
     const capture = event.contentCapture ? {
@@ -428,6 +430,8 @@ class CodexGateway {
       kind: event.kind || '',
       method: event.method || '',
       protocol:event.protocol || '',
+      chunkIndex:event.chunkIndex,
+      captureBoundary:event.captureBoundary,
       streamId:event.streamId || 0,
       eventType:event.eventType || '',
       responseId:event.responseId || '',
