@@ -333,7 +333,7 @@ function renderGateway(){
   const runtime=[g.extensionRuntime&&g.extensionRuntime.version?'Extension '+g.extensionRuntime.version:'',g.cliVersion?'CLI '+g.cliVersion:''].filter(Boolean).join(' · ');
   const proxy=g.modelProxyReady?(g.modelTrafficObserved?'model proxy: ĐÃ THẤY TRAFFIC':'model proxy: SẴN SÀNG, CHƯA THẤY TRAFFIC'):(g.modelProxyConfigured?'model proxy: THIẾU UPSTREAM':'model proxy: TẮT');
   const managedText=managed.active?(managed.managed?'Codex config: đang được Tracker quản lý':managed.drifted?'Codex config: đã thay đổi sau khi bật Gateway':'Codex config: trạng thái không khớp'):'Codex config: chưa route qua Gateway';
-  const originalLine=managed.active?(managed.originalRootLine?(' · gốc: '+managed.originalRootLine):' · gốc: không có chatgpt_base_url override'):'';
+  const originalLine=managed.active?(managed.originalRootLine?(' · gốc: '+managed.originalRootLine):' · gốc: không có chatgpt_base_url override'):(managed.currentRootLine?(' · hiện tại: '+managed.currentRootLine):' · hiện tại: dùng backend mặc định');
   let html='<section class="card"><div class="card-title">Trạng thái giao tiếp</div><div class="gateway-meta">'+status+' · '+proxy+(g.websocketProxyReady?' · WS proxy sẵn sàng':'')+(g.lastModelNetworkAt?' · traffic '+esc(relTime(g.lastModelNetworkAt)):'')+(runtime?' · '+esc(runtime):'')+'</div><div class="gateway-meta" style="margin-top:3px">'+esc(managedText)+esc(originalLine)+(managed.configPath?' · '+esc(managed.configPath):'')+'</div>';
 
   if(cmd){
