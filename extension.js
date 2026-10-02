@@ -7,6 +7,7 @@ const tracker = require('./tracker');
 const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
 const codexDelete = require('./codex_delete');
+const { CodexGateway } = require('./gateway');
 
 let contextRef = null;
 let statusBar = null;
@@ -33,6 +34,8 @@ let steerCapabilityCheckedAt = 0;
 let steerCapabilityConversationId = '';
 let steerBusy = false;
 let steerNotice = null;
+let gateway = null;
+let gatewayStatus = { enabled: false, running: false, error: '', address: null };
 
 function activate(context) {
   contextRef = context;
@@ -56,9 +59,12 @@ function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.refresh', () => refreshAll(true)),
     vscode.commands.registerCommand('codexSessionTracker.clearSelection', clearSelection),
     vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }),
+    vscode.commands.registerCommand('codexSessionTracker.copyGatewayConfig', copyGatewayConfig),
+    vscode.commands.registerCommand('codexSessionTracker.exportGatewayDiagnostics', exportGatewayDiagnostics),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (!event.affectsConfiguration('codexSessionTracker')) return;
       restartPolling();
+      restartGateway().catch(() => {});
       refreshAll(true);
     })
   );
@@ -66,13 +72,18 @@ function activate(context) {
   restoreSelection(context);
   renderStatus();
   restartPolling();
+  startGateway().catch(() => {});
   refreshTrackedStatus(true);
 }
 
-function deactivate() {
+async function deactivate() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
   trackerView = null;
+  if (gateway) {
+    try { await gateway.stop(); } catch {}
+    gateway = null;
+  }
 }
 
 class TrackerViewProvider {
@@ -116,8 +127,78 @@ function config() {
     treeScanLimit: cfg.get('treeScanLimit', 1200),
     activityTailMb: cfg.get('activityTailMb', 6),
     timelineLimit: cfg.get('timelineLimit', 50),
-    codexCliPath: cfg.get('codexCliPath', '')
+    codexCliPath: cfg.get('codexCliPath', ''),
+    gatewayEnabled: cfg.get('gateway.enabled', true),
+    gatewayPort: cfg.get('gateway.port', 8765),
+    gatewayModelProxyEnabled: cfg.get('gateway.modelProxyEnabled', false),
+    gatewayUpstreamBaseUrl: cfg.get('gateway.upstreamBaseUrl', '')
   };
+}
+
+async function startGateway() {
+  const cfg = config();
+  if (!cfg.gatewayEnabled || !contextRef) {
+    gatewayStatus = { enabled: false, running: false, error: '', address: null };
+    return null;
+  }
+  if (gateway) return gateway;
+  const traceDir = path.join(contextRef.globalStorageUri.fsPath, 'gateway');
+  gateway = new CodexGateway({
+    version: String(contextRef.extension && contextRef.extension.packageJSON && contextRef.extension.packageJSON.version || 'dev'),
+    port: cfg.gatewayPort,
+    traceDir,
+    modelProxyEnabled: cfg.gatewayModelProxyEnabled,
+    upstreamBaseUrl: cfg.gatewayUpstreamBaseUrl,
+    handlers: {
+      steer: async input => codexSteer.steerViaExtensionIpc({
+        threadId: input.threadId,
+        message: input.message,
+        images: input.images,
+        clientUserMessageId: input.clientUserMessageId,
+        codexHome: config().codexHome,
+        cwd: input.cwd || undefined,
+        onProgress: input.onProgress
+      }),
+      queue: async input => {
+        const current = config();
+        const resolved = await codexQueue.resolveCodexExecutable({
+          configuredPath: current.codexCliPath,
+          extensionRoots: openAiExtensionRoots(),
+          platform: process.platform
+        });
+        if (!resolved.executable) throw new Error(resolved.error || 'Không tìm thấy Codex CLI.');
+        return codexQueue.queueMessage({
+          executable: resolved.executable,
+          threadId: input.threadId,
+          message: input.message,
+          codexHome: current.codexHome,
+          cwd: input.cwd || undefined
+        });
+      }
+    }
+  });
+  try {
+    const address = await gateway.start();
+    gatewayStatus = { enabled: true, running: true, error: '', address: { host: address.host, port: address.port } };
+  } catch (error) {
+    gatewayStatus = { enabled: true, running: false, error: friendlyError(error), address: null };
+    gateway = null;
+  }
+  postViewState();
+  return gateway;
+}
+
+async function restartGateway() {
+  if (gateway) {
+    try { await gateway.stop(); } catch {}
+    gateway = null;
+  }
+  return startGateway();
+}
+
+function gatewayThreadDiagnostics() {
+  if (!gateway || !selected) return [];
+  return gateway.recentForThread(selected.threadId);
 }
 
 function selectionKey() {
@@ -386,6 +467,7 @@ async function refreshTrackedStatus(forceRescan) {
     });
     latestSnapshot = snapshot;
     selected.status = snapshot.overallStatus;
+    if (gateway) await gateway.refreshLocalPersistence(selected.threadId, selected.file).catch(() => {});
     renderStatus();
   } catch (error) {
     if (error && error.code === 'ENOENT') selected.status = { kind: 'missing', mtimeMs: 0 };
@@ -398,14 +480,79 @@ async function refreshTrackedStatus(forceRescan) {
 }
 
 
+function isOpenAiCodexExtension(extension) {
+  const id = String(extension && extension.id || '').toLowerCase();
+  const pkg = extension && extension.packageJSON || {};
+  const publisher = String(pkg.publisher || '').toLowerCase();
+  const name = String(pkg.name || '').toLowerCase();
+  return id === 'openai.chatgpt'
+    || (publisher === 'openai' && (name.includes('chatgpt') || name.includes('codex')))
+    || (id.startsWith('openai.') && (id.includes('chatgpt') || id.includes('codex')));
+}
+
+function openAiExtensionRuntime() {
+  for (const extension of vscode.extensions.all || []) {
+    if (isOpenAiCodexExtension(extension)) {
+      return {
+        id: String(extension.id || ''),
+        version: String(extension.packageJSON && extension.packageJSON.version || ''),
+        path: String(extension.extensionPath || '')
+      };
+    }
+  }
+  return { id: '', version: '', path: '' };
+}
+
+async function copyGatewayConfig() {
+  const cfg = config();
+  const activeGateway = gateway || await startGateway();
+  const diagnostics = activeGateway && activeGateway.diagnostics();
+  if (!diagnostics || !diagnostics.modelProxyReady) {
+    vscode.window.showWarningMessage(
+      'Model proxy chưa sẵn sàng. Hãy bật codexSessionTracker.gateway.modelProxyEnabled và đặt gateway.upstreamBaseUrl trước khi route Codex qua Gateway.'
+    );
+    return;
+  }
+  const port = gatewayStatus.address && gatewayStatus.address.port || cfg.gatewayPort || 8765;
+  const snippet = [
+    '# Codex Session Tracker Gateway diagnostic routing',
+    `chatgpt_base_url = "http://127.0.0.1:${port}/backend-api"`
+  ].join('\n');
+  await vscode.env.clipboard.writeText(snippet);
+  vscode.window.showInformationMessage(
+    'Đã copy cấu hình Gateway. Dán vào config.toml cấp CODEX_HOME rồi khởi động lại Codex owner để áp dụng. Không đặt trong project-local config.'
+  );
+}
+
+async function exportGatewayDiagnostics() {
+  const activeGateway = gateway || await startGateway();
+  if (!activeGateway) {
+    vscode.window.showWarningMessage('Gateway đang tắt nên chưa có dữ liệu chẩn đoán để xuất.');
+    return;
+  }
+  const runtime = openAiExtensionRuntime();
+  const snapshot = activeGateway.exportSnapshot({
+    codexExtension: { id: runtime.id, version: runtime.version },
+    codexCliVersion: queueCapability.version || ''
+  });
+  const target = await vscode.window.showSaveDialog({
+    title: 'Xuất chẩn đoán Codex Gateway',
+    filters: { JSON: ['json'] },
+    defaultUri: vscode.Uri.file(path.join(
+      contextRef.globalStorageUri.fsPath,
+      `codex-gateway-diagnostic-${Date.now()}.json`
+    ))
+  });
+  if (!target) return;
+  await fs.promises.mkdir(path.dirname(target.fsPath), { recursive: true });
+  await fs.promises.writeFile(target.fsPath, JSON.stringify(snapshot, null, 2) + '\n', 'utf8');
+  vscode.window.showInformationMessage('Đã xuất chẩn đoán Gateway đã lọc dữ liệu nhạy cảm.');
+}
+
 function openAiExtensionRoots() {
   const roots = [];
   for (const extension of vscode.extensions.all || []) {
-    const id = String(extension.id || '').toLowerCase();
-    const displayName = String(extension.packageJSON && extension.packageJSON.displayName || '').toLowerCase();
-    if (id === 'openai.chatgpt' || (id.startsWith('openai.') && (id.includes('chatgpt') || id.includes('codex'))) || displayName.includes('codex')) {
-      if (extension.extensionPath) roots.push(extension.extensionPath);
-    }
+    if (isOpenAiCodexExtension(extension) && extension.extensionPath) roots.push(extension.extensionPath);
   }
   return Array.from(new Set(roots));
 }
@@ -530,7 +677,10 @@ async function sendQueuedMessage(rawText, rawImages) {
   try {
     let result;
     try {
-      result = await codexQueue.queueMessage(queueArgs());
+      const activeGateway = gateway || await startGateway();
+      result = activeGateway
+        ? await activeGateway.queue({ threadId: selected.threadId, message: text, cwd: selected.cwd || undefined })
+        : await codexQueue.queueMessage(queueArgs());
     } catch (error) {
       // An extension update can leave a cached path pointing at a removed
       // binary. Re-probe once on ENOENT and retry with the newly selected
@@ -539,7 +689,10 @@ async function sendQueuedMessage(rawText, rawImages) {
       const previous = queueCapability.executable;
       await refreshQueueCapability(true);
       if (!queueCapability.available || !queueCapability.executable || queueCapability.executable === previous) throw error;
-      result = await codexQueue.queueMessage(queueArgs());
+      const activeGateway = gateway || await startGateway();
+      result = activeGateway
+        ? await activeGateway.queue({ threadId: selected.threadId, message: text, cwd: selected.cwd || undefined })
+        : await codexQueue.queueMessage(queueArgs());
     }
     queueNotice = {
       kind: 'success',
@@ -588,11 +741,16 @@ async function sendSteeredMessage(rawText, rawImages) {
     cwd: selected.cwd || undefined
   });
   try {
-    const result = await codexSteer.steerViaExtensionIpc(steerArgs());
+    const activeGateway = gateway || await startGateway();
+    const result = activeGateway
+      ? await activeGateway.steer({ ...steerArgs(), rolloutFile: selected.file || '' })
+      : await codexSteer.steerViaExtensionIpc(steerArgs());
     steerNotice = {
       kind: 'success',
-      text: result && result.turnId ? 'Đã steer vào turn đang chạy qua Codex Extension owner.' : 'Đã steer qua Codex Extension owner.',
+      text: result && result.turnId ? 'Codex local đã nhận steer vào turn đang chạy; chưa đồng nghĩa server đã nhận.' : 'Codex local đã nhận steer; chưa đồng nghĩa server đã nhận.',
       turnId: result && result.turnId || '',
+      gatewayCommandId: result && result.gatewayCommandId || '',
+      clientUserMessageId: result && result.clientUserMessageId || '',
       at: Date.now()
     };
     await refreshTrackedStatus(true);
@@ -627,6 +785,19 @@ function postViewState() {
       activeChats: activeChats.map(serializeActiveChat),
       nonRunningChats: nonRunningChats.map(serializeActiveChat),
       showNonRunning,
+      gateway: {
+        ...gatewayStatus,
+        ...(gateway ? gateway.diagnostics() : {
+          modelProxyConfigured: false,
+          modelProxyReady: false,
+          modelTrafficObserved: false,
+          lastModelNetworkAt: 0,
+          websocketProxyReady: false
+        }),
+        commands: gatewayThreadDiagnostics(),
+        extensionRuntime: (() => { const runtime = openAiExtensionRuntime(); return { id: runtime.id, version: runtime.version }; })(),
+        cliVersion: queueCapability.version || ''
+      },
       deleteChat: { busy: deleteBusy, notice: deleteNotice },
       selectedThreadId: selected && selected.threadId || '',
       selected: selected && latestSnapshot ? serializeSnapshot(latestSnapshot) : (selected ? serializeSelectedShell() : null),

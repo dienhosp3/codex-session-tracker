@@ -2,3 +2,5 @@ node_modules/
 *.vsix
 .DS_Store
 .vscode-test/
+artifacts/.ui-edge-profile-*/
+artifacts/diagnostics/

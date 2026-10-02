@@ -1,8 +1,8 @@
 {
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
-  "description": "Compact Codex activity tracker with lifecycle-accurate details, expandable activity cards, and safe queue/steer delivery when the owner transport is available.",
-  "version": "0.8.0",
+  "description": "Compact Codex activity tracker with lifecycle-accurate local delivery diagnostics and an optional loopback gateway for queue/steer observability.",
+  "version": "0.9.0",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -27,7 +27,9 @@
     "onCommand:codexSessionTracker.selectChat",
     "onCommand:codexSessionTracker.refresh",
     "onCommand:codexSessionTracker.clearSelection",
-    "onCommand:codexSessionTracker.reprobeCodexCli"
+    "onCommand:codexSessionTracker.reprobeCodexCli",
+    "onCommand:codexSessionTracker.copyGatewayConfig",
+    "onCommand:codexSessionTracker.exportGatewayDiagnostics"
   ],
   "contributes": {
     "commands": [
@@ -54,6 +56,14 @@
       {
         "command": "codexSessionTracker.reprobeCodexCli",
         "title": "Codex Tracker: Re-detect Codex CLI"
+      },
+      {
+        "command": "codexSessionTracker.copyGatewayConfig",
+        "title": "Codex Tracker: Copy Gateway Codex Config"
+      },
+      {
+        "command": "codexSessionTracker.exportGatewayDiagnostics",
+        "title": "Codex Tracker: Export Gateway Diagnostics"
       }
     ],
     "configuration": {
@@ -122,6 +132,28 @@
           "type": "string",
           "default": "",
           "description": "Optional path to the Codex CLI binary used for official queue delivery. Steer uses the live Codex Extension IPC owner and does not use this path. Empty auto-detects PATH or the OpenAI Codex extension bundle."
+        },
+        "codexSessionTracker.gateway.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the loopback-only Codex diagnostic gateway. Existing tracker behavior remains available if disabled."
+        },
+        "codexSessionTracker.gateway.port": {
+          "type": "number",
+          "default": 8765,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Loopback port for the local Codex diagnostic gateway."
+        },
+        "codexSessionTracker.gateway.modelProxyEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the experimental HTTP model reverse proxy. Leave disabled unless the current Codex runtime has been explicitly configured to use this gateway."
+        },
+        "codexSessionTracker.gateway.upstreamBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit upstream base URL used only by experimental Gateway model-proxy mode. Credentials are forwarded but redacted from diagnostics."
         }
       }
     },
@@ -155,6 +187,7 @@
     "codex_queue.js",
     "codex_steer.js",
     "codex_delete.js",
+    "gateway",
     "dashboard.html",
     "media/tracker.svg",
     "README.md",

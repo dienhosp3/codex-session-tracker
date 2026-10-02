@@ -157,11 +157,30 @@ test('Extension IPC accepts a delayed acknowledgement beyond the old five second
     const result = await codexSteer.steerViaExtensionIpc(standardSteerOptions(connectImpl));
     assert.equal(result.turnId, 'turn-99');
     assert.equal(result.transport, 'codex-extension-ipc');
+    assert.equal(result.clientUserMessageId, CLIENT_MESSAGE_ID);
     const steers = requests.filter(request => request.method === 'thread-follower-steer-turn');
     assert.equal(steers.length, 1);
     assert.equal(steers[0].params.clientUserMessageId, CLIENT_MESSAGE_ID);
     assert.deepEqual(steers[0].params.input, [{ type: 'text', text: VIETNAMESE, text_elements: [] }]);
   });
+});
+
+
+test('Extension IPC reports local steer progress without claiming upstream delivery', async () => {
+  const stages = [];
+  await withIpcServer((request, socket) => writeFrame(socket, responseFor(request)), async ({ connectImpl }) => {
+    const result = await codexSteer.steerViaExtensionIpc(standardSteerOptions(connectImpl, {
+      onProgress(event) { stages.push(event); }
+    }));
+    assert.equal(result.turnId, 'turn-99');
+  });
+  assert.deepEqual(stages.map(event => event.stage), [
+    'IPC_SENT',
+    'OWNER_DISCOVERED',
+    'OWNER_ROUTED',
+    'CORE_ACCEPTED'
+  ]);
+  assert.equal(stages.some(event => /UPSTREAM|SERVER/.test(event.stage)), false);
 });
 
 test('Extension IPC reports unknown delivery after a sent steer disconnects and never resends it', async () => {

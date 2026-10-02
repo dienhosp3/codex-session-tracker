@@ -297,6 +297,7 @@ async function probeExtensionIpcSupport(options = {}) {
 /** Send a follower steer through the existing Codex Extension owner. */
 async function steerViaExtensionIpc(options = {}) {
   const conversationId = String(options.threadId || options.conversationId || '').trim();
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
   const text = String(options.message || '').trim();
   const images = normalizeImageAttachments(options.images);
   if (!conversationId) throw new Error('No Codex conversation is selected.');
@@ -305,9 +306,11 @@ async function steerViaExtensionIpc(options = {}) {
   let steerStarted = false;
   try {
     client = await openExtensionIpc(options);
+    onProgress({ stage: 'IPC_SENT', source: 'codex-extension-ipc', confidence: 'authoritative' });
     const discovery = await client.request('thread-owner-discovery', { hostId: 'local', conversationId }, { timeoutMs: options.timeoutMs });
     const ownerId = String(discovery && discovery.handledByClientId || '').trim();
     if (!ownerId) throw new Error(noOwnerReason(conversationId));
+    onProgress({ stage: 'OWNER_DISCOVERED', source: 'codex-extension-ipc', confidence: 'authoritative', ownerClientId: ownerId });
     const clientUserMessageId = options.clientUserMessageId || makeClientUserMessageId();
     const cwd = String(options.cwd || process.cwd() || '/');
     const params = {
@@ -336,6 +339,7 @@ async function steerViaExtensionIpc(options = {}) {
     if (options.additionalContext !== undefined) params.additionalContext = options.additionalContext;
     if (options.toolOutput !== undefined) params.toolOutput = options.toolOutput;
     steerStarted = true;
+    onProgress({ stage: 'OWNER_ROUTED', source: 'codex-extension-ipc', confidence: 'authoritative', ownerClientId: ownerId, clientUserMessageId });
     const response = await client.request('thread-follower-steer-turn', params, {
       targetClientId: ownerId,
       timeoutMs: options.timeoutMs
@@ -347,7 +351,8 @@ async function steerViaExtensionIpc(options = {}) {
     const result = outer && outer.result !== undefined ? outer.result : outer;
     const turnId = result && typeof result.turnId === 'string' ? result.turnId.trim() : '';
     if (!turnId) throw new Error('Codex Extension IPC did not acknowledge a steer turn id.');
-    return { ...(result && typeof result === 'object' ? result : {}), turnId, ownerClientId: ownerId, transport: 'codex-extension-ipc' };
+    onProgress({ stage: 'CORE_ACCEPTED', source: 'codex-extension-ipc-ack', confidence: 'authoritative', ownerClientId: ownerId, clientUserMessageId, turnId });
+    return { ...(result && typeof result === 'object' ? result : {}), turnId, clientUserMessageId, ownerClientId: ownerId, transport: 'codex-extension-ipc' };
   } catch (error) {
     const detail = compactError(error);
     if (/no-client-found/i.test(detail)) {
