@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-04T22:14:45.926Z",
+  "label": "continue-completed-chat-development",
+  "repository": {
+    "revision": "e28f3f5fea0819e6be39ddcda0d78088a9e12c2e",
+    "shortRevision": "e28f3f5fea08",
+    "dirty": true,
+    "trackerVersion": "0.12.5"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.930.41038"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.160.0",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "0.159.2",
+      "model": "gpt-6.1-sol"
+    }
+  }
+}

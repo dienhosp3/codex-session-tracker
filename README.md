@@ -1,4 +1,27 @@
-# Codex Session Tracker 0.12.4
+# Codex Session Tracker 0.12.5
+
+## Continue a completed conversation (0.12.5)
+
+Open **Không chạy**, select a completed conversation, then enter the
+next request and click **Tiếp tục chat** (or press **Ctrl+Enter**). Text and image
+attachments are supported. This starts a new turn in the same thread; while a
+chat is running the composer continues to show **Steer ngay** and **Gửi sau**.
+
+Tracker finds the existing Extension owner, including threads still loaded by
+its app-server after the webview stopped advertising ownership. If no owner is
+found, the local Extension connection can resume the existing stopped thread.
+It checks the backend thread and latest turn before sending. It does not spawn
+another app-server or interrupt a running job. A lost acknowledgement is shown
+as an unknown outcome and does not trigger an automatic resend. Drafts are
+retained on failure, including when the selected conversation changes.
+
+Verified with Extension **26.930.41038** and bundled CLI **0.160.0**. The current
+`thread-follower-start-turn` IPC method uses version **2**. Fresh threads whose
+backend returns `list_turns is not supported yet` are checked with
+`thread/read(includeTurns: true)` instead. An isolated completed chat received
+new turns through its existing owner in another VS Code window and completed
+them; the test chat was then deleted. This test does not establish that every
+gray-webview failure is resolved.
 
 ## Steer while the Codex webview is gray (0.12.4)
 

@@ -96,6 +96,7 @@ function ipcVersion(method) {
   if (method === 'initialize') return 0;
   if (method === 'thread-owner-discovery') return 1;
   if (method === 'thread-follower-steer-turn') return 1;
+  if (method === 'thread-follower-start-turn') return 2;
   return 0;
 }
 
@@ -147,7 +148,7 @@ function createIpcClient(socket, options = {}) {
   const requestFailure = (error, item) => {
     const failure = new Error(error && error.message || String(error));
     if (error && error.code) failure.code = error.code;
-    if (item.method === 'thread-follower-steer-turn' && item.sent) {
+    if (['thread-follower-steer-turn', 'thread-follower-start-turn'].includes(item.method) && item.sent) {
       failure.delivery = 'unknown';
       failure.deliveryStatus = 'unknown';
     }
@@ -185,7 +186,7 @@ function createIpcClient(socket, options = {}) {
       item.resolve(message);
     } else {
       const error = ipcError(message);
-      if (item.method === 'thread-follower-steer-turn') {
+      if (['thread-follower-steer-turn', 'thread-follower-start-turn'].includes(item.method)) {
         error.delivery = /\[CST_NOT_SENT\]|no-client-found/i.test(error.message) ? 'not_sent'
           : /\[CST_DELIVERY_UNKNOWN\]|timeout|timed.out|client-disconnected/i.test(error.message) ? 'unknown' : 'rejected';
       }
@@ -230,6 +231,7 @@ function createIpcClient(socket, options = {}) {
     };
     if (requestOptions.targetClientId) request.targetClientId = requestOptions.targetClientId;
     if (requestOptions.hostId) request.hostId = requestOptions.hostId;
+    if (requestOptions.timeoutMs) request.timeoutMs = Number(requestOptions.timeoutMs);
     return new Promise((resolve, reject) => {
       const item = { resolve, reject, method, sent: false, timer: null };
       item.timer = setTimeout(() => {
@@ -374,6 +376,56 @@ async function steerViaExtensionIpc(options = {}) {
   } finally {
     if (client) client.close();
   }
+}
+
+/** Explicitly begin a new turn in an existing stopped conversation. */
+async function continueConversation(options = {}) {
+  const conversationId = String(options.threadId || '').trim();
+  const text = String(options.message || '').trim();
+  const images = normalizeImageAttachments(options.images);
+  if (!conversationId || (!text && !images.length)) throw new Error('Select a chat and enter a message or image.');
+  const clientUserMessageId = options.clientUserMessageId || makeClientUserMessageId();
+  const params = {
+    conversationId, clientUserMessageId, trackerContinue: 1,
+    input: [...(text ? [{ type: 'text', text, text_elements: [] }] : []), ...images.map(image => ({ type: 'image', url: image.dataUrl }))]
+  };
+  const progress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+  let client, ownerId = '', sent = false, result;
+  try {
+    let discovery;
+    try {
+      client = await openExtensionIpc(options);
+      progress({ stage: 'IPC_SENT', source: 'codex-extension-ipc', confidence: 'authoritative' });
+      discovery = await client.request('thread-owner-discovery', { hostId: 'local', conversationId, trackerContinueDiscovery: 1 }, { timeoutMs: options.timeoutMs });
+      ownerId = discovery.handledByClientId || '';
+    } catch (error) {
+      if (!/no-client-found|ENOENT|ECONNREFUSED/.test(error.message + ' ' + (error.code || ''))) throw error;
+    }
+    if (ownerId) {
+      progress({ stage: 'OWNER_DISCOVERED', source: 'codex-extension-ipc', confidence: 'authoritative', ownerClientId: ownerId });
+      if (!discovery.result?.supportsTrackerContinue) {
+        const error = new Error('Owner của chat chưa hỗ trợ Tiếp tục chat. Cần bản Tracker mới trong cửa sổ đang giữ chat.');
+        error.delivery = 'not_sent';
+        throw error;
+      }
+      progress({ stage: 'OWNER_ROUTED', source: 'codex-extension-ipc', confidence: 'authoritative', clientUserMessageId, ownerClientId: ownerId });
+      sent = true;
+      const reply = await client.request('thread-follower-start-turn', params, { targetClientId: ownerId, timeoutMs: options.timeoutMs || 30000 });
+      result = reply.result?.result ?? reply.result;
+    } else {
+      if (typeof options.localContinue !== 'function') throw new Error('Chưa có kết nối Codex local để tiếp tục chat chưa được mở.');
+      progress({ stage: 'OWNER_ROUTED', source: 'codex-existing-app-server-local', confidence: 'authoritative', clientUserMessageId });
+      sent = true;
+      result = await options.localContinue(params);
+    }
+    if (!result?.turnId) throw new Error('Codex did not acknowledge the new turn.');
+    progress({ stage: 'CORE_ACCEPTED', source: 'codex-existing-app-server-ack', confidence: 'authoritative', clientUserMessageId, turnId: result.turnId });
+    return { ...result, clientUserMessageId, ownerClientId: ownerId };
+  } catch (error) {
+    if (!error.delivery) error.delivery = sent ? 'unknown' : 'not_sent';
+    error.clientUserMessageId = clientUserMessageId;
+    throw error;
+  } finally { client?.close(); }
 }
 
 function execFileAsync(executable, args, options = {}, execFileImpl = childProcess.execFile) {
@@ -645,6 +697,7 @@ module.exports = {
   parseIpcFrames,
   probeExtensionIpcSupport,
   steerViaExtensionIpc,
+  continueConversation,
   probeSteerSupport,
   buildInitializeRequest,
   buildSteerRequest,

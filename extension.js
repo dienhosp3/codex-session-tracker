@@ -7,7 +7,7 @@ const tracker = require('./tracker');
 const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
 const { ensureOwnerBridge } = require('./codex_owner_bridge');
-const { disposeOwnerBridges } = require('./codex_live_backend');
+const { disposeOwnerBridges, continueInLocalBackend } = require('./codex_live_backend');
 const codexDelete = require('./codex_delete');
 const { CodexGateway } = require('./gateway');
 const gatewayConfig = require('./gateway/config_manager');
@@ -45,6 +45,8 @@ let steerCapabilityCheckedAt = 0;
 let steerCapabilityConversationId = '';
 let steerBusy = false;
 let steerNotice = null;
+let continueBusy = false;
+let continueNotice = null;
 let ownerBridgePromise = null;
 let ownerBridgeNotice = '';
 let ownerBridgeTimer = null;
@@ -163,6 +165,7 @@ class TrackerViewProvider {
       if (message.command === 'clear') await clearSelection();
       if (message.command === 'queueMessage') await sendQueuedMessage(message.text, message.images);
       if (message.command === 'steerMessage') await sendSteeredMessage(message.text, message.images);
+      if (message.command === 'continueMessage') await sendContinuedMessage(message.text, message.images, message.threadId);
       if (message.command === 'setShowNonRunning') await setShowNonRunning(Boolean(message.enabled));
       if (message.command === 'deleteChat' && message.threadId) await deleteChat(String(message.threadId));
       if (message.command === 'reprobeQueue' || message.command === 'reprobeCodex') { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }
@@ -290,6 +293,9 @@ async function startGateway() {
     captureMaxBytes: Number.MAX_SAFE_INTEGER,
     traceMaxBytes: Math.max(8, Number(cfg.gatewayTraceMaxMb || 64)) * 1024 * 1024,
     handlers: {
+      continue: async input => codexSteer.continueConversation({
+        ...input, codexHome: config().codexHome, localContinue: continueInLocalBackend
+      }),
       steer: async input => codexSteer.steerViaExtensionIpc({
         threadId: input.threadId,
         message: input.message,
@@ -1211,6 +1217,7 @@ async function refreshSteerCapability(force) {
 }
 
 async function sendQueuedMessage(rawText, rawImages) {
+  if (queueBusy || steerBusy || continueBusy) return;
   const text = String(rawText || '').trim();
   if (rawImages && (!Array.isArray(rawImages) || rawImages.length)) {
     queueNotice = { kind: 'error', text: 'Gửi sau hiện chỉ hỗ trợ văn bản. Hãy dùng Steer ngay để gửi ảnh.', at: Date.now() };
@@ -1291,7 +1298,7 @@ async function sendSteeredMessage(rawText, rawImages) {
     postViewState();
     return;
   }
-  if ((!text && !images.length) || steerBusy || queueBusy) return;
+  if ((!text && !images.length) || steerBusy || queueBusy || continueBusy) return;
   if (!selected) {
     steerNotice = { kind: 'error', text: 'Chưa chọn chat Codex.', at: Date.now() };
     postViewState();
@@ -1339,6 +1346,34 @@ async function sendSteeredMessage(rawText, rawImages) {
     steerBusy = false;
     postViewState();
   }
+}
+
+async function sendContinuedMessage(rawText, rawImages, threadId) {
+  if (continueBusy || steerBusy || queueBusy) return;
+  if (!selected || selected.threadId !== threadId) return;
+  const text = String(rawText || '').trim();
+  let images;
+  try { images = codexSteer.normalizeImageAttachments(rawImages); }
+  catch (error) { continueNotice = { kind: 'error', text: error.message, threadId, at: Date.now() }; postViewState(); return; }
+  if (!text && !images.length) return;
+  const target = { threadId, cwd: selected.cwd, file: selected.file };
+  continueBusy = true;
+  continueNotice = null;
+  postViewState();
+  try {
+    await prepareOwnerBridge();
+    const activeGateway = gateway || await startGateway();
+    const input = { ...target, message: text, images, rolloutFile: target.file };
+    const result = activeGateway
+      ? await activeGateway.continueConversation(input)
+      : await codexSteer.continueConversation({ ...input, localContinue: continueInLocalBackend });
+    continueNotice = { kind: 'success', text: 'Codex đã nhận tin để tiếp tục đúng cuộc trò chuyện này.', threadId,
+      sentText: text, sentImages: images.map(i => i.dataUrl), turnId: result.turnId, clientUserMessageId: result.clientUserMessageId, at: Date.now() };
+    await refreshAll(true);
+  } catch (error) {
+    continueNotice = { kind: error.delivery === 'unknown' ? 'unknown' : 'error', threadId, at: Date.now(),
+      text: error.delivery === 'unknown' ? 'Chưa xác nhận Codex đã nhận tin; kiểm tra chat trước khi gửi lại để tránh trùng. ' + error.message : error.message };
+  } finally { continueBusy = false; postViewState(); }
 }
 
 function humanChatTitle(session) {
@@ -1399,7 +1434,8 @@ function postViewState() {
         version: steerCapability.version || '',
         ownerClientId: steerCapability.ownerClientId || '',
         notice: steerNotice
-      }
+      },
+      continuation: { busy: continueBusy, notice: continueNotice }
     }
   });
 }

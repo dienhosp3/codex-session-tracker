@@ -126,9 +126,17 @@ class CodexGateway {
   }
 
   async steer(input = {}) {
-    const command = this.createCommand('steer', input);
-    if (typeof this.handlers.steer !== 'function') {
-      const error = new Error('Steer handler unavailable.');
+    return this.deliverControl('steer', input);
+  }
+
+  async continueConversation(input = {}) {
+    return this.deliverControl('continue', input);
+  }
+
+  async deliverControl(action, input = {}) {
+    const command = this.createCommand(action, input);
+    if (typeof this.handlers[action] !== 'function') {
+      const error = new Error(action + ' handler unavailable.');
       error.delivery = 'not_sent';
       await this.progress(command, {
         stage: 'NOT_SENT',
@@ -140,7 +148,7 @@ class CodexGateway {
     }
 
     try {
-      const result = await this.handlers.steer({
+      const result = await this.handlers[action]({
         ...input,
         gatewayCommandId: command.gatewayCommandId,
         clientUserMessageId: command.clientUserMessageId,

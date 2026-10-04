@@ -126,19 +126,21 @@ function queueInfo(){
   return null;
 }
 function bindComposer(wasFocused,start,end){
-  const ta=document.getElementById('composerInput'),steer=document.getElementById('steerBtn'),queue=document.getElementById('queueBtn'),reprobe=document.getElementById('reprobe'),picker=document.getElementById('imagePicker'),addImage=document.getElementById('addImageBtn');
-  if(!ta||!steer||!queue)return;
+  const ta=document.getElementById('composerInput'),steer=document.getElementById('steerBtn'),queue=document.getElementById('queueBtn'),next=document.getElementById('continueBtn'),reprobe=document.getElementById('reprobe'),picker=document.getElementById('imagePicker'),addImage=document.getElementById('addImageBtn');
+  if(!ta||(!next&&(!steer||!queue)))return;
   ta.value=draft;
   const update=()=>{
     draft=ta.value;
-    const hasText=Boolean(String(draft).trim()),hasImages=draftImages.length>0,a=state.steer||{},q=state.queue||{};
-    steer.disabled=!(hasText||hasImages)||!a.available||Boolean(a.busy||q.busy);
-    queue.disabled=!hasText||hasImages||!q.available||Boolean(q.busy||a.busy);
+    const hasText=Boolean(String(draft).trim()),hasImages=draftImages.length>0,a=state.steer||{},q=state.queue||{},c=state.continuation||{},busy=Boolean(a.busy||q.busy||c.busy);
+    if(steer)steer.disabled=!(hasText||hasImages)||!a.available||busy;
+    if(queue)queue.disabled=!hasText||hasImages||!q.available||busy;
+    if(next)next.disabled=!(hasText||hasImages)||busy||!state.selected||state.selected.stateKind==='unknown';
   };
   ta.oninput=update;
-  ta.onkeydown=e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();if(!steer.disabled)steer.click()}};
-  steer.onclick=()=>{if(!steer.disabled)vscode.postMessage({command:'steerMessage',text:String(draft||'').trim(),images:draftImages})};
-  queue.onclick=()=>{if(!queue.disabled)vscode.postMessage({command:'queueMessage',text:String(draft||'').trim()})};
+  ta.onkeydown=e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();const primary=next||steer;if(primary&&!primary.disabled)primary.click()}};
+  if(steer)steer.onclick=()=>{if(!steer.disabled)vscode.postMessage({command:'steerMessage',text:String(draft||'').trim(),images:draftImages})};
+  if(queue)queue.onclick=()=>{if(!queue.disabled)vscode.postMessage({command:'queueMessage',text:String(draft||'').trim()})};
+  if(next)next.onclick=()=>{if(!next.disabled)vscode.postMessage({command:'continueMessage',threadId:state.selectedThreadId,text:String(draft||'').trim(),images:draftImages.slice()})};
   if(reprobe)reprobe.onclick=()=>vscode.postMessage({command:'reprobeCodex'});
   if(addImage&&picker)addImage.onclick=()=>picker.click();
   if(picker)picker.onchange=()=>{addDraftImages(picker.files);picker.value=''};
@@ -399,9 +401,11 @@ function bindGatewayUi(){
 }
 
 function renderComposer(){
-  const si=steerInfo(),qi=queueInfo();
-  const statuses=[si&&'<div class="action-status '+esc(si.cls)+'" role="status"><b>Steer ngay:</b> '+esc(si.text)+'</div>',qi&&'<div class="action-status '+esc(qi.cls)+'" role="status"><b>Gửi sau:</b> '+esc(qi.text)+'</div>',composerNotice&&'<div class="action-status err" role="alert">'+esc(composerNotice)+'</div>'].filter(Boolean).join('');
-  return '<section class="card composer-card"><div class="composer"><textarea id="composerInput" placeholder="Nhập tin nhắn hoặc dán ảnh..." aria-label="Tin nhắn cho chat này"></textarea><div class="composer-actions"><button class="send steer" id="steerBtn" title="Gửi vào lượt đang chạy">Steer ngay</button><button class="send queue" id="queueBtn" title="Xếp tin nhắn gửi sau lượt hiện tại">Gửi sau</button></div></div><div class="composer-image-tools"><button class="iconbtn" type="button" id="addImageBtn" title="Thêm ảnh" aria-label="Thêm ảnh">▧ Ảnh</button><input id="imagePicker" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>'+imageMarkup(draftImages,true)+'</div><div class="composer-meta">'+statuses+'<button class="iconbtn" type="button" id="reprobe" title="Kiểm tra lại khả năng gửi" aria-label="Kiểm tra lại khả năng gửi">↻</button></div></section>';
+  const running=state.selected&&state.selected.stateKind==='running',si=running&&steerInfo(),qi=running&&queueInfo();
+  const n=state.continuation&&state.continuation.notice,ci=n&&n.threadId===state.selectedThreadId?n:null;
+  const statuses=[si&&'<div class="action-status '+esc(si.cls)+'" role="status"><b>Steer ngay:</b> '+esc(si.text)+'</div>',qi&&'<div class="action-status '+esc(qi.cls)+'" role="status"><b>Gửi sau:</b> '+esc(qi.text)+'</div>',ci&&'<div class="action-status '+(ci.kind==='success'?'ok':'err')+'" role="status">'+esc(ci.text)+'</div>',composerNotice&&'<div class="action-status err" role="alert">'+esc(composerNotice)+'</div>'].filter(Boolean).join('');
+  const buttons=running?'<button class="send steer" id="steerBtn" title="Gửi vào lượt đang chạy">Steer ngay</button><button class="send queue" id="queueBtn" title="Xếp tin nhắn gửi sau lượt hiện tại">Gửi sau</button>':'<button class="send continue" id="continueBtn" title="Bắt đầu lượt mới trong cuộc trò chuyện này">Tiếp tục chat</button>';
+  return '<section class="card composer-card"><div class="card-title">'+(running?'Nhắn vào chat này':'Tiếp tục cuộc trò chuyện')+'</div><div class="composer"><textarea id="composerInput" placeholder="'+(running?'Nhập tin nhắn hoặc dán ảnh...':'Nhập yêu cầu tiếp theo hoặc dán ảnh...')+'" aria-label="Tin nhắn cho chat này"></textarea><div class="composer-actions">'+buttons+'</div></div><div class="composer-image-tools"><button class="iconbtn" type="button" id="addImageBtn" title="Thêm ảnh" aria-label="Thêm ảnh">▧ Ảnh</button><input id="imagePicker" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>'+imageMarkup(draftImages,true)+'</div><div class="composer-meta">'+statuses+'<button class="iconbtn" type="button" id="reprobe" title="Kiểm tra lại khả năng gửi" aria-label="Kiểm tra lại khả năng gửi">↻</button></div></section>';
 }
 function renderMain(){
   const ui=captureUiState(),old=document.getElementById('composerInput'),wasFocused=old&&document.activeElement===old,start=old&&old.selectionStart||0,end=old&&old.selectionEnd||0,d=state.selected;
@@ -417,7 +421,7 @@ function renderMain(){
   html+=renderGateway();
   if(viewMode==='chronological')html+=renderTranscript(d);
   else html+=renderCurrent(d)+renderWorkers(d)+renderHistory(d)+renderLatest(d);
-  if(running)html+=renderComposer();
+  html+=renderComposer();
   main.innerHTML=html;
   const setMode=mode=>{viewMode=mode;vscode.setState({...vscode.getState(),viewMode});renderMain()};
   document.getElementById('summaryView').onclick=()=>setMode('summary');
@@ -466,11 +470,11 @@ window.addEventListener('message',e=>{
       if(gwNotice.kind==='success')gatewaySettingsDraft=null;
     }
     switchDraftThread(state.selectedThreadId||'');
-    const notices=[state.queue&&state.queue.notice,state.steer&&state.steer.notice].filter(Boolean);
+    const notices=[state.queue&&state.queue.notice,state.steer&&state.steer.notice,state.continuation&&state.continuation.notice].filter(n=>n&&(!n.threadId||n.threadId===currentDraftThreadId));
     const n=notices.sort((a,b)=>(b.at||0)-(a.at||0))[0];
     if(n&&n.at&&n.at!==lastNoticeAt){
       lastNoticeAt=n.at;
-      if(n.kind==='success'){
+      if(n.kind==='success'&&(n.sentText===undefined||n.sentText===String(draft||'').trim())&&(n.sentImages===undefined||JSON.stringify(n.sentImages)===JSON.stringify(draftImages.map(i=>i.dataUrl)))){
         draft='';
         draftImages=[];
         delete drafts[currentDraftThreadId];
