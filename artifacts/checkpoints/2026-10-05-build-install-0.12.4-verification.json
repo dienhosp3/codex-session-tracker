@@ -1,0 +1,42 @@
+{
+  "recordedAt": "2026-10-04T22:01:58.078Z",
+  "provenanceRecord": "2026-10-05-build-install-0.12.4.json",
+  "trackerVersion": "0.12.4",
+  "artifact": {
+    "file": "codex-session-tracker-0.12.4.vsix",
+    "bytes": 94778145,
+    "sha256": "8959f9ff1c2b6b6c5ebfe071b8566968d0a246a49ff9ae933e8b0d40eb1306cd"
+  },
+  "installedFiles": [
+    {
+      "file": "extension.js",
+      "sha256": "29fd24f3877a364449f88a4569b88fc82abdccb253e9c2dfdf6a902e8035a029",
+      "installedMatches": true
+    },
+    {
+      "file": "codex_steer.js",
+      "sha256": "11be4519f3f3c45d6f1053a13cb63200bbf3b9593837de3aa0b89cc4241c093e",
+      "installedMatches": true
+    },
+    {
+      "file": "codex_live_backend.js",
+      "sha256": "04712ddf344a02cadb16e7ff50efcc66066c6600f9e033c8c9338404fd1b034e",
+      "installedMatches": true
+    },
+    {
+      "file": "codex_owner_bridge.js",
+      "sha256": "5b6f03f154a7ca64db23991abca41306121b09024ecf80b16dc3f5f52b9c9477",
+      "installedMatches": true
+    },
+    {
+      "file": "README.md",
+      "sha256": "3ee409124aec8a9846b2b07168a658191a6c6fbb62da507dbaef4ac7af7ec121",
+      "installedMatches": true
+    }
+  ],
+  "validation": {
+    "automatedTestsPassed": 132,
+    "realGrayValidation": "pending",
+    "liveInjectedHandlerFailure": "native rejected; direct route accepted; original handlers restored"
+  }
+}

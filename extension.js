@@ -6,6 +6,8 @@ const fs = require('fs');
 const tracker = require('./tracker');
 const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
+const { ensureOwnerBridge } = require('./codex_owner_bridge');
+const { disposeOwnerBridges } = require('./codex_live_backend');
 const codexDelete = require('./codex_delete');
 const { CodexGateway } = require('./gateway');
 const gatewayConfig = require('./gateway/config_manager');
@@ -43,6 +45,20 @@ let steerCapabilityCheckedAt = 0;
 let steerCapabilityConversationId = '';
 let steerBusy = false;
 let steerNotice = null;
+let ownerBridgePromise = null;
+let ownerBridgeNotice = '';
+let ownerBridgeTimer = null;
+
+async function prepareOwnerBridge() {
+  if (ownerBridgePromise) return ownerBridgePromise;
+  const extension = vscode.extensions.getExtension('openai.chatgpt');
+  if (!extension?.isActive) return;
+  ownerBridgePromise = ensureOwnerBridge(extension.extensionPath)
+    .then(() => { ownerBridgeNotice = ''; })
+    .catch(error => { ownerBridgeNotice = error.message; })
+    .finally(() => { ownerBridgePromise = null; });
+  return ownerBridgePromise;
+}
 let gateway = null;
 let nativeHook = null;
 let nativeHookOwners = [];
@@ -109,11 +125,16 @@ async function activate(context) {
   restoreSelection(context);
   renderStatus();
   restartPolling();
+  prepareOwnerBridge().catch(() => {});
+  ownerBridgeTimer = setInterval(() => prepareOwnerBridge().catch(() => {}), 30000);
   refreshGatewayManagedState().catch(() => {});
   refreshTrackedStatus(true);
 }
 
 async function deactivate() {
+  if (ownerBridgeTimer) clearInterval(ownerBridgeTimer);
+  ownerBridgeTimer = null;
+  disposeOwnerBridges();
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
   trackerView = null;
@@ -1161,6 +1182,7 @@ async function refreshSteerCapability(force) {
   steerCapabilityConversationId = conversationId;
   const cfg = config();
   try {
+    await prepareOwnerBridge();
     const probe = await codexSteer.probeExtensionIpcSupport({
       codexHome: cfg.codexHome,
       threadId: conversationId
@@ -1275,27 +1297,22 @@ async function sendSteeredMessage(rawText, rawImages) {
     postViewState();
     return;
   }
-  // Re-read lifecycle state immediately before steering.
-  await refreshTrackedStatus(true);
-  if (!selected.status || selected.status.kind !== 'running') {
-    steerNotice = { kind: 'error', text: 'Chat này không còn chạy nên tracker không steer.', at: Date.now() };
-    postViewState();
-    return;
-  }
+  const target = { threadId: selected.threadId, cwd: selected.cwd, file: selected.file };
   steerBusy = true;
   steerNotice = null;
   postViewState();
   const steerArgs = () => ({
-    threadId: selected.threadId,
+    threadId: target.threadId,
     message: text,
     images,
     codexHome: config().codexHome,
-    cwd: selected.cwd || undefined
+    cwd: target.cwd || undefined
   });
   try {
+    await prepareOwnerBridge();
     const activeGateway = gateway || await startGateway();
     const result = activeGateway
-      ? await activeGateway.steer({ ...steerArgs(), rolloutFile: selected.file || '' })
+      ? await activeGateway.steer({ ...steerArgs(), rolloutFile: target.file || '' })
       : await codexSteer.steerViaExtensionIpc(steerArgs());
     steerNotice = {
       kind: 'success',
@@ -1315,6 +1332,7 @@ async function sendSteeredMessage(rawText, rawImages) {
         ? 'Codex chưa xác nhận đã nhận tin. Kiểm tra chat trước khi thử lại để tránh gửi trùng. ' + detail
         : detail,
       delivery: error && error.delivery || '',
+      ownerBridgeReason: ownerBridgeNotice,
       at: Date.now()
     };
   } finally {

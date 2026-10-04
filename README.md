@@ -1,4 +1,34 @@
-# Codex Session Tracker 0.12.3
+# Codex Session Tracker 0.12.4
+
+## Steer while the Codex webview is gray (0.12.4)
+
+The native IPC owner discovery uses cached ownership, but native steer discovery
+asks the webview for its role again. A non-responsive webview can therefore
+return `no-client-found` even while its app-server and turn are still running.
+Tracker now reports these two failures separately.
+
+On activation, Tracker installs an opt-in bridge into the existing Codex
+Extension host. It adds a provider to the existing app-server connection and
+advertises the bridge through the existing owner IPC router. Tracker steer
+checks `thread/loaded/list`, the live thread status, and the newest turn before
+calling `turn/steer` with `expectedTurnId`. It does not spawn, resume, start,
+interrupt, or replace the owning app-server. Native Codex followers retain their
+original handlers. Deactivating Tracker restores those handlers.
+
+The bridge binds existing objects using an in-process inspector session without
+pausing execution or opening a debugger port. This is an internal Extension
+integration, so a changed module layout may require another compatibility fix.
+If the owning Extension host or app-server has died, it cannot steer that lost
+turn. A timeout after sending remains an unknown outcome and is never retried
+automatically.
+
+Verified with installed Extension **26.930.41038**, bundled CLI **0.160.0**.
+The investigated historical rollout records CLI **0.159.2**, model
+**gpt-6.1-sol**; those values are separate from the currently installed runtime.
+Live direct steer returned an ACK in 14 ms on the existing turn. During this
+investigation the owner was restarted externally, so the live test proves the
+direct backend route, while regression tests cover a non-responsive webview.
+Provenance and the verification note are retained under `artifacts/checkpoints`.
 
 ## Saved event search (0.12.3)
 

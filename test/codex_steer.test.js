@@ -11,6 +11,36 @@ const CLIENT_MESSAGE_ID = '11111111-1111-4111-8111-111111111111';
 const VIETNAMESE = 'Dừng bước hiện tại, kiểm tra lại tệp tiếng Việt và giữ nguyên luồng đang chạy.';
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
 
+test('advertised owner bridge opts into direct backend steer and preserves its transport', async () => {
+  await withIpcServer((request, socket) => {
+    const response = responseFor(request);
+    if (request.method === 'thread-owner-discovery') response.result.supportsTrackerDirectSteer = true;
+    if (request.method === 'thread-follower-steer-turn') {
+      assert.equal(request.params.trackerDirectSteer, 1);
+      response.result = { turnId: 'live-turn', transport: 'codex-existing-app-server', ownerPid: 42 };
+    }
+    socket.write(codexSteer.frameIpcMessage(response));
+  }, async ({ connectImpl }) => {
+    const result = await codexSteer.steerViaExtensionIpc({ threadId: THREAD_ID, message: VIETNAMESE, connectImpl });
+    assert.equal(result.transport, 'codex-existing-app-server');
+    assert.equal(result.ownerPid, 42);
+    assert.equal(result.turnId, 'live-turn');
+  });
+});
+
+for (const [tag, delivery] of [['CST_NOT_SENT', 'not_sent'], ['CST_DELIVERY_UNKNOWN', 'unknown'], ['CST_REJECTED', 'rejected']]) {
+  test('owner bridge ' + tag + ' retains delivery classification across IPC', async () => {
+    await withIpcServer((request, socket) => {
+      const response = request.method === 'thread-follower-steer-turn'
+        ? { type: 'response', requestId: request.requestId, resultType: 'error', error: '[' + tag + '] Existing backend failure' }
+        : responseFor(request);
+      socket.write(codexSteer.frameIpcMessage(response));
+    }, async ({ connectImpl }) => {
+      await assert.rejects(codexSteer.steerViaExtensionIpc({ threadId: THREAD_ID, message: VIETNAMESE, connectImpl }), e => e.delivery === delivery);
+    });
+  });
+}
+
 function responseFor(request, extra = {}) {
   if (request.method === 'initialize') {
     return {

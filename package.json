@@ -2,7 +2,7 @@
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
   "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -189,6 +189,8 @@
     "tracker.js",
     "codex_queue.js",
     "codex_steer.js",
+    "codex_live_backend.js",
+    "codex_owner_bridge.js",
     "codex_delete.js",
     "runtime_versions.js",
     "gateway",

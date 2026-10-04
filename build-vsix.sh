@@ -28,6 +28,8 @@ cp "$ROOT/extension.js" "$STAGE/extension/extension.js"
 cp "$ROOT/tracker.js" "$STAGE/extension/tracker.js"
 cp "$ROOT/codex_queue.js" "$STAGE/extension/codex_queue.js"
 cp "$ROOT/codex_steer.js" "$STAGE/extension/codex_steer.js"
+cp "$ROOT/codex_live_backend.js" "$STAGE/extension/codex_live_backend.js"
+cp "$ROOT/codex_owner_bridge.js" "$STAGE/extension/codex_owner_bridge.js"
 cp "$ROOT/codex_delete.js" "$STAGE/extension/codex_delete.js"
 cp "$ROOT/runtime_versions.js" "$STAGE/extension/runtime_versions.js"
 if [[ ! -f "$ROOT/runtime/bin/windows-x86_64/codex.exe" || ! -f "$ROOT/runtime/manifest.json" ]]; then

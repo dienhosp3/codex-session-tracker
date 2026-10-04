@@ -185,7 +185,10 @@ function createIpcClient(socket, options = {}) {
       item.resolve(message);
     } else {
       const error = ipcError(message);
-      if (item.method === 'thread-follower-steer-turn') error.delivery = /timeout|timed.out|client-disconnected/i.test(error.message) ? 'unknown' : 'rejected';
+      if (item.method === 'thread-follower-steer-turn') {
+        error.delivery = /\[CST_NOT_SENT\]|no-client-found/i.test(error.message) ? 'not_sent'
+          : /\[CST_DELIVERY_UNKNOWN\]|timeout|timed.out|client-disconnected/i.test(error.message) ? 'unknown' : 'rejected';
+      }
       item.reject(error);
     }
   };
@@ -269,7 +272,7 @@ async function openExtensionIpc(options = {}) {
 
 function noOwnerReason(threadId) {
   const suffix = threadId ? ` cho chat ${threadId}` : '';
-  return `Codex Extension chưa có owner IPC đang giữ chat${suffix}. Mở chat đó trong Codex Extension rồi thử lại.`;
+  return `Chưa tìm được owner IPC${suffix}. Webview bị xám hoặc mất phản hồi cũng có thể làm discovery thất bại; chưa thể kết luận app-server đã dừng.`;
 }
 
 /** Probe the Extension's live IPC router and (when supplied) the selected chat owner. */
@@ -333,6 +336,9 @@ async function steerViaExtensionIpc(options = {}) {
         createdAt: Date.now()
       }
     };
+    // Only the installed Tracker bridge recognizes this opt-in. Native
+    // followers continue using the Extension's original webview handlers.
+    if (discovery.result?.supportsTrackerDirectSteer === true) params.trackerDirectSteer = 1;
     // These fields are optional in the Extension follower contract. Omitting
     // them matches the native composer and avoids passing null into a newer
     // app-server schema that only accepts the core steer fields.
@@ -352,11 +358,13 @@ async function steerViaExtensionIpc(options = {}) {
     const turnId = result && typeof result.turnId === 'string' ? result.turnId.trim() : '';
     if (!turnId) throw new Error('Codex Extension IPC did not acknowledge a steer turn id.');
     onProgress({ stage: 'CORE_ACCEPTED', source: 'codex-extension-ipc-ack', confidence: 'authoritative', ownerClientId: ownerId, clientUserMessageId, turnId });
-    return { ...(result && typeof result === 'object' ? result : {}), turnId, clientUserMessageId, ownerClientId: ownerId, transport: 'codex-extension-ipc' };
+    return { ...(result && typeof result === 'object' ? result : {}), turnId, clientUserMessageId, ownerClientId: ownerId, transport: result?.transport || 'codex-extension-ipc' };
   } catch (error) {
     const detail = compactError(error);
     if (/no-client-found/i.test(detail)) {
-      const unavailable = new Error(noOwnerReason(conversationId));
+      const unavailable = new Error(steerStarted
+        ? `Đã tìm thấy owner IPC, nhưng owner không xử lý được steer cho chat ${conversationId}. Webview bị xám có thể không trả lời bước kiểm tra quyền giữ chat. Tin chưa được chuyển tới app-server.`
+        : noOwnerReason(conversationId));
       unavailable.delivery = 'not_sent';
       throw unavailable;
     }

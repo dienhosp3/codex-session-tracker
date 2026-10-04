@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-04T22:00:47.977Z",
+  "label": "build-install-0.12.4",
+  "repository": {
+    "revision": "7de13700f01793938e99019d6eaf943bec3f75fd",
+    "shortRevision": "7de13700f017",
+    "dirty": true,
+    "trackerVersion": "0.12.4"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.930.41038"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.160.0",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "0.159.2",
+      "model": "gpt-6.1-sol"
+    }
+  }
+}
