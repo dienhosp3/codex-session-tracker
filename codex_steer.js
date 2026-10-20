@@ -387,6 +387,7 @@ async function continueConversation(options = {}) {
   const clientUserMessageId = options.clientUserMessageId || makeClientUserMessageId();
   const params = {
     conversationId, clientUserMessageId, trackerContinue: 1,
+    ...(options.expectedPreviousTurnId ? { expectedPreviousTurnId: options.expectedPreviousTurnId } : {}),
     input: [...(text ? [{ type: 'text', text, text_elements: [] }] : []), ...images.map(image => ({ type: 'image', url: image.dataUrl }))]
   };
   const progress = typeof options.onProgress === 'function' ? options.onProgress : () => {};

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "trackerVersion": "0.12.7",
+  "passed": true,
+  "installedExtension": {
+    "id": "openai.chatgpt",
+    "version": "26.1007.21434"
+  },
+  "firstNavigation": true,
+  "secondNavigation": true,
+  "repeatedNavigation": true,
+  "scope": "Actual installed Codex Extension in an isolated VS Code Extension Host and empty Codex Home. Sidebar routing accepted three existing-thread navigation requests. Fixture IDs are intentionally absent; this does not prove transcript rendering or generate a model turn.",
+  "recordedAt": "2026-10-18T15:14:34.033Z"
+}

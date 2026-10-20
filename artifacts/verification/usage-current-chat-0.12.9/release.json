@@ -1,0 +1,11 @@
+{
+  "trackerVersion": "0.12.9",
+  "vsix": "codex-session-tracker-0.12.9.vsix",
+  "packedFilesMatchSource": 48,
+  "unitTestsPassed": 201,
+  "browserPassed": true,
+  "consoleErrors": [],
+  "signedInNativeUiVerified": false,
+  "realAccountQuotaVerified": false,
+  "scope": "Unit tests and local Tracker browser fixtures; signed-out native-window experiments were stopped and are not counted as signed-in verification."
+}

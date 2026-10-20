@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createLiveBackend, installOwnerBridge, disposeOwnerBridges } = require('../codex_live_backend');
+const { createLiveBackend, installOwnerBridge, disposeOwnerBridges, readAccountInLocalBackend, readRateLimitsInLocalBackend } = require('../codex_live_backend');
 
 function fixture(options = {}) {
   const providers = new Map();
@@ -26,6 +26,53 @@ function fixture(options = {}) {
   return { connection, providers, requests };
 }
 const params = { conversationId: 'target', clientUserMessageId: 'uuid', input: [{ type: 'text', text: 'Kiểm tra màn xám', text_elements: [] }] };
+
+test('account identity uses only the existing connection and read-only account metadata request', async () => {
+  const f = fixture();
+  const account = { type: 'chatgpt', email: 'owner@example.test', planType: 'plus' };
+  f.connection.sendRequest = (provider, id, method, input, mutating) => {
+    f.requests.push({ method, input, mutating });
+    queueMicrotask(() => f.providers.get(provider).onResult({ id, result: { account, requiresOpenaiAuth: true } }));
+  };
+  const backend = createLiveBackend(f.connection);
+  const nativeDiscovery = [() => true, () => ({})];
+  const nativeSteer = [() => false, () => {}];
+  const handlers = new Map([['thread-owner-discovery', nativeDiscovery], ['thread-follower-steer-turn', nativeSteer]]);
+  try {
+    assert.deepEqual((await backend.readAccount()).account, account);
+    installOwnerBridge([f.connection], [{ ipcClient: { requestHandlers: handlers }, ownsThread: () => false }]);
+    assert.deepEqual((await readAccountInLocalBackend()).account, account);
+    assert.deepEqual(f.requests, [
+      { method: 'account/read', input: { refreshToken: false }, mutating: false },
+      { method: 'account/read', input: { refreshToken: false }, mutating: false }
+    ]);
+  } finally {
+    backend.dispose();
+    disposeOwnerBridges();
+  }
+  assert.equal(f.providers.size, 0);
+  assert.equal(handlers.get('thread-owner-discovery'), nativeDiscovery);
+  assert.equal(handlers.get('thread-follower-steer-turn'), nativeSteer);
+  await assert.rejects(readAccountInLocalBackend(), /Không xác định được/);
+});
+
+test('usage uses the existing connection with only account/rateLimits/read', async () => {
+  const f = fixture();
+  const limits = { rateLimits: { primary: { usedPercent: 25, windowDurationMins: 300 } } };
+  f.connection.sendRequest = (provider, id, method, input, mutating) => {
+    f.requests.push({ method, input, mutating });
+    queueMicrotask(() => f.providers.get(provider).onResult({ id, result: limits }));
+  };
+  const handlers = new Map([['thread-owner-discovery', [() => true, () => ({})]], ['thread-follower-steer-turn', [() => false, () => {}]]]);
+  try {
+    installOwnerBridge([f.connection], [{ ipcClient: { requestHandlers: handlers }, ownsThread: () => false }]);
+    assert.deepEqual(await readRateLimitsInLocalBackend(), limits);
+    assert.deepEqual(f.requests, [{ method: 'account/rateLimits/read', input: {}, mutating: false }]);
+  } finally {
+    disposeOwnerBridges();
+  }
+  await assert.rejects(readRateLimitsInLocalBackend(), /Chưa kết nối/);
+});
 
 test('steer uses the existing live root turn, UUID and Unicode without resume/start', async () => {
   const f = fixture(), backend = createLiveBackend(f.connection);

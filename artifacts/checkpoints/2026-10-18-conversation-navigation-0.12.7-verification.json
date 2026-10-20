@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "trackerVersion": "0.12.7",
+  "verifiedAt": "2026-10-18T15:17:04.960533+00:00",
+  "tests": {
+    "command": "npm test",
+    "passed": 181,
+    "failed": 0,
+    "newNavigationTests": 12,
+    "log": "artifacts/navigation-0.12.7-tests.log"
+  },
+  "liveExtensionHost": {
+    "schemaVersion": 1,
+    "trackerVersion": "0.12.7",
+    "passed": true,
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.1007.21434"
+    },
+    "firstNavigation": true,
+    "secondNavigation": true,
+    "repeatedNavigation": true,
+    "scope": "Actual installed Codex Extension in an isolated VS Code Extension Host and empty Codex Home. Sidebar routing accepted three existing-thread navigation requests. Fixture IDs are intentionally absent; this does not prove transcript rendering or generate a model turn.",
+    "recordedAt": "2026-10-18T15:14:34.033Z"
+  },
+  "package": {
+    "file": "codex-session-tracker-0.12.7.vsix",
+    "sha256": "31f99d09267895e77d8d485707389e30e166d1db78c0e1c570864d4140d27dec",
+    "checkedEntries": [
+      "codex_auth.js",
+      "codex_delete.js",
+      "codex_live_backend.js",
+      "codex_navigation.js",
+      "codex_owner_bridge.js",
+      "codex_queue.js",
+      "codex_steer.js",
+      "dashboard.html",
+      "extension.js",
+      "gateway/classifier.js",
+      "gateway/client_instrumentation.js",
+      "gateway/client_runtime.js",
+      "gateway/config_manager.js",
+      "gateway/content_capture.js",
+      "gateway/correlation.js",
+      "gateway/forward_proxy.js",
+      "gateway/h2_headers.py",
+      "gateway/hook-requirements.txt",
+      "gateway/hook_runner.py",
+      "gateway/index.js",
+      "gateway/json_filters.js",
+      "gateway/native_hook.js",
+      "gateway/native_instrumentation.js",
+      "gateway/plaintext_stream.js",
+      "gateway/redaction.js",
+      "gateway/response_events.js",
+      "gateway/saved_traffic.js",
+      "gateway/server.js",
+      "gateway/state_machine.js",
+      "gateway/trace_store.js",
+      "gateway/traffic_logs.js",
+      "gateway/traffic_policy.js",
+      "gateway/websocket_proxy.js",
+      "LICENSE.txt",
+      "media/tracker.svg",
+      "package.json",
+      "README.md",
+      "runtime/LICENSE-Codex.txt",
+      "runtime/manifest.json",
+      "runtime/NOTICE-Codex.txt",
+      "runtime/tracker_hook.rs",
+      "runtime_versions.js",
+      "tracker.js",
+      "traffic_monitor.html"
+    ],
+    "sourceMatches": true
+  },
+  "provenance": "2026-10-18-conversation-navigation-0.12.7.json",
+  "installation": {
+    "version": "0.12.7",
+    "verifiedSourceMatch": true,
+    "checkedEntries": 44,
+    "installerMetadataExcluded": [
+      "__metadata"
+    ],
+    "reloadPerformed": false
+  },
+  "scope": "No live model prompt or turn sent. No rollout inspected. Main VS Code window was not reloaded. Previous working tree changes were preserved."
+}

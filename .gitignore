@@ -8,3 +8,5 @@ __pycache__/
 .vscode-test/
 artifacts/.ui-edge-profile-*/
 artifacts/diagnostics/
+artifacts/*-tests.log
+artifacts/verification/**/*.png

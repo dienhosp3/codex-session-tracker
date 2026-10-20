@@ -1,0 +1,47 @@
+Inventory before manual cleanup on 2026-10-20.
+Cleanup was subsequently observed complete: 0 generated targets remaining.
+
+Repository: D:\CODEX Session Tracker
+   124.59 MiB  .hook-venv
+   603.40 MiB  .runtime-build
+    90.41 MiB  codex-session-tracker-0.12.10.vsix
+    90.41 MiB  codex-session-tracker-0.12.11.vsix
+    90.40 MiB  codex-session-tracker-0.12.8.vsix
+    90.41 MiB  codex-session-tracker-0.12.9.vsix
+     6.86 MiB  artifacts\.ui-edge-profile-560
+     6.86 MiB  artifacts\.ui-edge-profile-900
+     0.03 MiB  artifacts\account-ui-0.12.8-tests.log
+     0.04 MiB  artifacts\codex-session-tracker-0.7.0-steer-ipc-dashboard.vsix
+     0.03 MiB  artifacts\compact-usage-current-chat-0.12.9-tests.log
+     0.03 MiB  artifacts\compact-usage-row-0.12.10-tests.log
+     0.00 MiB  artifacts\diagnostics
+     0.03 MiB  artifacts\navigation-0.12.7-tests.log
+     0.03 MiB  artifacts\single-usage-account-0.12.11-tests.log
+     0.01 MiB  gateway\__pycache__
+   325.21 MiB  runtime\bin
+     0.00 MiB  artifacts\verification\account-ui-0.12.8\account-card-390.png
+     0.00 MiB  artifacts\verification\account-ui-0.12.8\account-card-900.png
+     0.02 MiB  artifacts\verification\usage-current-chat-0.12.10\gateway-1000-collapsed.png
+     0.06 MiB  artifacts\verification\usage-current-chat-0.12.10\gateway-1000-expanded.png
+     0.02 MiB  artifacts\verification\usage-current-chat-0.12.10\gateway-320-collapsed.png
+     0.04 MiB  artifacts\verification\usage-current-chat-0.12.10\gateway-320-expanded.png
+     0.02 MiB  artifacts\verification\usage-current-chat-0.12.10\gateway-520-collapsed.png
+     0.05 MiB  artifacts\verification\usage-current-chat-0.12.10\gateway-520-expanded.png
+     0.02 MiB  artifacts\verification\usage-current-chat-0.12.11\gateway-1000-collapsed.png
+     0.06 MiB  artifacts\verification\usage-current-chat-0.12.11\gateway-1000-expanded.png
+     0.02 MiB  artifacts\verification\usage-current-chat-0.12.11\gateway-320-collapsed.png
+     0.04 MiB  artifacts\verification\usage-current-chat-0.12.11\gateway-320-expanded.png
+     0.02 MiB  artifacts\verification\usage-current-chat-0.12.11\gateway-520-collapsed.png
+     0.05 MiB  artifacts\verification\usage-current-chat-0.12.11\gateway-520-expanded.png
+     0.03 MiB  artifacts\verification\usage-current-chat-0.12.9\gateway-1000-collapsed.png
+     0.06 MiB  artifacts\verification\usage-current-chat-0.12.9\gateway-1000-expanded.png
+     0.02 MiB  artifacts\verification\usage-current-chat-0.12.9\gateway-320-collapsed.png
+     0.04 MiB  artifacts\verification\usage-current-chat-0.12.9\gateway-320-expanded.png
+     0.03 MiB  artifacts\verification\usage-current-chat-0.12.9\gateway-520-collapsed.png
+     0.04 MiB  artifacts\verification\usage-current-chat-0.12.9\gateway-520-expanded.png
+Total: 1429.40 MiB in 37 targets
+Preserved: source, tests, .git, runtime source/manifest/licenses and JSON/Markdown verification records.
+Installed VS Code extensions and Codex accounts are outside the deletion scope.
+
+Preview only. To delete: python cleanup_repo.py --delete
+To retain the packaging binary: python cleanup_repo.py --delete --keep-runtime

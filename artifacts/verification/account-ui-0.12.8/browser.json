@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "viewports": [
+    {
+      "width": 900,
+      "singleButton": true,
+      "overflow": false,
+      "clickAcceptedOnce": true
+    },
+    {
+      "width": 390,
+      "singleButton": true,
+      "overflow": false,
+      "clickAcceptedOnce": true
+    }
+  ],
+  "consoleErrors": []
+}

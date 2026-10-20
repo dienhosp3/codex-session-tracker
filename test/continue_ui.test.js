@@ -3,7 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const html=fs.readFileSync(require('path').join(__dirname,'../dashboard.html'),'utf8');
 function ui(kind){
  const elements=new Map(),messages=[];
- const context=vm.createContext({document:{getElementById:id=>elements.get(id)||null,querySelectorAll:()=>[]},vscode:{postMessage:m=>messages.push(m)},esc:s=>String(s||''),imageMarkup:()=>'',steerInfo:()=>null,queueInfo:()=>null,addDraftImages:()=>{},renderMain:()=>{}});
+ const context=vm.createContext({crypto:require('node:crypto'),pendingContinuation:{},document:{getElementById:id=>elements.get(id)||null,querySelectorAll:()=>[]},vscode:{postMessage:m=>messages.push(m)},esc:s=>String(s||''),imageMarkup:()=>'',steerInfo:()=>null,queueInfo:()=>null,addDraftImages:()=>{},renderMain:()=>{}});
  vm.runInContext(`let state={selected:{stateKind:${JSON.stringify(kind)}},selectedThreadId:'target',steer:{available:true},queue:{available:true},continuation:{}};let draft='',draftImages=[],composerNotice='';`,context);
  for(const [start,end] of [['bindComposer','addDraftImages'],['renderComposer','renderMain']]){
   vm.runInContext(html.slice(html.indexOf('function '+start+'('),html.indexOf('function '+end+'(')),context);

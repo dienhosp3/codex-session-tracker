@@ -1,4 +1,140 @@
-# Codex Session Tracker 0.12.5
+# Codex Session Tracker 0.12.12
+
+## Restart a local proxy (0.12.12)
+
+The yellow restart icon on the compact **Trạng thái giao tiếp** row restarts
+your local proxy EXE. On the first click, choose its `.exe`; Tracker saves the
+absolute path in VS Code global extension state for subsequent sessions.
+Expand the row and use **…** to change the executable. The tooltip shows the
+saved path and latest result. Selecting a replacement path only saves it.
+
+Restart stops processes whose complete executable path matches the selected
+file, rechecks each process before stopping it, waits for exit, and launches
+the EXE with its own folder as the working directory. Same-named executables
+elsewhere are left alone. With no matching process running, the button starts
+the EXE. A missing file or stop failure aborts the restart and preserves the
+saved path. The process runs with the current user's permissions and a hidden
+window; proxy arguments and Windows-service control are not configured here.
+The success message confirms process launch, not proxy endpoint readiness.
+
+Commands: **Codex Tracker: Restart Local Proxy** and
+**Codex Tracker: Choose Local Proxy EXE**. Packaging can put the installer
+outside this checkout with `CODEX_TRACKER_VSIX_OUTPUT` set to an absolute
+`.vsix` filename in an existing directory.
+
+Right-click the yellow icon to enable/disable automatic restart, set the idle
+threshold, or change the EXE. Automatic restart starts disabled; the initial
+threshold is **5 minutes**. Both values persist. While enabled, background
+observations run about every 15 seconds even when the Tracker is hidden and
+scan all discovered task rollouts, including chats beyond the visible history
+limit. There must be at least one unfinished running task, every such task
+must have been inactive for the configured interval, and the observation must
+be complete and fresh. A single recently active task prevents restart. Every
+restart attempt records a persistent cooldown of the configured interval.
+
+Before either manual or automatic restart, Tracker saves the original running
+chat IDs and turn IDs in extension state. For up to ten minutes after restart,
+it checks those chats and sends exactly **Tiếp tục công việc (nếu còn)** only
+to an original chat that stopped after the snapshot. A chat still running, or
+one that has moved to another turn, is left alone. Definite non-delivery may
+retry after ten seconds, at most six attempts with the same message UUID;
+unknown delivery is retained without an automatic resend. Restart recovery
+uses the existing Codex connection and does not open a separate Codex window.
+
+Stopped-chat composers now attach the same input/event handlers as running
+chats. Drafts survive polling and switching chats. Each send has its own
+request ID; only the matching successful acknowledgement clears the unchanged
+draft. Failed/unknown sends and text edited while sending remain in place.
+
+## Compact account and single usage status item (0.12.11)
+
+The account card contains the current email and **Deactive**, with no login
+heading. **Usage** occupies one line inside that same card: remaining quota,
+**↻** to check now, and **⚙** to change the interval. Reset times, other buckets
+and the last successful check are available in the tooltip. There are no
+progress bars or extra information rows. The interval dialog accepts 1–1440
+minutes; the default is 5. Set 0 for manual checks. This preference survives
+VS Code restarts, and automatic checks continue while the Tracker is hidden.
+Overlapping checks share one request. Failed checks retain the previous values
+with the error in the tooltip; missing usage is never presented as zero usage.
+
+The single **Codex Usage** item on the right of the VS Code status bar shows
+only the primary (5h) remaining percentage, for example `46%`. There are no
+separate window labels or extra status items. Hover for all buckets, both
+window percentages, reset times and the configured interval. Missing primary
+quota is never replaced with the weekly percentage. The Usage row inside the
+account card still shows both windows, for example `5h 55% - 7d 93%`, with
+yellow and green percentages.
+Click it, or run **Codex Tracker: Check Usage**, to refresh the same data shown
+in the Tracker. Both locations show remaining quota; the tooltip identifies it. The
+Command Palette also exposes **Codex Tracker: Set Usage Check Interval**.
+
+Usage comes from `account/rateLimits/read` through the existing Codex Extension
+connection. It uses the quota data documented in the
+[official OpenAI documentation](https://developers.openai.com/codex/app-server/).
+It does not estimate quota from chat messages or token counts.
+
+The name of the conversation currently displayed in Codex is yellow in the
+Tracker. This follows Codex's current local route, including changes made in
+Codex itself, separately from the row selected in the Tracker. For multiple
+Codex surfaces, the most recently focused one determines the current chat.
+Leaving the chat route clears the highlight. Opening Tracker never navigates
+Codex automatically.
+
+After installing this update, reload the VS Code window once so the observer
+loads with Codex. The observer is added to newly initialized webview HTML in
+memory, using a Tracker-owned script. Native extension files on disk remain
+untouched. It reads the committed router location, not conversation contents.
+This integration follows the installed Codex implementation and can require
+an update if the native webview internals change.
+
+**Trạng thái giao tiếp** is collapsed to one line by default. Click the line,
+or focus it and press Enter/Space, to expand the existing controls. Expanded
+state, settings drafts and focus survive Tracker refreshes.
+
+## Compact login card (0.12.8)
+
+**Phiên đăng nhập Codex** shows the current account email and a single
+**Deactive** button. The card contains no Codex Home path or explanatory text.
+The account label comes from `account/read` on the existing Codex Extension
+connection with `refreshToken: false`; Tracker does not read credentials to
+display it. Account metadata is refreshed while the Tracker is visible.
+
+## Open the selected conversation in Codex (0.12.7)
+
+Click a conversation in **Đang chạy** or **Không chạy** to select its Tracker
+details and open that exact existing thread in the Codex sidebar in the same
+VS Code window. Enter and Space on a conversation row do the same. Selecting
+the same row again reopens it after navigating elsewhere in Codex.
+
+Navigation activates Codex when needed and uses its existing sidebar route
+queue, including while the sidebar is loading. Rapid selections keep the newest
+choice. Restoring Tracker state or polling never switches the Codex conversation.
+If navigation fails, Tracker retains the selected details and shows an error.
+
+This integration locates the running Extension URI handler without editing the
+OpenAI extension or opening an OS protocol link. It depends on Codex internals;
+unsupported layouts fail explicitly. Opening a conversation sends no prompt or
+turn request. It does not use the queue, steer, or continuation APIs.
+
+## Deactivate the current login (0.12.6)
+
+Use **Deactive** in the **Phiên đăng nhập Codex** card,
+or run **Codex Tracker: Deactivate (Xoá phiên hiện tại)** from the Command Palette.
+The card is available even without a selected conversation. Deactivation targets
+Tracker's configured `codexHome`, then `CODEX_HOME`, then `~/.codex`.
+
+This follows Swapper Codex 0.3.0's deactivation mechanism: replace `auth.json`
+with `{ "OPENAI_API_KEY": null, "tokens": null }`, then offer to reload VS Code.
+Tracker writes the replacement atomically without reading, logging, or backing
+up credentials. Conversation files, indexes, settings, and Swapper's saved
+accounts are untouched. This clears the saved file login; it does not revoke
+tokens on the server or clear other credential stores/environment API keys.
+
+Choose **Reload ngay** to apply it in this window, or **Để sau** to defer
+until **Developer: Reload Window**. Other running Codex windows need
+their own reload to discard credentials already in memory. Deactivation does
+not run automatically on activation or installation.
 
 ## Continue a completed conversation (0.12.5)
 
@@ -431,16 +567,34 @@ Build on Windows with Git Bash:
 Expected artifact:
 
 ```text
-codex-session-tracker-0.10.2.vsix
+codex-session-tracker-0.12.12.vsix
 ```
 
 Install:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.10.2.vsix --force
+code --install-extension .\codex-session-tracker-0.12.12.vsix --force
 ```
 
 Then run **Developer: Reload Window** once.
+
+## Clean generated repository files
+
+Run `python cleanup_repo.py` to list generated installers, build/test caches,
+screenshots and test logs without deleting anything. Run
+`python cleanup_repo.py --delete` to remove that list. Source, tests, the main
+Git database and JSON/Markdown verification records are preserved.
+
+The full cleanup also removes the generated `runtime/bin` after checking that
+an identical runtime exists in an installed Tracker extension. Installed
+extensions and Codex accounts are outside its scope. Rebuild that binary with
+`scripts/build-runtime.ps1` before packaging again, or use
+`python cleanup_repo.py --delete --keep-runtime` to retain the packaging binary.
+
+For double-click deletion on Windows, open **XOA_RAC.py**. It runs the same
+guarded cleanup with `--delete` and waits for Enter afterwards so the result
+stays visible. If Windows opens an editor, use **Open with → Python** for this
+file. `cleanup_repo.py` without arguments remains a preview.
 
 ## Automated tests
 

@@ -1,0 +1,19 @@
+{
+  "trackerVersion": "0.12.10",
+  "vsix": "codex-session-tracker-0.12.10.vsix",
+  "packedFilesMatchSource": 48,
+  "unitTestsPassed": 204,
+  "browserPassed": true,
+  "consoleErrors": [],
+  "usageCardHeight": 38,
+  "compactFormatExample": "5h 55% - 7d 93%",
+  "percentageColors": {
+    "primary": "charts.yellow",
+    "secondary": "charts.green"
+  },
+  "signedInNativeUiVerified": false,
+  "realAccountQuotaVerified": false,
+  "scope": "Local HTTP Tracker dashboard fixtures in headless Edge; no native Codex test window or real account quota check.",
+  "installedVersion": "0.12.10",
+  "installedFilesMatchSource": 48
+}

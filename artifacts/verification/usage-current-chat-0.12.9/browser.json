@@ -1,0 +1,46 @@
+{
+  "passed": true,
+  "viewports": [
+    {
+      "width": 1000,
+      "collapsedHeight": 36.796875,
+      "defaultCollapsed": true,
+      "mouseAndKeyboard": true,
+      "settingsAndTrafficActions": true,
+      "stateAndDraftAndFocusRetained": true,
+      "selectedAndUnselectedRefresh": true,
+      "nativeCurrentChatColorAndBothTabs": true,
+      "selectedChatIndependentOfCurrentChat": true,
+      "usageAboveAccountWithManualCheckAndMinuteControls": true,
+      "usageInputSurvivesRefresh": true
+    },
+    {
+      "width": 520,
+      "collapsedHeight": 36.796875,
+      "defaultCollapsed": true,
+      "mouseAndKeyboard": true,
+      "settingsAndTrafficActions": true,
+      "stateAndDraftAndFocusRetained": true,
+      "selectedAndUnselectedRefresh": true,
+      "nativeCurrentChatColorAndBothTabs": true,
+      "selectedChatIndependentOfCurrentChat": true,
+      "usageAboveAccountWithManualCheckAndMinuteControls": true,
+      "usageInputSurvivesRefresh": true
+    },
+    {
+      "width": 320,
+      "collapsedHeight": 36.796875,
+      "defaultCollapsed": true,
+      "mouseAndKeyboard": true,
+      "settingsAndTrafficActions": true,
+      "stateAndDraftAndFocusRetained": true,
+      "selectedAndUnselectedRefresh": true,
+      "nativeCurrentChatColorAndBothTabs": true,
+      "selectedChatIndependentOfCurrentChat": true,
+      "usageAboveAccountWithManualCheckAndMinuteControls": true,
+      "usageInputSurvivesRefresh": true
+    }
+  ],
+  "consoleErrors": [],
+  "scope": "Tracker dashboard served over local HTTP with fixture host messages and quota values; not signed-in Codex account validation."
+}

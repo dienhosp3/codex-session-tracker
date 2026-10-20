@@ -121,6 +121,9 @@ function createLiveBackend(connection, options = {}) {
       resumed = true;
     }
     const previousTurnId = await requireStopped();
+    if (params.expectedPreviousTurnId && previousTurnId !== params.expectedPreviousTurnId) {
+      throw failure('Chat đã chuyển sang lượt khác; không gửi tự động vào lượt mới.', 'not_sent');
+    }
     await onReady();
     const result = await request('turn/start', {
       threadId, input: params.input, clientUserMessageId: params.clientUserMessageId
@@ -135,7 +138,9 @@ function createLiveBackend(connection, options = {}) {
     for (const [id, item] of pending) settle(id, failure('Tracker bridge disposed.', item.mutating ? 'unknown' : 'not_sent'));
     registration.dispose();
   }
-  return { available, isLoaded, activeTurn, steer, continueConversation, dispose };
+  const readAccount = () => request('account/read', { refreshToken: false });
+  const readRateLimits = () => request('account/rateLimits/read', {});
+  return { available, isLoaded, activeTurn, steer, continueConversation, readAccount, readRateLimits, dispose };
 }
 
 const BRIDGE_KEY = Symbol.for('codexSessionTracker.ownerBridge.v2');
@@ -149,7 +154,7 @@ function installOwnerBridge(connections, streams, options = {}) {
     const client = stream?.ipcClient;
     const handlers = client?.requestHandlers;
     if (!(handlers instanceof Map) || typeof stream.ownsThread !== 'function') continue;
-    if (client[BRIDGE_KEY]?.revision === 3) {
+    if (client[BRIDGE_KEY]?.revision === 6) {
       installedBridges.add(client[BRIDGE_KEY]);
       results.push(client[BRIDGE_KEY].info);
       continue;
@@ -201,7 +206,7 @@ function installOwnerBridge(connections, streams, options = {}) {
     handlers.set('thread-owner-discovery', newDiscovery);
     handlers.set('thread-follower-steer-turn', newSteer);
     if (newStart) handlers.set('thread-follower-start-turn', newStart);
-    client[BRIDGE_KEY] = { revision: 3, info, available: backend.available, ownsThread: id => stream.ownsThread('local', id), continueConversation: continueHere, dispose() {
+    client[BRIDGE_KEY] = { revision: 6, info, available: backend.available, readAccount: backend.readAccount, readRateLimits: backend.readRateLimits, ownsThread: id => stream.ownsThread('local', id), continueConversation: continueHere, dispose() {
       if (handlers.get('thread-owner-discovery') === newDiscovery) handlers.set('thread-owner-discovery', discovery);
       if (handlers.get('thread-follower-steer-turn') === newSteer) handlers.set('thread-follower-steer-turn', steer);
       if (newStart && handlers.get('thread-follower-start-turn') === newStart) handlers.set('thread-follower-start-turn', start);
@@ -234,4 +239,16 @@ async function continueInLocalBackend(params) {
   }
   return choices[0].continueConversation(params);
 }
-module.exports = { createLiveBackend, installOwnerBridge, installedBridgeInfo, disposeOwnerBridges, continueInLocalBackend, BRIDGE_KEY };
+async function readAccountInLocalBackend() {
+  const candidates = [...installedBridges].filter(bridge => bridge.available());
+  const unique = new Map(candidates.map(bridge => [bridge.info.ownerPid, bridge]));
+  if (unique.size !== 1) throw new Error('Không xác định được phiên Codex đang chạy trong cửa sổ này.');
+  return unique.values().next().value.readAccount();
+}
+async function readRateLimitsInLocalBackend() {
+  const candidates = [...installedBridges].filter(bridge => bridge.available());
+  const unique = new Map(candidates.map(bridge => [bridge.info.ownerPid, bridge]));
+  if (unique.size !== 1) throw new Error('Chưa kết nối được Codex trong cửa sổ này.');
+  return unique.values().next().value.readRateLimits();
+}
+module.exports = { createLiveBackend, installOwnerBridge, installedBridgeInfo, disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, BRIDGE_KEY };

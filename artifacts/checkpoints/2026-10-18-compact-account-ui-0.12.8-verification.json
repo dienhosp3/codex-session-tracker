@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "trackerVersion": "0.12.8",
+  "verifiedAt": "2026-10-18T15:29:03.189296+00:00",
+  "tests": {
+    "command": "npm test",
+    "passed": 184,
+    "failed": 0,
+    "log": "artifacts/account-ui-0.12.8-tests.log"
+  },
+  "browser": {
+    "passed": true,
+    "viewports": [
+      {
+        "width": 900,
+        "singleButton": true,
+        "overflow": false,
+        "clickAcceptedOnce": true
+      },
+      {
+        "width": 390,
+        "singleButton": true,
+        "overflow": false,
+        "clickAcceptedOnce": true
+      }
+    ],
+    "consoleErrors": []
+  },
+  "liveExtensionHost": {
+    "schemaVersion": 1,
+    "trackerVersion": "0.12.8",
+    "passed": true,
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.1007.21434"
+    },
+    "accountReadAccepted": true,
+    "signedOutLabelCorrect": true,
+    "scope": "Installed Codex Extension in an isolated host with empty Codex Home. Read-only account/read accepted through the existing connection. No real credentials, account logout or model turn used.",
+    "recordedAt": "2026-10-18T15:27:19.114Z"
+  },
+  "package": {
+    "file": "codex-session-tracker-0.12.8.vsix",
+    "sha256": "6c0527a8d20a5c9a8ed30497efd1d14e5c0af0c29f4b6658b20688ffa86ab14d",
+    "checkedEntries": [
+      "codex_auth.js",
+      "codex_delete.js",
+      "codex_live_backend.js",
+      "codex_navigation.js",
+      "codex_owner_bridge.js",
+      "codex_queue.js",
+      "codex_steer.js",
+      "dashboard.html",
+      "extension.js",
+      "gateway/classifier.js",
+      "gateway/client_instrumentation.js",
+      "gateway/client_runtime.js",
+      "gateway/config_manager.js",
+      "gateway/content_capture.js",
+      "gateway/correlation.js",
+      "gateway/forward_proxy.js",
+      "gateway/h2_headers.py",
+      "gateway/hook-requirements.txt",
+      "gateway/hook_runner.py",
+      "gateway/index.js",
+      "gateway/json_filters.js",
+      "gateway/native_hook.js",
+      "gateway/native_instrumentation.js",
+      "gateway/plaintext_stream.js",
+      "gateway/redaction.js",
+      "gateway/response_events.js",
+      "gateway/saved_traffic.js",
+      "gateway/server.js",
+      "gateway/state_machine.js",
+      "gateway/trace_store.js",
+      "gateway/traffic_logs.js",
+      "gateway/traffic_policy.js",
+      "gateway/websocket_proxy.js",
+      "LICENSE.txt",
+      "media/tracker.svg",
+      "package.json",
+      "README.md",
+      "runtime/LICENSE-Codex.txt",
+      "runtime/manifest.json",
+      "runtime/NOTICE-Codex.txt",
+      "runtime/tracker_hook.rs",
+      "runtime_versions.js",
+      "tracker.js",
+      "traffic_monitor.html"
+    ],
+    "sourceMatches": true
+  },
+  "provenance": "2026-10-18-compact-account-ui-0.12.8.json",
+  "installation": {
+    "version": "0.12.8",
+    "verifiedSourceMatch": true,
+    "checkedEntries": 44,
+    "installerMetadataExcluded": [
+      "__metadata"
+    ],
+    "reloadPerformed": false
+  },
+  "scope": "Account metadata read via the existing connection with refreshToken false. Screenshots use fixture email only. Live host uses an empty isolated Codex Home. No real account deactivated, no model turn sent, no main window reload performed."
+}

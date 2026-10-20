@@ -1,0 +1,39 @@
+{
+  "trackerVersion": "0.12.12",
+  "verifiedAt": "2026-10-20T13:21:37.302747+00:00",
+  "nodeTests": {
+    "passed": 237,
+    "failed": 0
+  },
+  "browser": {
+    "passed": true,
+    "widths": [
+      1000,
+      520,
+      320
+    ],
+    "consoleErrors": 0,
+    "gatewayCollapsedHeight": 40,
+    "stoppedComposerDraftAndAckChecks": true,
+    "proxyContextMenuMessage": true
+  },
+  "windowsProcessSmoke": {
+    "passed": true,
+    "exactPathStopped": true,
+    "sameNameOtherPathPreserved": true,
+    "replacementStarted": true,
+    "specialCharactersPreserved": true
+  },
+  "cleanupLauncher": {
+    "pythonAssociationVerified": true,
+    "simulatedOutcomesPassed": 3,
+    "deletionExecutedByAgent": false
+  },
+  "archive": {
+    "sourceMatches": 50,
+    "runtimeVerifiedAgainstManifest": true,
+    "installedMatches": 51
+  },
+  "repositoryLogicalMiB": 3.67,
+  "scope": "Protocol fixtures and HTTP dashboard browser checks; owned disposable Windows EXEs. No live Codex chat messages or real proxy restarts were used for verification."
+}

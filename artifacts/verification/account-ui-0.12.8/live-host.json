@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "trackerVersion": "0.12.8",
+  "passed": true,
+  "installedExtension": {
+    "id": "openai.chatgpt",
+    "version": "26.1007.21434"
+  },
+  "accountReadAccepted": true,
+  "signedOutLabelCorrect": true,
+  "scope": "Installed Codex Extension in an isolated host with empty Codex Home. Read-only account/read accepted through the existing connection. No real credentials, account logout or model turn used.",
+  "recordedAt": "2026-10-18T15:27:19.114Z"
+}

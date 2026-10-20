@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-18T15:26:33.506Z",
+  "label": "compact-account-ui-0.12.8",
+  "repository": {
+    "revision": "7a618e63d8b52339283fd13d5c2d72a7fb03e9b1",
+    "shortRevision": "7a618e63d8b5",
+    "dirty": true,
+    "trackerVersion": "0.12.8"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.1007.21434"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.162.0-alpha.17.2",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "",
+      "model": ""
+    }
+  }
+}

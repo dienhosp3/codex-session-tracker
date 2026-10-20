@@ -16,7 +16,12 @@ VERSION="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).version")"
 ENGINE="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).engines.vscode")"
 DISPLAY="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).displayName")"
 DESCRIPTION="$(node -p "require(process.env.CODEX_TRACKER_PACKAGE).description")"
-VSIX="$ROOT/${NAME}-${VERSION}.vsix"
+VSIX="${CODEX_TRACKER_VSIX_OUTPUT:-$ROOT/${NAME}-${VERSION}.vsix}"
+if command -v cygpath >/dev/null 2>&1; then
+  VSIX="$(cygpath -u "$VSIX")"
+fi
+case "$VSIX" in *.vsix) ;; *) echo "VSIX output must end with .vsix" >&2; exit 1 ;; esac
+VSIX="$(cd "$(dirname "$VSIX")" && pwd)/$(basename "$VSIX")"
 mkdir -p "$ROOT/.runtime-build"
 STAGE="$(mktemp -d "$ROOT/.runtime-build/vsix-stage-XXXXXX")"
 case "$STAGE" in "$ROOT"/.runtime-build/vsix-stage-*) ;; *) exit 1 ;; esac
@@ -31,6 +36,13 @@ cp "$ROOT/codex_steer.js" "$STAGE/extension/codex_steer.js"
 cp "$ROOT/codex_live_backend.js" "$STAGE/extension/codex_live_backend.js"
 cp "$ROOT/codex_owner_bridge.js" "$STAGE/extension/codex_owner_bridge.js"
 cp "$ROOT/codex_delete.js" "$STAGE/extension/codex_delete.js"
+cp "$ROOT/codex_auth.js" "$STAGE/extension/codex_auth.js"
+cp "$ROOT/codex_navigation.js" "$STAGE/extension/codex_navigation.js"
+cp "$ROOT/codex_current_chat.js" "$STAGE/extension/codex_current_chat.js"
+cp "$ROOT/codex_usage.js" "$STAGE/extension/codex_usage.js"
+cp "$ROOT/local_proxy.js" "$STAGE/extension/local_proxy.js"
+cp "$ROOT/proxy_watchdog.js" "$STAGE/extension/proxy_watchdog.js"
+cp "$ROOT/proxy_recovery.js" "$STAGE/extension/proxy_recovery.js"
 cp "$ROOT/runtime_versions.js" "$STAGE/extension/runtime_versions.js"
 if [[ ! -f "$ROOT/runtime/bin/windows-x86_64/codex.exe" || ! -f "$ROOT/runtime/manifest.json" ]]; then
   echo "Build the client runtime with scripts/build-runtime.ps1 first." >&2
@@ -49,6 +61,7 @@ cp "$ROOT/dashboard.html" "$STAGE/extension/dashboard.html"
 cp "$ROOT/traffic_monitor.html" "$STAGE/extension/traffic_monitor.html"
 mkdir -p "$STAGE/extension/media"
 cp "$ROOT/media/tracker.svg" "$STAGE/extension/media/tracker.svg"
+cp "$ROOT/media/codex_current_chat_observer.js" "$STAGE/extension/media/codex_current_chat_observer.js"
 cp "$ROOT/README.md" "$STAGE/extension/README.md"
 cp "$ROOT/LICENSE" "$STAGE/extension/LICENSE.txt"
 

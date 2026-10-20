@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "trackerVersion": "0.12.6",
+  "verifiedAt": "2026-10-17T09:41:43.391Z",
+  "tests": {
+    "command": "npm test",
+    "passed": 169,
+    "failed": 0,
+    "newDeactivationTests": 9
+  },
+  "package": {
+    "file": "codex-session-tracker-0.12.6.vsix",
+    "sha256": "b73796fa7ce58925d1400461b05ce39f3c701ee7acf1c1043091e537897617cc",
+    "checkedEntries": [
+      "package.json",
+      "codex_auth.js",
+      "extension.js",
+      "dashboard.html",
+      "README.md"
+    ]
+  },
+  "provenance": "2026-10-17-deactivate-session-0.12.6.json",
+  "scope": "Temporary fixture credentials only; no live credentials read or changed, no live reload performed. No rollout inspected for this change.",
+  "installation": {
+    "version": "0.12.6",
+    "verifiedSourceMatch": true,
+    "reloadPerformed": false
+  }
+}

@@ -1091,11 +1091,11 @@ async function scanConversationSessions(options = {}) {
   const historyLimit = clampInt(options.historyLimit, 100, 10, 1000);
   const scanLimit = clampInt(options.scanLimit, 1200, 50, 10000);
   const includeNonVsCodeSessions = Boolean(options.includeNonVsCodeSessions);
-  const includeNonRunning = Boolean(options.includeNonRunning);
+  const includeNonRunning = Boolean(options.includeNonRunning || options.monitorAll);
   if (!sessionsDir) return { active: [], nonRunning: [] };
 
   const files = await listRolloutFiles(sessionsDir);
-  const candidates = files.slice(0, Math.min(files.length, Math.max(scanLimit, historyLimit * 6)));
+  const candidates = options.monitorAll ? files : files.slice(0, Math.min(files.length, Math.max(scanLimit, historyLimit * 6)));
   const metas = await mapLimit(candidates, 12, entry => readCachedSessionMeta(entry.file, entry));
   const byThread = new Map();
   for (const meta of metas) {
@@ -1157,7 +1157,13 @@ async function scanConversationSessions(options = {}) {
 
   const all = active.concat(nonRunning);
   const names = await readThreadNames(codexHome, new Set(all.map(item => item.threadId)));
-  const stateTimes = readStateThreadActivity(codexHome, new Set(all.map(item => item.threadId)));
+  const stateTimes = readStateThreadActivity(codexHome, new Set((options.monitorAll ? nodes : all).map(item => item.threadId)));
+  if (options.monitorAll) {
+    for (const node of nodes) {
+      const stats = treeStats.get(rootThreadForMeta(node, byThread));
+      if (stats) stats.latestMtime = Math.max(stats.latestMtime, stateTimes.get(node.threadId) || 0);
+    }
+  }
   for (const session of all) {
     const indexed = names.get(session.threadId);
     if (indexed && indexed.name) {
@@ -1166,7 +1172,8 @@ async function scanConversationSessions(options = {}) {
     }
     const indexedUpdatedAtMs = Math.max(
       parseTimestampMs(indexed && indexed.updatedAt),
-      stateTimes.get(session.threadId) || 0
+      stateTimes.get(session.threadId) || 0,
+      options.monitorAll ? treeStats.get(session.threadId)?.latestMtime || 0 : 0
     );
     if (indexedUpdatedAtMs) {
       session.indexedUpdatedAtMs = indexedUpdatedAtMs;
@@ -1176,7 +1183,30 @@ async function scanConversationSessions(options = {}) {
   }
   active.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
   nonRunning.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
-  return { active: active.slice(0, historyLimit), nonRunning: nonRunning.slice(0, historyLimit) };
+  return {
+    active: active.slice(0, historyLimit),
+    nonRunning: nonRunning.slice(0, historyLimit),
+    ...(options.monitorAll ? {
+      monitor: {
+        complete: metas.every(meta => meta && !meta.__error) && withStatus.every(node => node && !node.__error && node.status && node.status.kind !== 'unknown') && [...activeRootIds].every(id => rootNodes.has(id)),
+        checkedAt: Date.now(),
+        tasks: active.map(session => ({
+          threadId: session.threadId,
+          cwd: session.cwd || '',
+          file: session.file,
+          stateKind: 'running',
+          lastActivity: Math.max(session.mtimeMs || 0, session.indexedUpdatedAtMs || 0),
+          turnId: rootNodes.get(session.threadId)?.status?.turnId || ''
+        })),
+        roots: all.map(session => ({
+          threadId: session.threadId,
+          stateKind: session.status?.kind || 'unknown',
+          turnId: rootNodes.get(session.threadId)?.status?.turnId || '',
+          lastActivity: session.mtimeMs || 0
+        }))
+      }
+    } : {})
+  };
 }
 
 async function scanActiveSessions(options = {}) {

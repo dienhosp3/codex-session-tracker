@@ -2,7 +2,7 @@
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
   "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
-  "version": "0.12.5",
+  "version": "0.12.12",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -24,6 +24,26 @@
   ],
   "contributes": {
     "commands": [
+      {
+        "command": "codexSessionTracker.configureProxyWatchdog",
+        "title": "Codex Tracker: Configure Proxy Auto Restart"
+      },
+      {
+        "command": "codexSessionTracker.restartLocalProxy",
+        "title": "Codex Tracker: Restart Local Proxy"
+      },
+      {
+        "command": "codexSessionTracker.configureLocalProxy",
+        "title": "Codex Tracker: Choose Local Proxy EXE"
+      },
+      {
+        "command": "codexSessionTracker.checkUsage",
+        "title": "Codex Tracker: Check Usage"
+      },
+      {
+        "command": "codexSessionTracker.configureUsageInterval",
+        "title": "Codex Tracker: Set Usage Check Interval"
+      },
       {
         "command": "codexSessionTracker.openTracker",
         "title": "Codex Tracker: Open Tracker"
@@ -55,6 +75,10 @@
       {
         "command": "codexSessionTracker.openTrafficMonitor",
         "title": "Codex Tracker: Open Traffic Monitor"
+      },
+      {
+        "command": "codexSessionTracker.deactivateSession",
+        "title": "Codex Tracker: Deactivate (Xoá phiên hiện tại)"
       }
     ],
     "configuration": {
@@ -192,11 +216,16 @@
     "codex_live_backend.js",
     "codex_owner_bridge.js",
     "codex_delete.js",
+    "codex_auth.js",
+    "codex_navigation.js",
+    "codex_current_chat.js",
+    "codex_usage.js",
     "runtime_versions.js",
     "gateway",
     "dashboard.html",
     "traffic_monitor.html",
     "media/tracker.svg",
+    "media/codex_current_chat_observer.js",
     "README.md",
     "LICENSE"
   ]

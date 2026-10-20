@@ -69,6 +69,37 @@
 .image-dialog::backdrop{background:rgba(0,0,0,.75)}
 .image-dialog img{display:block;max-width:calc(90vw - 30px);max-height:calc(90vh - 65px);object-fit:contain}
 .image-dialog button{display:block;margin:0 0 6px auto;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}
+.auth-session-row{display:flex;align-items:center;gap:12px;min-width:0}
+.auth-session-account{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.auth-session-row button{flex-shrink:0}
+.gateway-disclosure{min-width:0}
+.chat-title.codex-current{color:#ffd75e}
+.usage-head{display:flex;align-items:center;gap:6px;min-width:0;height:18px}
+.auth-session-card .usage-head{margin-top:8px}
+.usage-head .card-title{margin:0;flex:0 0 auto}
+.usage-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.usage-percent-yellow{color:var(--vscode-charts-yellow,#d7ba7d)}
+.usage-percent-green{color:var(--vscode-charts-green,#89d185)}
+.usage-head .iconbtn{flex:0 0 auto;height:18px;padding:0 3px;font:inherit;line-height:18px}
+.gateway-summary{display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;list-style:none}
+.gateway-summary::-webkit-details-marker{display:none}
+.gateway-summary::before{content:'▸';flex:0 0 auto;color:var(--vscode-descriptionForeground)}
+.gateway-disclosure[open]>.gateway-summary::before{content:'▾'}
+.gateway-summary-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gateway-summary .card-title{margin:0}
+.gateway-summary-status{flex:0 0 auto;font-size:10px;white-space:nowrap;color:var(--vscode-descriptionForeground)}
+.gateway-summary-status.gateway-bad{color:var(--vscode-errorForeground)}
+.gateway-disclosure[open]>.gateway-summary{margin-bottom:8px}
+.gateway-summary:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:3px}
+.gateway-summary .proxy-restart{display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:20px;padding:1px;border:1px solid #a78b35;border-radius:4px;background:rgba(255,215,94,.14);color:#ffd75e;cursor:pointer}
+.gateway-summary .proxy-restart:hover:not(:disabled){background:rgba(255,215,94,.28);border-color:#ffd75e}
+.gateway-summary .proxy-restart:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}
+.gateway-summary .proxy-restart:disabled{opacity:.55;cursor:wait}
+.proxy-restart svg{width:15px;height:15px;pointer-events:none}
+.local-proxy-row{display:flex;align-items:center;gap:6px;min-width:0;margin-bottom:8px}
+.local-proxy-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--vscode-descriptionForeground)}
+.local-proxy-row .iconbtn{flex:0 0 auto;padding:1px 5px}
+.local-proxy-row+.gateway-notice{margin:0 0 8px}
 </style>
 </head>
 <body>
@@ -100,7 +131,8 @@ function renderChats(){
     const agents=c.runningCount>1?' · '+c.runningCount+' threads':'';
     const at=Number(c.lastActivity)||0;
     const deleteButton=nonRunning?'<button class="iconbtn chat-delete" type="button" data-delete="'+esc(c.threadId)+'" title="Xóa cuộc trò chuyện" aria-label="Xóa cuộc trò chuyện" '+(deletion.busy?'disabled':'')+'>&#128465;</button>':'';
-    return '<div class="chat '+(c.threadId===state.selectedThreadId?'selected':'')+'" data-id="'+esc(c.threadId)+'" title="'+esc(c.cwd||'')+'" role="button" tabindex="0"><div class="titleline"><span class="dot '+(nonRunning?'dot-stopped':'')+'"></span><span class="chat-title">'+esc(c.title||'Codex chat')+'</span>'+deleteButton+'</div><div class="chat-meta"><span class="ellipsis">'+esc(baseName(c.cwd)||'No workspace')+esc(agents)+'</span><span class="'+timeAgeClass(at)+'" title="'+esc(absTime(at))+'">'+esc(absTime(at))+' · '+esc(relTime(at))+'</span></div></div>';
+    const currentChat=c.threadId===state.codexCurrentThreadId;
+    return '<div class="chat '+(c.threadId===state.selectedThreadId?'selected':'')+'" data-id="'+esc(c.threadId)+'" title="'+esc(c.cwd||'')+'" role="button" tabindex="0"><div class="titleline"><span class="dot '+(nonRunning?'dot-stopped':'')+'"></span><span class="chat-title'+(currentChat?' codex-current':'')+'"'+(currentChat?' title="Đang mở trong Codex"':'')+'>'+esc(c.title||'Codex chat')+'</span>'+deleteButton+'</div><div class="chat-meta"><span class="ellipsis">'+esc(baseName(c.cwd)||'No workspace')+esc(agents)+'</span><span class="'+timeAgeClass(at)+'" title="'+esc(absTime(at))+'">'+esc(absTime(at))+' · '+esc(relTime(at))+'</span></div></div>';
   }).join('');
   for(const el of chatList.querySelectorAll('.chat')){
     el.onclick=()=>vscode.postMessage({command:'selectChat',threadId:el.dataset.id});
@@ -131,16 +163,22 @@ function bindComposer(wasFocused,start,end){
   ta.value=draft;
   const update=()=>{
     draft=ta.value;
-    const hasText=Boolean(String(draft).trim()),hasImages=draftImages.length>0,a=state.steer||{},q=state.queue||{},c=state.continuation||{},busy=Boolean(a.busy||q.busy||c.busy);
+    const hasText=Boolean(String(draft).trim()),hasImages=draftImages.length>0,a=state.steer||{},q=state.queue||{},c=state.continuation||{},busy=Boolean(a.busy||q.busy||c.busy||Object.values(pendingContinuation).some(item=>item.threadId===state.selectedThreadId));
     if(steer)steer.disabled=!(hasText||hasImages)||!a.available||busy;
     if(queue)queue.disabled=!hasText||hasImages||!q.available||busy;
     if(next)next.disabled=!(hasText||hasImages)||busy||!state.selected||state.selected.stateKind==='unknown';
   };
   ta.oninput=update;
   ta.onkeydown=e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();const primary=next||steer;if(primary&&!primary.disabled)primary.click()}};
-  if(steer)steer.onclick=()=>{if(!steer.disabled)vscode.postMessage({command:'steerMessage',text:String(draft||'').trim(),images:draftImages})};
-  if(queue)queue.onclick=()=>{if(!queue.disabled)vscode.postMessage({command:'queueMessage',text:String(draft||'').trim()})};
-  if(next)next.onclick=()=>{if(!next.disabled)vscode.postMessage({command:'continueMessage',threadId:state.selectedThreadId,text:String(draft||'').trim(),images:draftImages.slice()})};
+  const send=command=>{
+    const requestId=crypto.randomUUID();
+    pendingContinuation[requestId]={threadId:state.selectedThreadId,text:String(draft||'').trim(),images:draftImages.map(image=>image.dataUrl)};
+    update();
+    vscode.postMessage({command,threadId:state.selectedThreadId,text:String(draft||'').trim(),images:draftImages.slice(),requestId});
+  };
+  if(steer)steer.onclick=()=>{if(!steer.disabled)send('steerMessage')};
+  if(queue)queue.onclick=()=>{if(!queue.disabled)send('queueMessage')};
+  if(next)next.onclick=()=>{if(!next.disabled)send('continueMessage')};
   if(reprobe)reprobe.onclick=()=>vscode.postMessage({command:'reprobeCodex'});
   if(addImage&&picker)addImage.onclick=()=>picker.click();
   if(picker)picker.onchange=()=>{addDraftImages(picker.files);picker.value=''};
@@ -195,8 +233,24 @@ function renderTimeline(d){
   }).join('');
   return '<div class="timeline">'+html+'</div>'+(d.truncated?'<div class="truncated-note">Nhật ký cũ hơn không có trong phần dữ liệu đang đọc.</div>':'');
 }
-function captureUiState(){const result={open:{},scrollTop:main.scrollTop};main.querySelectorAll('details[data-state-key]').forEach(el=>{result.open[el.dataset.stateKey]=el.open});return result}
-function restoreUiState(saved){if(!saved)return;main.querySelectorAll('details[data-state-key]').forEach(el=>{if(Object.prototype.hasOwnProperty.call(saved.open,el.dataset.stateKey))el.open=saved.open[el.dataset.stateKey]});main.scrollTop=Math.min(saved.scrollTop||0,Math.max(0,main.scrollHeight-main.clientHeight))}
+function captureUiState(){
+  const result = {open: {}, scrollTop: main.scrollTop, gatewayFocus: ''};
+  main.querySelectorAll('details[data-state-key]').forEach(el => {
+    result.open[el.dataset.stateKey] = el.open;
+  });
+  const focused = document.activeElement;
+  if (document.hasFocus() && focused?.id && (focused.closest('.gateway-disclosure') || focused.closest('.usage-card'))) result.gatewayFocus = focused.id;
+  return result;
+}
+function restoreUiState(saved){
+  if (!saved) return;
+  main.querySelectorAll('details[data-state-key]').forEach(el => {
+    if (Object.prototype.hasOwnProperty.call(saved.open, el.dataset.stateKey)) el.open = saved.open[el.dataset.stateKey];
+  });
+  const focused = saved.gatewayFocus && document.getElementById(saved.gatewayFocus);
+  if (focused) focused.focus({preventScroll: true});
+  main.scrollTop = Math.min(saved.scrollTop || 0, Math.max(0, main.scrollHeight - main.clientHeight));
+}
 function safeImageSrc(image){
   const src=typeof image==='string'?image:String(image&&image.dataUrl||'');
   return /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(src)?src:'';
@@ -336,7 +390,23 @@ function renderGateway(){
   const proxy=g.modelProxyReady?(g.transportTrafficObserved?'forward proxy: ĐÃ THẤY TRAFFIC':'forward proxy: READY, CHƯA THẤY TRAFFIC'):(g.modelProxyConfigured?'forward proxy: CHƯA SẴN SÀNG':'forward proxy: TẮT');
   const managedText=managed.active?(managed.managed?'Legacy route: Tracker còn quản lý chatgpt_base_url':managed.drifted?'Legacy route: config đã đổi sau lần route cũ':'Legacy route: trạng thái không khớp'):'Codex HTTPS origin: giữ nguyên, không rewrite chatgpt_base_url';
   const originalLine=managed.active?(managed.originalRootLine?(' · gốc: '+managed.originalRootLine):' · gốc: không có chatgpt_base_url override'):(managed.currentRootLine?(' · hiện tại: '+managed.currentRootLine):' · hiện tại: dùng backend mặc định');
-  let html='<section class="card"><div class="card-title">Trạng thái giao tiếp</div><div class="gateway-meta">'+status+' · '+proxy+(g.websocketProxyReady?' · WS proxy sẵn sàng':'')+(g.lastModelNetworkAt?' · traffic '+esc(relTime(g.lastModelNetworkAt)):'')+(runtime?' · '+esc(runtime):'')+'</div><div class="gateway-meta" style="margin-top:3px">'+esc(managedText)+esc(originalLine)+(managed.configPath?' · '+esc(managed.configPath):'')+'</div>';
+  const compactStatus = g.running ? 'Đang chạy' : (g.enabled ? 'Lỗi' : 'Đã tắt');
+  const compactClass = g.enabled && !g.running ? ' gateway-bad' : '';
+  const localProxy=state.localProxy||{};
+  const watchdog=localProxy.watchdog||{};
+  const proxyTitle=(localProxy.busy?'Đang khởi động lại proxy…':'Khởi động lại proxy') + (localProxy.executablePath?'\n'+localProxy.executablePath:'\nChọn file .exe ở lần bấm đầu tiên') + '\nTự restart: '+(watchdog.enabled?'Bật':'Tắt')+' · '+(watchdog.minutes||5)+' phút\nChuột phải để cài đặt' + (localProxy.notice?.text?'\n'+localProxy.notice.text:'') + (watchdog.notice?'\n'+watchdog.notice:'') + (localProxy.recovery?.notice?'\n'+localProxy.recovery.notice:'');
+  let html = '<details class="card gateway-disclosure" data-state-key="gateway-status">' +
+    '<summary id="gatewaySummary" class="gateway-summary"><span class="card-title gateway-summary-label">Trạng thái giao tiếp</span>' +
+    '<span class="gateway-summary-status' + compactClass + '">' + compactStatus + '</span>' +
+    '<button id="restartLocalProxy" class="proxy-restart" type="button" aria-label="Khởi động lại proxy" title="'+esc(proxyTitle)+'" '+(localProxy.busy?'disabled aria-busy="true"':'')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 12M4 12l2.3 6A7 7 0 0 0 17.9 17"/></svg></button></summary>' +
+    '<div class="gateway-content"><div class="local-proxy-row"><span class="local-proxy-path" title="'+esc(localProxy.executablePath||'Chưa chọn file proxy .exe')+'">'+esc(localProxy.executablePath||'Proxy: Chưa chọn .exe')+'</span><button id="configureLocalProxy" class="iconbtn" type="button" title="Chọn file proxy .exe" aria-label="Chọn file proxy .exe" '+(localProxy.busy?'disabled':'')+'>…</button></div>' +
+    (localProxy.notice?.text?'<div class="gateway-notice '+(localProxy.notice.kind==='success'?'ok':'err')+'">'+esc(localProxy.notice.text)+'</div>':'') +
+    '<div class="gateway-meta">' + status + ' · ' + proxy +
+    (g.websocketProxyReady ? ' · WS proxy sẵn sàng' : '') +
+    (g.lastModelNetworkAt ? ' · traffic ' + esc(relTime(g.lastModelNetworkAt)) : '') +
+    (runtime ? ' · ' + esc(runtime) : '') + '</div>' +
+    '<div class="gateway-meta" style="margin-top:3px">' + esc(managedText) + esc(originalLine) +
+    (managed.configPath ? ' · ' + esc(managed.configPath) : '') + '</div>';
 
   if(cmd){
     const events=Array.isArray(cmd.events)?cmd.events:[];
@@ -365,7 +435,7 @@ function renderGateway(){
 
   html+='<div style="margin-top:9px;padding-top:8px;border-top:1px solid var(--vscode-panel-border)"><div class="card-title">Traffic Codex ↔ backend</div>'+
     '<div class="gateway-meta">'+(g.transportTrafficObserved?'Đã thấy transport traffic qua Gateway.':'Chưa thấy transport traffic qua Gateway.')+' HTTPS CONNECT pass-through giữ chat ổn định nhưng payload TLS vẫn mã hóa ở tầng proxy.</div>'+
-    '<div class="gateway-actions" style="margin-top:7px"><button id="gwTrafficInline" class="primary">Mở Traffic Monitor</button></div></div></section>';
+    '<div class="gateway-actions" style="margin-top:7px"><button id="gwTrafficInline" class="primary">Mở Traffic Monitor</button></div></div></div></details>';
   return html;
 }
 function readGatewaySettingsFromUi(){
@@ -379,6 +449,19 @@ function readGatewaySettingsFromUi(){
   };
 }
 function bindGatewayUi(){
+  const restartProxy=document.getElementById('restartLocalProxy');
+  if(restartProxy)restartProxy.onclick=event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    vscode.postMessage({command:'restartLocalProxy'});
+  };
+  if(restartProxy)restartProxy.oncontextmenu=event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    vscode.postMessage({command:'configureProxyWatchdog'});
+  };
+  const configureProxy=document.getElementById('configureLocalProxy');
+  if(configureProxy)configureProxy.onclick=()=>vscode.postMessage({command:'configureLocalProxy'});
   const ids=['gwEnabled','gwPort','gwProxy','gwCapture','gwTraceMax'];
   const updateDraft=()=>{gatewaySettingsDraft=readGatewaySettingsFromUi()};
   for(const id of ids){const el=document.getElementById(id);if(el){el.oninput=updateDraft;el.onchange=updateDraft}}
@@ -400,6 +483,44 @@ function bindGatewayUi(){
   });
 }
 
+function renderUsage(){
+  const usage=state.usage||{},display=usage.display||{};
+  const value=display.valueText||'Chưa có dữ liệu';
+  const windows=Array.isArray(display.windows)?display.windows:[];
+  const valueHtml=windows.length?windows.map(window=>esc(window.label)+' <span class="usage-percent-'+(window.tone==='green'?'green':'yellow')+'">'+esc(window.percent)+'</span>').join(' - '):esc(value);
+  const interval=usage.intervalMinutes??5;
+  const settings=interval?'Tự kiểm tra mỗi '+interval+' phút. Bấm để đổi.':'Kiểm tra thủ công. Bấm để đổi chu kỳ.';
+  return '<div class="usage-head usage-card"><span class="card-title">Usage</span>'+
+    '<span class="usage-value" title="'+esc(display.tooltip||usage.error||'Hạn mức Codex còn lại')+'">'+valueHtml+'</span>'+
+    '<button class="iconbtn" id="checkUsage" type="button" title="Kiểm tra Usage ngay" aria-label="Kiểm tra Usage ngay" '+(usage.busy?'disabled':'')+'>'+(usage.busy?'…':'↻')+'</button>'+
+    '<button class="iconbtn" id="usageSettings" type="button" title="'+esc(settings)+'" aria-label="Đổi chu kỳ kiểm tra Usage">⚙</button></div>';
+}
+
+function bindUsageUi(){
+  const button=document.getElementById('checkUsage');
+  if(button)button.onclick=()=>{if(!button.disabled){button.disabled=true;vscode.postMessage({command:'checkUsage'})}};
+  const settings=document.getElementById('usageSettings');
+  if(settings)settings.onclick=()=>vscode.postMessage({command:'configureUsageInterval'});
+}
+
+function renderAuthSession(){
+  const auth = state.authSession || {};
+  const account = esc(auth.accountLabel || 'Đang tải...');
+  const disabled = auth.busy || auth.canDeactivate === false;
+  return '<section class="card auth-session-card">' +
+    '<div class="auth-session-row"><span class="auth-session-account" title="' + account + '">' + account + '</span>' +
+    '<button class="send" id="deactivateSession" type="button" ' + (disabled ? 'disabled' : '') + '>Deactive</button></div>'+renderUsage()+'</section>';
+}
+
+function bindAuthSessionUi(){
+  const button=document.getElementById('deactivateSession');
+  if(button)button.onclick=()=>{
+    if(button.disabled||state.authSession?.busy)return;
+    button.disabled=true;
+    vscode.postMessage({command:'deactivateSession'});
+  };
+}
+
 function renderComposer(){
   const running=state.selected&&state.selected.stateKind==='running',si=running&&steerInfo(),qi=running&&queueInfo();
   const n=state.continuation&&state.continuation.notice,ci=n&&n.threadId===state.selectedThreadId?n:null;
@@ -411,23 +532,28 @@ function renderMain(){
   const ui=captureUiState(),old=document.getElementById('composerInput'),wasFocused=old&&document.activeElement===old,start=old&&old.selectionStart||0,end=old&&old.selectionEnd||0,d=state.selected;
   imageSources=[];
   if(!d){
-    main.innerHTML=renderGateway()+'<div class="empty">Chọn một chat để xem hoạt động; Gateway vẫn cấu hình được ở trên.</div>';
+    main.innerHTML=renderAuthSession()+renderGateway()+'<div class="empty">Chọn một chat để xem hoạt động; Gateway vẫn cấu hình được ở trên.</div>';
+    bindAuthSessionUi();
+    bindUsageUi();
     bindGatewayUi();
+    restoreUiState(ui);
     return;
   }
   const running=d.stateKind==='running',at=Number(d.lastActivityMs)||0;
   let html='<div class="head"><div class="head-left"><div class="title">'+esc(d.title||'Codex chat')+'</div><div class="sub" title="'+esc(d.cwd||'')+'">'+esc(baseName(d.cwd)||d.cwd||'')+' · hoạt động '+timeHtml(at,'head-time')+'</div></div><div class="state '+(running?'running':'stopped')+'">'+esc(d.state||'Unknown')+'</div></div>';
   html+='<div class="view-switch" role="tablist" aria-label="Cách xem lịch sử"><button type="button" id="summaryView" role="tab" aria-selected="'+String(viewMode==='summary')+'">Tổng quan</button><button type="button" id="chronologicalView" role="tab" aria-selected="'+String(viewMode==='chronological')+'">Theo thứ tự</button></div>';
-  html+=renderGateway();
+  html+=renderAuthSession()+renderGateway();
   if(viewMode==='chronological')html+=renderTranscript(d);
   else html+=renderCurrent(d)+renderWorkers(d)+renderHistory(d)+renderLatest(d);
   html+=renderComposer();
   main.innerHTML=html;
+  bindAuthSessionUi();
+  bindUsageUi();
   const setMode=mode=>{viewMode=mode;vscode.setState({...vscode.getState(),viewMode});renderMain()};
   document.getElementById('summaryView').onclick=()=>setMode('summary');
   document.getElementById('chronologicalView').onclick=()=>setMode('chronological');
   bindGatewayUi();
-  if(running)bindComposer(wasFocused,start,end);
+  bindComposer(wasFocused,start,end);
   bindImageViewer();
   restoreUiState(ui);
 }
@@ -460,6 +586,7 @@ function setChatTab(nonRunning){
 }
 document.getElementById('runningTab').onclick=()=>setChatTab(false);
 document.getElementById('nonRunningTab').onclick=()=>setChatTab(true);
+const pendingContinuation={};
 window.addEventListener('message',e=>{
   const m=e.data;
   if(m.type==='state'){
@@ -470,17 +597,24 @@ window.addEventListener('message',e=>{
       if(gwNotice.kind==='success')gatewaySettingsDraft=null;
     }
     switchDraftThread(state.selectedThreadId||'');
-    const notices=[state.queue&&state.queue.notice,state.steer&&state.steer.notice,state.continuation&&state.continuation.notice].filter(n=>n&&(!n.threadId||n.threadId===currentDraftThreadId));
-    const n=notices.sort((a,b)=>(b.at||0)-(a.at||0))[0];
-    if(n&&n.at&&n.at!==lastNoticeAt){
-      lastNoticeAt=n.at;
-      if(n.kind==='success'&&(n.sentText===undefined||n.sentText===String(draft||'').trim())&&(n.sentImages===undefined||JSON.stringify(n.sentImages)===JSON.stringify(draftImages.map(i=>i.dataUrl)))){
+    const notices=[state.queue&&state.queue.notice,state.steer&&state.steer.notice,state.continuation&&state.continuation.notice].filter(Boolean);
+    for(const n of notices){
+      const pending=n.requestId&&pendingContinuation[n.requestId];
+      if(!pending||pending.threadId!==n.threadId)continue;
+      delete pendingContinuation[n.requestId];
+      if(n.kind==='success'&&pending.threadId===currentDraftThreadId&&pending.text===String(draft||'').trim()&&JSON.stringify(pending.images)===JSON.stringify(draftImages.map(i=>i.dataUrl))){
         draft='';
         draftImages=[];
         delete drafts[currentDraftThreadId];
+      }else if(n.kind==='success'&&pending.threadId!==currentDraftThreadId){
+        const saved=drafts[pending.threadId];
+        if(saved&&String(saved.text||'').trim()===pending.text&&JSON.stringify((saved.images||[]).map(i=>i.dataUrl))===JSON.stringify(pending.images))delete drafts[pending.threadId];
       }
     }
     render();
+  }else if(m.type==='codexCurrentChat'){
+    state.codexCurrentThreadId=typeof m.threadId==='string'?m.threadId:'';
+    renderChats();
   }else if(m.type==='gatewayPayload'){
     const next=m.payload||null;
     if(next&&gatewayPayload&&next.traceId===gatewayPayload.traceId&&next.contentCapture&&gatewayPayload.contentCapture&&Number(next.contentCapture.offset||0)>0){

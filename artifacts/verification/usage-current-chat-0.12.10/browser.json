@@ -1,0 +1,55 @@
+{
+  "passed": true,
+  "viewports": [
+    {
+      "width": 1000,
+      "collapsedHeight": 36.796875,
+      "defaultCollapsed": true,
+      "mouseAndKeyboard": true,
+      "settingsAndTrafficActions": true,
+      "stateAndDraftAndFocusRetained": true,
+      "selectedAndUnselectedRefresh": true,
+      "nativeCurrentChatColorAndBothTabs": true,
+      "selectedChatIndependentOfCurrentChat": true,
+      "usageHeight": 38,
+      "usageOneLineAboveAccount": true,
+      "usageSettingsAndManualCheck": true,
+      "usageExactCompactTextAndSeparatePercentageColors": true,
+      "usageDetailsOnlyOnHover": true
+    },
+    {
+      "width": 520,
+      "collapsedHeight": 36.796875,
+      "defaultCollapsed": true,
+      "mouseAndKeyboard": true,
+      "settingsAndTrafficActions": true,
+      "stateAndDraftAndFocusRetained": true,
+      "selectedAndUnselectedRefresh": true,
+      "nativeCurrentChatColorAndBothTabs": true,
+      "selectedChatIndependentOfCurrentChat": true,
+      "usageHeight": 38,
+      "usageOneLineAboveAccount": true,
+      "usageSettingsAndManualCheck": true,
+      "usageExactCompactTextAndSeparatePercentageColors": true,
+      "usageDetailsOnlyOnHover": true
+    },
+    {
+      "width": 320,
+      "collapsedHeight": 36.796875,
+      "defaultCollapsed": true,
+      "mouseAndKeyboard": true,
+      "settingsAndTrafficActions": true,
+      "stateAndDraftAndFocusRetained": true,
+      "selectedAndUnselectedRefresh": true,
+      "nativeCurrentChatColorAndBothTabs": true,
+      "selectedChatIndependentOfCurrentChat": true,
+      "usageHeight": 38,
+      "usageOneLineAboveAccount": true,
+      "usageSettingsAndManualCheck": true,
+      "usageExactCompactTextAndSeparatePercentageColors": true,
+      "usageDetailsOnlyOnHover": true
+    }
+  ],
+  "consoleErrors": [],
+  "scope": "Local HTTP Tracker dashboard fixtures in headless Edge; no native Codex test window or real account quota check."
+}

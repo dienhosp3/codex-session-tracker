@@ -28,6 +28,13 @@ for(const loaded of [true,false])test('continue '+(loaded?'loaded':'unloaded')+'
   assert.equal(f.calls.some(c=>['thread/start','turn/interrupt','turn/steer'].includes(c.method)),false);
  }finally{b.dispose();}
 });
+test('automatic continuation checks the captured previous turn before starting a message',async()=>{
+ const f=fixture(),b=createLiveBackend(f.connection);
+ try{await assert.rejects(b.continueConversation({...input,expectedPreviousTurnId:'different-turn'}),e=>e.delivery==='not_sent');}
+ finally{b.dispose();}
+ assert.equal(f.calls.some(c=>c.method==='turn/start'),false);
+});
+
 test('unsupported live turn paging reads full history and chooses the newest terminal turn',async()=>{
  const f=fixture({pagingError:'list_turns is not supported yet'}),b=createLiveBackend(f.connection);
  try{const r=await b.continueConversation(input);assert.equal(r.previousTurnId,'old-turn');assert.equal(r.turnId,'new-turn');}
@@ -145,4 +152,19 @@ test('a reloaded bridge module adopts the existing provider for local continuati
   reloaded.disposeOwnerBridges();assert.equal(reloaded.installedBridgeInfo().length,0);
   await assert.rejects(continueInLocalBackend(input),e=>e.delivery==='not_sent');
  }finally{reloaded?.disposeOwnerBridges();disposeOwnerBridges();}
+});
+
+test('legacy bridge revision is replaced before recovery uses the previous turn guard',async()=>{
+ const f=fixture(),handlers=new Map([['thread-owner-discovery',[()=>false,()=>({})]],['thread-follower-steer-turn',[()=>false,()=>{}]],['thread-follower-start-turn',[()=>false,()=>{}]]]);
+ const stream={ipcClient:{requestHandlers:handlers},ownsThread:()=>false};
+ try{
+  installOwnerBridge([f.connection],[stream]);
+  const key=Symbol.for('codexSessionTracker.ownerBridge.v2');
+  const old=stream.ipcClient[key];old.revision=5;
+  installOwnerBridge([f.connection],[stream]);
+  assert.notEqual(stream.ipcClient[key],old);
+  assert.equal(stream.ipcClient[key].revision,6);
+  await assert.rejects(continueInLocalBackend({...input,expectedPreviousTurnId:'stale-turn'}),e=>e.delivery==='not_sent');
+  assert.equal(f.calls.some(c=>c.method==='turn/start'),false);
+ }finally{disposeOwnerBridges();}
 });

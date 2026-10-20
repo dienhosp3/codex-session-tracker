@@ -7,8 +7,16 @@ const tracker = require('./tracker');
 const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
 const { ensureOwnerBridge } = require('./codex_owner_bridge');
-const { disposeOwnerBridges, continueInLocalBackend } = require('./codex_live_backend');
+const { disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend } = require('./codex_live_backend');
+const { createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus } = require('./codex_usage');
 const codexDelete = require('./codex_delete');
+const codexAuth = require('./codex_auth');
+const { createConversationNavigator } = require('./codex_navigation');
+const { createCurrentChatTracker } = require('./codex_current_chat');
+const { createLocalProxyController, restartExecutable } = require('./local_proxy');
+const { createProxyWatchdog, thresholdError } = require('./proxy_watchdog');
+const { createProxyRecovery } = require('./proxy_recovery');
+const openCodexConversation = createConversationNavigator(vscode);
 const { CodexGateway } = require('./gateway');
 const gatewayConfig = require('./gateway/config_manager');
 const { NativeInstrumentation, discoverOwners } = require('./gateway/native_instrumentation');
@@ -16,15 +24,29 @@ const runtimeVersions = require('./runtime_versions');
 const clientRuntime = require('./gateway/client_runtime');
 const {SavedTraffic}=require('./gateway/saved_traffic');
 const TRAFFIC_SETTINGS_KEY='codexSessionTracker.trafficSettings.v1';
+const USAGE_INTERVAL_KEY = 'codexSessionTracker.usageIntervalMinutes.v1';
+const LOCAL_PROXY_KEY = 'codexSessionTracker.localProxyExecutable.v1';
+let localProxy = null;
+let localProxyPicker = null;
+let proxyWatchdog = null;
+let proxyRecovery = null;
+const PROXY_WATCHDOG_KEY = 'codexSessionTracker.proxyWatchdog.v1';
+const PROXY_ATTEMPT_KEY = 'codexSessionTracker.proxyLastAttempt.v1';
+const PROXY_RECOVERY_KEY = 'codexSessionTracker.proxyRecovery.v1';
+let usageMonitor = null;
+let usageStatusBar = null;
 let trafficSettings={directory:path.join(require('os').homedir(),'Documents','Codex Logs'),enabled:true,mode:'post-get',maxRequests:1000};
 let savedTraffic=null;
 
 let contextRef = null;
 let statusBar = null;
 let trackerView = null;
+let currentChatTracker = null;
+let codexCurrentThreadId = '';
 let trafficPanel = null;
 let pollTimer = null;
 let selected = null;
+let selectionRequestId = 0;
 let selectedTree = [];
 let latestSnapshot = null;
 let activeChats = [];
@@ -32,6 +54,12 @@ let nonRunningChats = [];
 let showNonRunning = false;
 let deleteBusy = false;
 let deleteNotice = null;
+let authSessionBusy = false;
+let authSessionNotice = null;
+let authSessionReloadRequired = false;
+let authAccount = { label: 'Đang tải...', signedIn: null };
+let authAccountRefreshing = false;
+let authAccountCheckedAt = 0;
 let refreshingSelected = false;
 let refreshingActive = false;
 let lastTreeRescanAt = 0;
@@ -79,6 +107,61 @@ let gatewayProxyEnvApplied = false;
 
 async function activate(context) {
   contextRef = context;
+  localProxy = createLocalProxyController({
+    executablePath: context.globalState.get(LOCAL_PROXY_KEY, ''),
+    save: value => context.globalState.update(LOCAL_PROXY_KEY, value),
+    restart: async executable => {
+      const observation = await readProxyObservation();
+      await proxyRecovery.prepare(observation);
+      await proxyWatchdog.recordAttempt();
+      await proxyRecovery.arm();
+      return restartExecutable(executable, { originalProxyEnv: ORIGINAL_PROXY_ENV });
+    },
+    onChange: () => postViewState()
+  });
+  proxyRecovery = createProxyRecovery({
+    plan: context.globalState.get(PROXY_RECOVERY_KEY),
+    save: plan => context.globalState.update(PROXY_RECOVERY_KEY, plan),
+    async send(task) {
+      if (continueBusy || steerBusy || queueBusy) {
+        throw Object.assign(new Error('Tracker đang gửi tin khác.'), { delivery: 'not_sent' });
+      }
+      continueBusy = true;
+      postViewState();
+      try { return await continueThread({ ...task, expectedPreviousTurnId: task.turnId }); }
+      finally { continueBusy = false; postViewState(); }
+    },
+    onChange: () => postViewState()
+  });
+  proxyWatchdog = createProxyWatchdog({
+    settings: context.globalState.get(PROXY_WATCHDOG_KEY),
+    lastAttemptAt: context.globalState.get(PROXY_ATTEMPT_KEY, 0),
+    proxySnapshot: () => localProxy.snapshot(),
+    saveSettings: settings => context.globalState.update(PROXY_WATCHDOG_KEY, settings),
+    saveAttempt: at => context.globalState.update(PROXY_ATTEMPT_KEY, at),
+    restart: () => localProxy.restart(),
+    onChange: () => postViewState()
+  });
+  currentChatTracker = createCurrentChatTracker(vscode, {
+    extensionUri: context.extensionUri,
+    onChange(threadId) {
+      codexCurrentThreadId = threadId;
+      trackerView?.webview.postMessage({ type: 'codexCurrentChat', threadId });
+    }
+  });
+  context.subscriptions.push(currentChatTracker);
+  const savedUsageInterval = context.globalState.get(USAGE_INTERVAL_KEY, 5);
+  usageMonitor = createUsageMonitor({
+    intervalMinutes: Number.isInteger(savedUsageInterval) && savedUsageInterval >= 0 && savedUsageInterval <= 1440 ? savedUsageInterval : 5,
+    async read() {
+      await prepareOwnerBridge();
+      return readRateLimitsInLocalBackend();
+    },
+    onChange: () => { renderUsageStatus(); postViewState(); }
+  });
+  context.subscriptions.push(usageMonitor);
+  renderUsageStatus();
+  currentChatTracker.connect().catch(() => {}).then(() => usageMonitor?.refreshIfDue());
   trafficSettings={...trafficSettings,...context.globalState.get(TRAFFIC_SETTINGS_KEY,{})};
   if(process.platform==='win32'&&!context.globalState.get(TRAFFIC_SETTINGS_KEY)?.directory){
     try{
@@ -113,10 +196,16 @@ async function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.openDashboard', openTracker),
     vscode.commands.registerCommand('codexSessionTracker.selectChat', openTracker),
     vscode.commands.registerCommand('codexSessionTracker.refresh', () => refreshAll(true)),
+    vscode.commands.registerCommand('codexSessionTracker.checkUsage', () => usageMonitor?.refresh()),
+    vscode.commands.registerCommand('codexSessionTracker.configureUsageInterval', configureUsageInterval),
+    vscode.commands.registerCommand('codexSessionTracker.configureLocalProxy', configureLocalProxy),
+    vscode.commands.registerCommand('codexSessionTracker.restartLocalProxy', restartLocalProxy),
+    vscode.commands.registerCommand('codexSessionTracker.configureProxyWatchdog', configureProxyWatchdog),
     vscode.commands.registerCommand('codexSessionTracker.clearSelection', clearSelection),
     vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }),
     vscode.commands.registerCommand('codexSessionTracker.exportGatewayDiagnostics', exportGatewayDiagnostics),
     vscode.commands.registerCommand('codexSessionTracker.openTrafficMonitor', openTrafficMonitor),
+    vscode.commands.registerCommand('codexSessionTracker.deactivateSession', deactivateCodexSession),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (!event.affectsConfiguration('codexSessionTracker')) return;
       restartPolling();
@@ -133,7 +222,29 @@ async function activate(context) {
   refreshTrackedStatus(true);
 }
 
+function renderUsageStatus() {
+  if (!usageMonitor || !contextRef) return;
+  const display = usageStatus(usageMonitor.snapshot());
+  if (!usageStatusBar) {
+    usageStatusBar = vscode.window.createStatusBarItem('codexSessionTracker.usage', vscode.StatusBarAlignment.Right, 99);
+    usageStatusBar.name = 'Codex Usage';
+    usageStatusBar.command = 'codexSessionTracker.checkUsage';
+    contextRef.subscriptions.push(usageStatusBar);
+  }
+  usageStatusBar.text = display.text;
+  usageStatusBar.tooltip = display.tooltip;
+  usageStatusBar.color = display.color ? new vscode.ThemeColor(display.color) : undefined;
+  usageStatusBar.accessibilityInformation = { label: 'Hạn mức Codex còn lại: ' + display.valueText + '. Bấm để kiểm tra ngay.' };
+  usageStatusBar.show();
+}
+
 async function deactivate() {
+  selectionRequestId += 1;
+  currentChatTracker?.dispose();
+  currentChatTracker = null;
+  usageMonitor?.dispose();
+  usageMonitor = null;
+  usageStatusBar = null;
   if (ownerBridgeTimer) clearInterval(ownerBridgeTimer);
   ownerBridgeTimer = null;
   disposeOwnerBridges();
@@ -163,11 +274,19 @@ class TrackerViewProvider {
       if (message.command === 'selectChat' && message.threadId) await selectThread(String(message.threadId));
       if (message.command === 'refresh') await refreshAll(true);
       if (message.command === 'clear') await clearSelection();
-      if (message.command === 'queueMessage') await sendQueuedMessage(message.text, message.images);
-      if (message.command === 'steerMessage') await sendSteeredMessage(message.text, message.images);
-      if (message.command === 'continueMessage') await sendContinuedMessage(message.text, message.images, message.threadId);
+      if (message.command === 'queueMessage') await sendComposerRequest('queue', message, () => sendQueuedMessage(message.text, message.images));
+      if (message.command === 'steerMessage') await sendComposerRequest('steer', message, () => sendSteeredMessage(message.text, message.images));
+      if (message.command === 'continueMessage') await sendContinuedMessage(message.text, message.images, message.threadId, message.requestId);
       if (message.command === 'setShowNonRunning') await setShowNonRunning(Boolean(message.enabled));
       if (message.command === 'deleteChat' && message.threadId) await deleteChat(String(message.threadId));
+      if (message.command === 'deactivateSession') await deactivateCodexSession();
+      if (message.command === 'checkUsage') await usageMonitor?.refresh();
+      if (message.command === 'configureUsageInterval') await configureUsageInterval();
+      if (message.command === 'configureLocalProxy') await configureLocalProxy();
+      if (message.command === 'restartLocalProxy') await restartLocalProxy();
+      if (message.command === 'configureProxyWatchdog') await configureProxyWatchdog();
+      if (message.command === 'setUsageInterval') await saveUsageInterval(message.minutes);
+      if (message.command === 'reloadAfterDeactivation' && authSessionReloadRequired && !authSessionBusy) await reloadAfterDeactivation();
       if (message.command === 'reprobeQueue' || message.command === 'reprobeCodex') { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }
       if (message.command === 'saveGatewaySettings') await saveGatewaySettings(message.settings || {});
       if (message.command === 'enableGatewayFullCapture') await enableGatewayFullCapture(message.settings || {});
@@ -184,6 +303,159 @@ class TrackerViewProvider {
     postViewState();
     refreshAll(true);
   }
+}
+
+async function reloadAfterDeactivation() {
+  try {
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  } catch (error) {
+    vscode.window.showErrorMessage('Đã xoá phiên đăng nhập nhưng không Reload được VS Code: ' + friendlyError(error));
+  }
+}
+
+async function refreshAuthAccount(force = false) {
+  if (authAccountRefreshing || authSessionBusy || authSessionReloadRequired) return;
+  if (!force && Date.now() - authAccountCheckedAt < 10000) return;
+  authAccountRefreshing = true;
+  try {
+    await prepareOwnerBridge();
+    const account = await codexAuth.currentAccount(readAccountInLocalBackend);
+    if (authAccount.signedIn !== null && (authAccount.label !== account.label || authAccount.signedIn !== account.signedIn)) usageMonitor?.reset();
+    authAccount = account;
+  } catch {
+    authAccount = { label: 'Chưa xác định tài khoản', signedIn: null };
+  } finally {
+    authAccountRefreshing = false;
+    authAccountCheckedAt = Date.now();
+    postViewState();
+  }
+}
+
+async function deactivateCodexSession() {
+  if (authSessionBusy) return;
+  authSessionBusy = true;
+  authSessionNotice = null;
+  postViewState();
+  try {
+    await codexAuth.deactivateSession({ codexHome: config().codexHome });
+    usageMonitor?.reset();
+    authSessionReloadRequired = true;
+    authSessionNotice = { kind: 'success', text: 'Đã xoá phiên đăng nhập đã lưu. Reload VS Code để Codex cập nhật.' };
+    postViewState();
+    const choice = await vscode.window.showInformationMessage(
+      'Đã deactive tài khoản Codex.',
+      'Reload ngay', 'Để sau'
+    );
+    if (choice === 'Reload ngay') await reloadAfterDeactivation();
+  } catch (error) {
+    authSessionNotice = { kind: 'error', text: 'Không xoá được phiên đăng nhập Codex: ' + friendlyError(error) };
+    vscode.window.showErrorMessage(authSessionNotice.text);
+  } finally {
+    authSessionBusy = false;
+    postViewState();
+  }
+}
+
+async function saveUsageInterval(value) {
+  try {
+    const minutes = intervalMinutes(value);
+    await contextRef.globalState.update(USAGE_INTERVAL_KEY, minutes);
+    usageMonitor?.setInterval(minutes);
+  } catch (error) {
+    vscode.window.showErrorMessage(error.message);
+  }
+}
+
+async function configureUsageInterval() {
+  const value = await vscode.window.showInputBox({
+    title: 'Chu kỳ kiểm tra Usage Codex',
+    prompt: 'Số phút giữa các lần kiểm tra (0: thủ công)',
+    value: String(usageMonitor?.snapshot().intervalMinutes ?? 5),
+    validateInput: usageIntervalError
+  });
+  if (value === undefined) return;
+  const error = usageIntervalError(value);
+  if (error) {
+    vscode.window.showErrorMessage(error);
+    return;
+  }
+  await saveUsageInterval(Number(value.trim()));
+}
+
+async function configureLocalProxy() {
+  if (!localProxy || localProxy.snapshot().busy) return false;
+  if (localProxyPicker) return localProxyPicker;
+  localProxyPicker = Promise.resolve().then(async () => {
+    try {
+      const current = localProxy.snapshot().executablePath;
+      const choices = await vscode.window.showOpenDialog({
+        title: 'Chọn file EXE của proxy',
+        openLabel: 'Lưu proxy',
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        filters: { 'Windows executable': ['exe'] },
+        ...(current ? { defaultUri: vscode.Uri.file(current) } : {})
+      });
+      if (!choices?.[0]) return false;
+      const saved = await localProxy.setExecutable(choices[0].fsPath);
+      if (!saved) vscode.window.showErrorMessage(localProxy.snapshot().notice?.text || 'Không thể lưu đường dẫn proxy.');
+      return saved;
+    } catch (error) {
+      vscode.window.showErrorMessage(error.message);
+      return false;
+    }
+  }).finally(() => { localProxyPicker = null; });
+  return localProxyPicker;
+}
+
+async function restartLocalProxy() {
+  if (!localProxy || localProxy.snapshot().busy) return;
+  if (localProxyPicker && !(await localProxyPicker)) return;
+  if (!localProxy.snapshot().executablePath && !(await configureLocalProxy())) return;
+  const restarted = await localProxy.restart();
+  if (!restarted) {
+    vscode.window.showErrorMessage('Proxy: ' + (localProxy.snapshot().notice?.text || 'Không thể khởi động lại.'));
+  } else {
+    vscode.window.setStatusBarMessage('Proxy đã được mở lại.', 4000);
+  }
+}
+
+async function configureProxyWatchdog() {
+  if (!proxyWatchdog) return;
+  const current = proxyWatchdog.snapshot();
+  const choice = await vscode.window.showQuickPick([
+    { label: current.enabled ? '$(circle-slash) Tắt tự khởi động lại' : '$(check) Bật tự khởi động lại', action: 'toggle' },
+    { label: '$(clock) Ngưỡng im lặng: ' + current.minutes + ' phút', action: 'minutes' },
+    { label: '$(folder-opened) Chọn EXE proxy', action: 'path' }
+  ], { title: 'Proxy tự khởi động lại: ' + (current.enabled ? 'Bật' : 'Tắt') + ' · ' + current.minutes + ' phút' });
+  if (!choice) return;
+  if (choice.action === 'path') { await configureLocalProxy(); return; }
+  const next = { enabled: current.enabled, minutes: current.minutes };
+  if (choice.action === 'toggle') {
+    next.enabled = !current.enabled;
+    if (next.enabled && !localProxy.snapshot().executablePath && !(await configureLocalProxy())) return;
+  } else {
+    const value = await vscode.window.showInputBox({
+      title: 'Ngưỡng tự khởi động lại proxy', value: String(current.minutes),
+      prompt: 'Restart khi tất cả task chưa xong đều im lặng ít nhất số phút này.', validateInput: thresholdError
+    });
+    if (value === undefined) return;
+    if (thresholdError(value)) { vscode.window.showErrorMessage(thresholdError(value)); return; }
+    next.minutes = Number(value);
+  }
+  try { await proxyWatchdog.configure(next); }
+  catch (error) { vscode.window.showErrorMessage(error.message); }
+  postViewState();
+}
+
+async function readProxyObservation() {
+  const cfg = config();
+  const conversations = await tracker.scanConversationSessions({
+    codexHome: cfg.codexHome, sessionsDir: cfg.sessionsDir, historyLimit: cfg.historyLimit,
+    includeNonVsCodeSessions: cfg.includeNonVsCodeSessions, monitorAll: true
+  });
+  return conversations.monitor;
 }
 
 function storedGatewaySettings() {
@@ -857,6 +1129,8 @@ async function openTracker() {
 }
 
 async function refreshAll(force) {
+  if (trackerView && trackerView.visible) refreshAuthAccount(force).catch(() => {});
+  if (trackerView && trackerView.visible) usageMonitor?.refreshIfDue();
   await refreshActiveChats(force);
   await refreshTrackedStatus(force);
   if (trackerView && trackerView.visible) {
@@ -868,9 +1142,10 @@ async function refreshAll(force) {
 
 async function refreshActiveChats(force) {
   if (refreshingActive) return;
-  if (!force && trackerView && !trackerView.visible) return;
+  const monitorProxy = proxyWatchdog?.snapshot().enabled || proxyRecovery?.snapshot().pendingCount > 0;
+  if (!force && trackerView && !trackerView.visible && !monitorProxy) return;
   const cfg = config();
-  const everyMs = Math.max(2000, Number(cfg.activeScanEverySeconds || 4) * 1000);
+  const everyMs = Math.max(monitorProxy ? 15000 : 2000, Number(cfg.activeScanEverySeconds || 4) * 1000);
   if (!force && Date.now() - lastActiveScanAt < everyMs) return;
 
   refreshingActive = true;
@@ -882,10 +1157,16 @@ async function refreshActiveChats(force) {
       historyLimit: cfg.historyLimit,
       includeNonVsCodeSessions: cfg.includeNonVsCodeSessions,
       scanLimit: cfg.treeScanLimit,
-      includeNonRunning: showNonRunning
+      includeNonRunning: showNonRunning,
+      monitorAll: Boolean(monitorProxy)
     });
     activeChats = conversations.active;
     nonRunningChats = conversations.nonRunning;
+    if (conversations.monitor && !localProxy?.snapshot().busy) {
+      const recovering = proxyRecovery?.snapshot().pendingCount > 0;
+      await proxyRecovery?.consider(conversations.monitor);
+      if (!recovering) await proxyWatchdog?.consider(conversations.monitor);
+    }
 
     if (selected) {
       const activeSelected = activeChats.concat(nonRunningChats).find(chat => chat.threadId === selected.threadId);
@@ -965,15 +1246,22 @@ async function deleteChat(threadId) {
 }
 
 async function selectThread(threadId) {
+  const requestId = ++selectionRequestId;
+  const isCurrent = () => requestId === selectionRequestId;
   let session = activeChats.concat(nonRunningChats).find(chat => chat.threadId === threadId) || null;
   if (!session) {
     const cfg = config();
     session = await tracker.findLatestRolloutForThread(cfg.sessionsDir, threadId, { scanLimit: cfg.treeScanLimit });
   }
-  if (!session) return;
+  if (!isCurrent()) return;
+  if (!session) {
+    vscode.window.showErrorMessage('Không tìm thấy cuộc trò chuyện Codex này. Hãy làm mới danh sách.');
+    return;
+  }
 
   const cfg = config();
   const names = await tracker.readThreadNames(cfg.codexHome, new Set([session.threadId]));
+  if (!isCurrent()) return;
   const indexed = names.get(session.threadId);
   const stateTimes = tracker.readStateThreadActivity(cfg.codexHome, new Set([session.threadId]));
   selected = {
@@ -996,12 +1284,23 @@ async function selectThread(threadId) {
   steerCapabilityConversationId = '';
   lastTreeRescanAt = 0;
   await persistSelection();
+  if (!isCurrent()) return;
   renderStatus();
+  postViewState();
+  try {
+    await openCodexConversation(session.threadId, isCurrent);
+  } catch (error) {
+    if (isCurrent()) {
+      vscode.window.showErrorMessage('Không mở được cuộc trò chuyện trong Codex: ' + friendlyError(error));
+    }
+  }
+  if (!isCurrent()) return;
   await refreshTrackedStatus(true);
   postViewState();
 }
 
 async function clearSelection() {
+  selectionRequestId += 1;
   selected = null;
   selectedTree = [];
   latestSnapshot = null;
@@ -1022,6 +1321,9 @@ async function refreshTrackedStatus(forceRescan) {
   }
 
   refreshingSelected = true;
+  const target = selected;
+  const requestId = selectionRequestId;
+  const isCurrent = () => selected === target && requestId === selectionRequestId;
   try {
     const cfg = config();
     const rescanEveryMs = Math.max(2000, Number(cfg.rescanThreadEverySeconds || 5) * 1000);
@@ -1029,7 +1331,9 @@ async function refreshTrackedStatus(forceRescan) {
 
     if (shouldRescan || selectedTree.length === 0) {
       lastTreeRescanAt = Date.now();
-      selectedTree = await tracker.scanSessionTree(cfg.sessionsDir, selected, { scanLimit: cfg.treeScanLimit });
+      const tree = await tracker.scanSessionTree(cfg.sessionsDir, target, { scanLimit: cfg.treeScanLimit });
+      if (!isCurrent()) return;
+      selectedTree = tree;
       const latestRoot = selectedTree.find(node => node.threadId === selected.threadId);
       if (latestRoot) {
         selected.file = latestRoot.file || selected.file;
@@ -1038,6 +1342,7 @@ async function refreshTrackedStatus(forceRescan) {
         selected.source = latestRoot.source || selected.source;
       }
       const names = await tracker.readThreadNames(cfg.codexHome, new Set([selected.threadId]));
+      if (!isCurrent()) return;
       const indexed = names.get(selected.threadId);
       if (indexed && indexed.name) selected.title = indexed.name;
       const stateTimes = tracker.readStateThreadActivity(cfg.codexHome, new Set([selected.threadId]));
@@ -1047,6 +1352,7 @@ async function refreshTrackedStatus(forceRescan) {
         stateTimes.get(selected.threadId) || 0
       );
       await persistSelection();
+      if (!isCurrent()) return;
     }
 
     if (!selected.file) {
@@ -1055,8 +1361,9 @@ async function refreshTrackedStatus(forceRescan) {
       return;
     }
 
-    await fs.promises.access(selected.file, fs.constants.R_OK);
-    const snapshot = await tracker.buildSessionSnapshot(cfg.sessionsDir, selected, {
+    await fs.promises.access(target.file, fs.constants.R_OK);
+    if (!isCurrent()) return;
+    const snapshot = await tracker.buildSessionSnapshot(cfg.sessionsDir, target, {
       scanLimit: cfg.treeScanLimit,
       tree: selectedTree,
       activityMaxBytes: Math.max(1, Number(cfg.activityTailMb || 6)) * 1024 * 1024,
@@ -1065,17 +1372,24 @@ async function refreshTrackedStatus(forceRescan) {
       codexHome: cfg.codexHome,
       indexedActivity: new Map([[selected.threadId, selected.indexedUpdatedAtMs || 0]])
     });
+    if (!isCurrent()) return;
     latestSnapshot = snapshot;
     selected.status = snapshot.overallStatus;
     if (gateway) await gateway.refreshLocalPersistence(selected.threadId, selected.file).catch(() => {});
+    if (!isCurrent()) return;
     renderStatus();
   } catch (error) {
+    if (!isCurrent()) return;
     if (error && error.code === 'ENOENT') selected.status = { kind: 'missing', mtimeMs: 0 };
     else selected.status = { kind: 'unknown', mtimeMs: 0, error };
     renderStatus();
     if (trackerView) trackerView.webview.postMessage({ type: 'error', message: friendlyError(error) });
   } finally {
     refreshingSelected = false;
+    if (selected && selected !== target) {
+      await refreshTrackedStatus(true);
+      postViewState();
+    }
   }
 }
 
@@ -1216,7 +1530,32 @@ async function refreshSteerCapability(force) {
   return steerCapability;
 }
 
+async function sendComposerRequest(kind, message, operation) {
+  const before = kind === 'queue' ? queueNotice : steerNotice;
+  const threadId = selected?.threadId || '';
+  if (message.threadId && message.threadId !== threadId) {
+    const rejected = { kind: 'error', text: 'Chat đã đổi; bản nháp được giữ lại.', threadId: message.threadId, requestId: message.requestId, at: Date.now() };
+    if (kind === 'queue') queueNotice = rejected;
+    else steerNotice = rejected;
+    postViewState();
+    return;
+  }
+  try { await operation(); }
+  catch (error) {
+    const failed = { kind: error.delivery === 'unknown' ? 'unknown' : 'error', text: error.message, at: Date.now() };
+    if (kind === 'queue') queueNotice = failed;
+    else steerNotice = failed;
+  }
+  const current = kind === 'queue' ? queueNotice : steerNotice;
+  const notice = current && current !== before ? current : { kind: 'error', text: 'Chưa gửi được tin; bản nháp được giữ lại.', at: Date.now() };
+  const tagged = { ...notice, threadId, requestId: message.requestId };
+  if (kind === 'queue') queueNotice = tagged;
+  else steerNotice = tagged;
+  postViewState();
+}
+
 async function sendQueuedMessage(rawText, rawImages) {
+  const requestedThreadId = selected?.threadId || '';
   if (queueBusy || steerBusy || continueBusy) return;
   const text = String(rawText || '').trim();
   if (rawImages && (!Array.isArray(rawImages) || rawImages.length)) {
@@ -1239,6 +1578,11 @@ async function sendQueuedMessage(rawText, rawImages) {
     return;
   }
   await refreshQueueCapability(false);
+  if (selected?.threadId !== requestedThreadId) {
+    queueNotice = { kind: 'error', text: 'Chat đã đổi; chưa gửi tin vào hàng chờ.', at: Date.now() };
+    postViewState();
+    return;
+  }
   if (!queueCapability.available || !queueCapability.executable) {
     queueNotice = { kind: 'error', text: queueCapability.reason || 'Codex CLI không hỗ trợ queue.', at: Date.now() };
     postViewState();
@@ -1248,19 +1592,20 @@ async function sendQueuedMessage(rawText, rawImages) {
   queueBusy = true;
   queueNotice = null;
   postViewState();
+  const target = { threadId: selected.threadId, cwd: selected.cwd };
   const queueArgs = () => ({
     executable: queueCapability.executable,
-    threadId: selected.threadId,
+    threadId: target.threadId,
     message: text,
     codexHome: config().codexHome,
-    cwd: selected.cwd || undefined
+    cwd: target.cwd || undefined
   });
   try {
     let result;
     try {
       const activeGateway = gateway || await startGateway();
       result = activeGateway
-        ? await activeGateway.queue({ threadId: selected.threadId, message: text, cwd: selected.cwd || undefined })
+        ? await activeGateway.queue({ threadId: target.threadId, message: text, cwd: target.cwd || undefined })
         : await codexQueue.queueMessage(queueArgs());
     } catch (error) {
       // An extension update can leave a cached path pointing at a removed
@@ -1272,7 +1617,7 @@ async function sendQueuedMessage(rawText, rawImages) {
       if (!queueCapability.available || !queueCapability.executable || queueCapability.executable === previous) throw error;
       const activeGateway = gateway || await startGateway();
       result = activeGateway
-        ? await activeGateway.queue({ threadId: selected.threadId, message: text, cwd: selected.cwd || undefined })
+        ? await activeGateway.queue({ threadId: target.threadId, message: text, cwd: target.cwd || undefined })
         : await codexQueue.queueMessage(queueArgs());
     }
     queueNotice = {
@@ -1348,30 +1693,37 @@ async function sendSteeredMessage(rawText, rawImages) {
   }
 }
 
-async function sendContinuedMessage(rawText, rawImages, threadId) {
-  if (continueBusy || steerBusy || queueBusy) return;
-  if (!selected || selected.threadId !== threadId) return;
+async function continueThread(target) {
+  await prepareOwnerBridge();
+  const activeGateway = gateway || await startGateway();
+  const input = { ...target, images: target.images || [], codexHome: config().codexHome, rolloutFile: target.file || '' };
+  return activeGateway
+    ? activeGateway.continueConversation(input)
+    : codexSteer.continueConversation({ ...input, localContinue: continueInLocalBackend });
+}
+
+async function sendContinuedMessage(rawText, rawImages, threadId, requestId) {
+  if (continueBusy || steerBusy || queueBusy || !selected || selected.threadId !== threadId) {
+    continueNotice = { kind: 'error', text: 'Chat đã đổi hoặc đang có tin khác được gửi. Nội dung nháp được giữ lại.', threadId, requestId, at: Date.now() };
+    postViewState();
+    return;
+  }
   const text = String(rawText || '').trim();
   let images;
   try { images = codexSteer.normalizeImageAttachments(rawImages); }
-  catch (error) { continueNotice = { kind: 'error', text: error.message, threadId, at: Date.now() }; postViewState(); return; }
+  catch (error) { continueNotice = { kind: 'error', text: error.message, threadId, requestId, at: Date.now() }; postViewState(); return; }
   if (!text && !images.length) return;
   const target = { threadId, cwd: selected.cwd, file: selected.file };
   continueBusy = true;
   continueNotice = null;
   postViewState();
   try {
-    await prepareOwnerBridge();
-    const activeGateway = gateway || await startGateway();
-    const input = { ...target, message: text, images, rolloutFile: target.file };
-    const result = activeGateway
-      ? await activeGateway.continueConversation(input)
-      : await codexSteer.continueConversation({ ...input, localContinue: continueInLocalBackend });
-    continueNotice = { kind: 'success', text: 'Codex đã nhận tin để tiếp tục đúng cuộc trò chuyện này.', threadId,
+    const result = await continueThread({ ...target, message: text, images });
+    continueNotice = { kind: 'success', text: 'Codex đã nhận tin để tiếp tục đúng cuộc trò chuyện này.', threadId, requestId,
       sentText: text, sentImages: images.map(i => i.dataUrl), turnId: result.turnId, clientUserMessageId: result.clientUserMessageId, at: Date.now() };
     await refreshAll(true);
   } catch (error) {
-    continueNotice = { kind: error.delivery === 'unknown' ? 'unknown' : 'error', threadId, at: Date.now(),
+    continueNotice = { kind: error.delivery === 'unknown' ? 'unknown' : 'error', threadId, requestId, at: Date.now(),
       text: error.delivery === 'unknown' ? 'Chưa xác nhận Codex đã nhận tin; kiểm tra chat trước khi gửi lại để tránh trùng. ' + error.message : error.message };
   } finally { continueBusy = false; postViewState(); }
 }
@@ -1414,7 +1766,19 @@ function postViewState() {
         cliVersion: queueCapability.version || ''
       },
       deleteChat: { busy: deleteBusy, notice: deleteNotice },
+      localProxy: { ...(localProxy?.snapshot() || { executablePath: '', busy: false, notice: null }),
+        watchdog: proxyWatchdog?.snapshot(), recovery: proxyRecovery?.snapshot() },
+      authSession: {
+        busy: authSessionBusy,
+        accountLabel: authAccount.label,
+        canDeactivate: !authSessionReloadRequired && authAccount.signedIn !== false
+      },
       selectedThreadId: selected && selected.threadId || '',
+      codexCurrentThreadId,
+      usage: (() => {
+        const state = usageMonitor?.snapshot() || { intervalMinutes: 5, groups: [] };
+        return { ...state, display: usageStatus(state) };
+      })(),
       selected: selected && latestSnapshot ? serializeSnapshot(latestSnapshot) : (selected ? serializeSelectedShell() : null),
       queue: {
         checked: Boolean(queueCapability.checked),
