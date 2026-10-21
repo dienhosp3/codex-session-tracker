@@ -43,6 +43,8 @@ cp "$ROOT/codex_usage.js" "$STAGE/extension/codex_usage.js"
 cp "$ROOT/local_proxy.js" "$STAGE/extension/local_proxy.js"
 cp "$ROOT/proxy_watchdog.js" "$STAGE/extension/proxy_watchdog.js"
 cp "$ROOT/proxy_recovery.js" "$STAGE/extension/proxy_recovery.js"
+cp "$ROOT/codex_error_alerts.js" "$STAGE/extension/codex_error_alerts.js"
+cp "$ROOT/codex_error_sound.js" "$STAGE/extension/codex_error_sound.js"
 cp "$ROOT/runtime_versions.js" "$STAGE/extension/runtime_versions.js"
 if [[ ! -f "$ROOT/runtime/bin/windows-x86_64/codex.exe" || ! -f "$ROOT/runtime/manifest.json" ]]; then
   echo "Build the client runtime with scripts/build-runtime.ps1 first." >&2
@@ -61,6 +63,9 @@ cp "$ROOT/dashboard.html" "$STAGE/extension/dashboard.html"
 cp "$ROOT/traffic_monitor.html" "$STAGE/extension/traffic_monitor.html"
 mkdir -p "$STAGE/extension/media"
 cp "$ROOT/media/tracker.svg" "$STAGE/extension/media/tracker.svg"
+if [[ -f "$ROOT/media/error_429.mp3" ]]; then
+  cp "$ROOT/media/error_429.mp3" "$STAGE/extension/media/error_429.mp3"
+fi
 cp "$ROOT/media/codex_current_chat_observer.js" "$STAGE/extension/media/codex_current_chat_observer.js"
 cp "$ROOT/README.md" "$STAGE/extension/README.md"
 cp "$ROOT/LICENSE" "$STAGE/extension/LICENSE.txt"
@@ -108,6 +113,7 @@ cat > "$STAGE/[Content_Types].xml" <<'XML'
   <Default Extension="md" ContentType="text/markdown" />
   <Default Extension="html" ContentType="text/html" />
   <Default Extension="svg" ContentType="image/svg+xml" />
+  <Default Extension="mp3" ContentType="audio/mpeg" />
   <Default Extension="txt" ContentType="text/plain" />
   <Default Extension="exe" ContentType="application/octet-stream" />
   <Default Extension="py" ContentType="text/plain" />

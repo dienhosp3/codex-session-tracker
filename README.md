@@ -1,4 +1,37 @@
-# Codex Session Tracker 0.12.13
+# Codex Session Tracker 0.12.15
+
+## Retry-limit error alerts, MP3 sound and history (0.12.15)
+
+Tracker watches Codex rollout files in the background, including when its
+panel is hidden. A failed `task_complete` or `turn_complete` with structured
+`response_too_many_failed_attempts.http_status_code = 429` triggers one
+MP3 playback per new error. The exact legacy error message
+`exceeded retry limit, last status: 429 Too Many Requests` is also recognized.
+Transient retries, unrelated HTTP 429 responses and quoted chat text do not
+trigger the alert. This alert does not restart the proxy or send chat messages.
+
+The package includes `media/error_429.mp3`, derived from the supplied
+`Phung-Cong.mp3` clip and normalized to an actual MP3 stream. It plays once
+per new matching error without extra setup. To replace it, run **Codex Tracker:
+Chọn âm thanh lỗi 429 (MP3)** in the Command Palette. The selected absolute path is saved across
+reloads; keep the file at that location. Use **Codex Tracker: Nghe thử âm thanh
+lỗi 429** to play it once. Playback uses Windows MCI in a hidden process and
+does not substitute system beeps. The bundled sound is used until another file
+is selected. An unavailable or
+invalid file preserves pending notifications for a later retry after selection.
+
+Use **Codex Tracker: Xem lịch sử lỗi 429** in the Command Palette to open the
+saved history. `codex-retry-errors.jsonl` lives in the extension's VS Code
+global storage, outside this repository. Each entry includes occurrence and
+detection time, conversation title, thread/turn identifiers and the error.
+The first scan imports historical errors silently; new errors play the sound.
+An error followed by a successful turn before the next scan is still recorded.
+
+File cursors persist across reloads. Duplicate rollout copies and repeated scans
+do not repeat a history entry or its notification. An exclusive history lock
+coordinates windows. Failed history writes retry before advancing the cursor;
+pending sound deliveries survive reloads. History is retained until removed by
+the user; builds and repository cleanup do not delete it.
 
 ## Restart a local proxy (0.12.13)
 
@@ -576,13 +609,13 @@ Build on Windows with Git Bash:
 Expected artifact:
 
 ```text
-codex-session-tracker-0.12.13.vsix
+codex-session-tracker-0.12.15.vsix
 ```
 
 Install:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.12.13.vsix --force
+code --install-extension .\codex-session-tracker-0.12.15.vsix --force
 ```
 
 Then run **Developer: Reload Window** once.

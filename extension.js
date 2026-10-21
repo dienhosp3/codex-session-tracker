@@ -16,6 +16,8 @@ const { createCurrentChatTracker } = require('./codex_current_chat');
 const { createLocalProxyController, restartExecutable } = require('./local_proxy');
 const { createProxyWatchdog, thresholdError } = require('./proxy_watchdog');
 const { createProxyRecovery } = require('./proxy_recovery');
+const { createErrorHistory, createRetryLimitMonitor } = require('./codex_error_alerts');
+const { DEFAULT_ERROR_SOUND, createErrorSoundController } = require('./codex_error_sound');
 const openCodexConversation = createConversationNavigator(vscode);
 const { CodexGateway } = require('./gateway');
 const gatewayConfig = require('./gateway/config_manager');
@@ -34,6 +36,11 @@ const PROXY_WATCHDOG_KEY = 'codexSessionTracker.proxyWatchdog.v1';
 const PROXY_ATTEMPT_KEY = 'codexSessionTracker.proxyLastAttempt.v1';
 const PROXY_RESTART_KEY = 'codexSessionTracker.proxyLastRestart.v1';
 const PROXY_RECOVERY_KEY = 'codexSessionTracker.proxyRecovery.v1';
+const ERROR_MONITOR_KEY = 'codexSessionTracker.retryErrorMonitor.v1';
+const ERROR_SOUND_KEY = 'codexSessionTracker.errorSoundFile.v1';
+let errorMonitor = null;
+let errorHistory = null;
+let errorSound = null;
 let usageMonitor = null;
 let usageStatusBar = null;
 let trafficSettings={directory:path.join(require('os').homedir(),'Documents','Codex Logs'),enabled:true,mode:'post-get',maxRequests:1000};
@@ -108,6 +115,7 @@ let gatewayProxyEnvApplied = false;
 
 async function activate(context) {
   contextRef = context;
+  startErrorMonitoring(context);
   localProxy = createLocalProxyController({
     executablePath: context.globalState.get(LOCAL_PROXY_KEY, ''),
     lastRestart: context.globalState.get(PROXY_RESTART_KEY),
@@ -204,6 +212,9 @@ async function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.configureLocalProxy', configureLocalProxy),
     vscode.commands.registerCommand('codexSessionTracker.restartLocalProxy', restartLocalProxy),
     vscode.commands.registerCommand('codexSessionTracker.configureProxyWatchdog', configureProxyWatchdog),
+    vscode.commands.registerCommand('codexSessionTracker.openErrorHistory', openErrorHistory),
+    vscode.commands.registerCommand('codexSessionTracker.configureErrorSound', configureErrorSound),
+    vscode.commands.registerCommand('codexSessionTracker.previewErrorSound', previewErrorSound),
     vscode.commands.registerCommand('codexSessionTracker.clearSelection', clearSelection),
     vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }),
     vscode.commands.registerCommand('codexSessionTracker.exportGatewayDiagnostics', exportGatewayDiagnostics),
@@ -225,6 +236,68 @@ async function activate(context) {
   refreshTrackedStatus(true);
 }
 
+function startErrorMonitoring(context) {
+  errorHistory = createErrorHistory(context.globalStorageUri.fsPath);
+  errorSound = createErrorSoundController({
+    file: context.globalState.get(ERROR_SOUND_KEY, '') || path.join(context.extensionUri.fsPath, 'media', DEFAULT_ERROR_SOUND),
+    save: value => context.globalState.update(ERROR_SOUND_KEY, value)
+  });
+  errorMonitor = createRetryLimitMonitor({
+    state: context.globalState.get(ERROR_MONITOR_KEY),
+    history: errorHistory,
+    listFiles: tracker.listRolloutFiles,
+    async describe(file) {
+      const meta = await tracker.readSessionMeta(file.file);
+      const threadId = meta?.threadId || file.fileThreadId || '';
+      const names = await tracker.readThreadNames(config().codexHome, new Set([threadId]));
+      return { threadId, title: names.get(threadId)?.name || 'Codex chat' };
+    },
+    save: value => context.globalState.update(ERROR_MONITOR_KEY, value),
+    notify: () => errorSound.play(),
+    onError: error => console.warn('[Codex Session Tracker] Error alert: ' + friendlyError(error))
+  });
+  context.subscriptions.push(errorMonitor);
+  errorMonitor.poll(config().sessionsDir);
+}
+
+async function openErrorHistory() {
+  if (!errorHistory) return;
+  try {
+    const file = await errorHistory.ensureFile();
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+    await vscode.window.showTextDocument(document, { preview: false });
+  } catch (error) {
+    vscode.window.showErrorMessage('Không mở được lịch sử lỗi Codex: ' + friendlyError(error));
+  }
+}
+
+async function configureErrorSound() {
+  if (!errorSound) return false;
+  try {
+    const choice = await vscode.window.showOpenDialog({
+      title: 'Chọn âm báo lỗi 429 (MP3)',
+      defaultUri: vscode.Uri.file(errorSound.snapshot().file),
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      filters: { MP3: ['mp3'] }
+    });
+    if (!choice?.[0]) return false;
+    await errorSound.setFile(choice[0].fsPath);
+    vscode.window.setStatusBarMessage('Đã lưu âm báo lỗi Codex.', 5000);
+    errorMonitor?.poll(config().sessionsDir);
+    return true;
+  } catch (error) {
+    vscode.window.showErrorMessage('Không lưu được âm báo lỗi Codex: ' + friendlyError(error));
+    return false;
+  }
+}
+
+async function previewErrorSound() {
+  try { await errorSound?.play(); }
+  catch (error) { vscode.window.showErrorMessage('Không phát được âm báo lỗi Codex: ' + friendlyError(error)); }
+}
+
 function renderUsageStatus() {
   if (!usageMonitor || !contextRef) return;
   const display = usageStatus(usageMonitor.snapshot());
@@ -243,6 +316,10 @@ function renderUsageStatus() {
 
 async function deactivate() {
   selectionRequestId += 1;
+  errorMonitor?.dispose();
+  errorMonitor = null;
+  errorHistory = null;
+  errorSound = null;
   currentChatTracker?.dispose();
   currentChatTracker = null;
   usageMonitor?.dispose();
@@ -1132,6 +1209,7 @@ async function openTracker() {
 }
 
 async function refreshAll(force) {
+  errorMonitor?.poll(config().sessionsDir);
   if (trackerView && trackerView.visible) refreshAuthAccount(force).catch(() => {});
   if (trackerView && trackerView.visible) usageMonitor?.refreshIfDue();
   await refreshActiveChats(force);

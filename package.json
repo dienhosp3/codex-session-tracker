@@ -2,7 +2,7 @@
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
   "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
-  "version": "0.12.13",
+  "version": "0.12.15",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -24,6 +24,18 @@
   ],
   "contributes": {
     "commands": [
+      {
+        "command": "codexSessionTracker.configureErrorSound",
+        "title": "Codex Tracker: Chọn âm thanh lỗi 429 (MP3)"
+      },
+      {
+        "command": "codexSessionTracker.previewErrorSound",
+        "title": "Codex Tracker: Nghe thử âm thanh lỗi 429"
+      },
+      {
+        "command": "codexSessionTracker.openErrorHistory",
+        "title": "Codex Tracker: Xem lịch sử lỗi 429"
+      },
       {
         "command": "codexSessionTracker.configureProxyWatchdog",
         "title": "Codex Tracker: Configure Proxy Auto Restart"
@@ -223,11 +235,14 @@
     "local_proxy.js",
     "proxy_watchdog.js",
     "proxy_recovery.js",
+    "codex_error_alerts.js",
+    "codex_error_sound.js",
     "runtime_versions.js",
     "gateway",
     "dashboard.html",
     "traffic_monitor.html",
     "media/tracker.svg",
+    "media/*.mp3",
     "media/codex_current_chat_observer.js",
     "README.md",
     "LICENSE"

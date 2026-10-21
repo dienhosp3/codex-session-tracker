@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-21T20:46:02.336Z",
+  "label": "retry-error-mp3-once-0.12.15",
+  "repository": {
+    "revision": "38f736ee08cabad263396eedfd8e2b5e9dc274ed",
+    "shortRevision": "38f736ee08ca",
+    "dirty": true,
+    "trackerVersion": "0.12.15"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.1007.21434"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.162.0-alpha.17.2",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "0.162.0-alpha.17.2",
+      "model": "gpt-5.6-luna"
+    }
+  },
+  "verification": {
+    "fullSuite": { "passed": 269, "failed": 0 },
+    "focusedSuite": { "passed": 22, "failed": 0 },
+    "nativeWindowsMp3": { "passed": true, "playsPerError": 1 },
+    "bundledSound": {
+      "file": "media/error_429.mp3",
+      "sourceFilename": "Phung-Cong.mp3",
+      "sourceContainer": "M4A",
+      "convertedTo": "MP3",
+      "bytes": 43101,
+      "sha256": "35dee2073cdf0512307e6d33a039f948c3dbfef705a3f42111cc27407b8cbef7"
+    },
+    "vsix": {
+      "crcPassed": true,
+      "files": 56,
+      "bytes": 101129990,
+      "sha256": "5c6bfc6405464556e1d7b3b351c57c36594f9eacbc8215f83d3909bb7665c243"
+    },
+    "installedTrackerVersion": "0.12.15",
+    "installedSourceFilesVerified": 48
+  }
+}
