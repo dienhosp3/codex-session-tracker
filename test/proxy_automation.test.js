@@ -92,6 +92,31 @@ test('automation refuses restart when persisting the attempt fails', async () =>
   assert.match(f.controller.snapshot().notice, /storage denied/);
 });
 
+test('watchdog diagnostics distinguish recent activity, successful reset and cooldown', async () => {
+  const f = watchdog();
+  const latest = f.now() - 299999;
+  await f.controller.consider(f.observation([{ stateKind: 'running', lastActivity: latest }]));
+  assert.equal(f.controller.snapshot().assessment.reason, 'task_recently_active');
+  assert.equal(f.controller.snapshot().assessment.taskCount, 1);
+  assert.equal(f.controller.snapshot().assessment.latestActivityAt, latest);
+  f.advance(1);
+  assert.equal(await f.controller.consider(f.observation([{ stateKind: 'running', lastActivity: latest }])), true);
+  assert.equal(f.controller.snapshot().assessment.reason, 'restarted');
+  await f.controller.consider(f.observation());
+  assert.equal(f.controller.snapshot().assessment.reason, 'cooldown');
+  assert.equal(f.controller.snapshot().assessment.cooldownUntil, f.now() + 300000);
+  assert.match(f.controller.snapshot().notice, /cooldown/);
+});
+
+test('a continuation attempt defers automatic restart until a fresh observation', async () => {
+  const f = watchdog();
+  assert.equal(await f.controller.consider({ ...f.observation(), recoverySent: true }), false);
+  assert.equal(f.calls(), 0);
+  assert.equal(f.controller.snapshot().assessment.reason, 'recovery_sent');
+  assert.equal(await f.controller.consider(f.observation()), true);
+  assert.equal(f.calls(), 1);
+});
+
 function recovery(overrides = {}) {
   let now = 1800000000000;
   const plans = [];

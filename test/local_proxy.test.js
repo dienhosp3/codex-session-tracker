@@ -91,6 +91,49 @@ test('deleted executable never reaches restart and launch failure retains config
   assert.equal(denied.snapshot().notice.text, 'access denied');
 });
 
+test('successful restart metadata persists and restores across extension reload', async () => {
+  const now = 1800000000000;
+  const saved = [];
+  const controller = createLocalProxyController({
+    executablePath: 'fixture.exe', now: () => now, validate: async value => value,
+    restart: async () => ({ processId: 91, stoppedCount: 1 }),
+    saveRestart: async value => saved.push(value)
+  });
+  assert.equal(await controller.restart('auto'), true);
+  assert.deepEqual(saved, [{ at: now, processId: 91, stoppedCount: 1, source: 'auto' }]);
+  const restored = createLocalProxyController({ lastRestart: saved[0] });
+  assert.equal(restored.snapshot().lastRestartAt, now);
+  assert.deepEqual(restored.snapshot().lastRestart, saved[0]);
+  const external = restored.snapshot();
+  external.lastRestart.at = 0;
+  assert.equal(restored.snapshot().lastRestartAt, now);
+});
+
+test('failed reset preserves the last successful reset instead of reporting a new success', async () => {
+  const previous = { at: 1800000000000, processId: 12, stoppedCount: 1, source: 'manual' };
+  let saves = 0;
+  const controller = createLocalProxyController({
+    executablePath: 'fixture.exe', lastRestart: previous, validate: async value => value,
+    restart: async () => { throw new Error('fixture launch failed'); },
+    saveRestart: async () => { saves += 1; }
+  });
+  assert.equal(await controller.restart('auto'), false);
+  assert.deepEqual(controller.snapshot().lastRestart, previous);
+  assert.equal(saves, 0);
+});
+
+test('history persistence failure does not report a successfully launched proxy as a failed restart', async () => {
+  const controller = createLocalProxyController({
+    executablePath: 'fixture.exe', validate: async value => value,
+    restart: async () => ({ processId: 92, stoppedCount: 1 }),
+    saveRestart: async () => { throw new Error('fixture history unavailable'); }
+  });
+  assert.equal(await controller.restart(), true);
+  assert.equal(controller.snapshot().lastRestart.source, 'manual');
+  assert.equal(controller.snapshot().lastRestart.processId, 92);
+  assert.match(controller.snapshot().notice.text, /history unavailable/);
+});
+
 test('PowerShell receives path only in environment and restores pre gateway proxy variables', async () => {
   const executable = "C:\\Proxy $([bad])\\o'ne.exe";
   let captured;

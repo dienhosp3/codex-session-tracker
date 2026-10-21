@@ -32,6 +32,7 @@ let proxyWatchdog = null;
 let proxyRecovery = null;
 const PROXY_WATCHDOG_KEY = 'codexSessionTracker.proxyWatchdog.v1';
 const PROXY_ATTEMPT_KEY = 'codexSessionTracker.proxyLastAttempt.v1';
+const PROXY_RESTART_KEY = 'codexSessionTracker.proxyLastRestart.v1';
 const PROXY_RECOVERY_KEY = 'codexSessionTracker.proxyRecovery.v1';
 let usageMonitor = null;
 let usageStatusBar = null;
@@ -109,7 +110,9 @@ async function activate(context) {
   contextRef = context;
   localProxy = createLocalProxyController({
     executablePath: context.globalState.get(LOCAL_PROXY_KEY, ''),
+    lastRestart: context.globalState.get(PROXY_RESTART_KEY),
     save: value => context.globalState.update(LOCAL_PROXY_KEY, value),
+    saveRestart: value => context.globalState.update(PROXY_RESTART_KEY, value),
     restart: async executable => {
       const observation = await readProxyObservation();
       await proxyRecovery.prepare(observation);
@@ -139,7 +142,7 @@ async function activate(context) {
     proxySnapshot: () => localProxy.snapshot(),
     saveSettings: settings => context.globalState.update(PROXY_WATCHDOG_KEY, settings),
     saveAttempt: at => context.globalState.update(PROXY_ATTEMPT_KEY, at),
-    restart: () => localProxy.restart(),
+    restart: () => localProxy.restart('auto'),
     onChange: () => postViewState()
   });
   currentChatTracker = createCurrentChatTracker(vscode, {
@@ -1163,9 +1166,8 @@ async function refreshActiveChats(force) {
     activeChats = conversations.active;
     nonRunningChats = conversations.nonRunning;
     if (conversations.monitor && !localProxy?.snapshot().busy) {
-      const recovering = proxyRecovery?.snapshot().pendingCount > 0;
-      await proxyRecovery?.consider(conversations.monitor);
-      if (!recovering) await proxyWatchdog?.consider(conversations.monitor);
+      const recoverySent = await proxyRecovery?.consider(conversations.monitor);
+      await proxyWatchdog?.consider({ ...conversations.monitor, recoverySent: Boolean(recoverySent) });
     }
 
     if (selected) {

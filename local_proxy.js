@@ -107,10 +107,17 @@ function createLocalProxyController(options = {}) {
   let busy = false;
   let notice = null;
   let pending = null;
-  let lastRestartAt = 0;
+  const restored = options.lastRestart;
+  let lastRestart = restored && Number.isFinite(restored.at) && restored.at > 0
+    ? { at: restored.at, processId: Number.isInteger(restored.processId) ? restored.processId : 0,
+      stoppedCount: Number.isInteger(restored.stoppedCount) ? restored.stoppedCount : 0,
+      source: restored.source === 'auto' ? 'auto' : 'manual' }
+    : null;
+  let lastRestartAt = lastRestart?.at || 0;
+  const clock = options.now || Date.now;
   const validate = options.validate || validateExecutable;
   const restart = options.restart || restartExecutable;
-  const snapshot = () => ({ executablePath, busy, notice, lastRestartAt });
+  const snapshot = () => ({ executablePath, busy, notice, lastRestartAt, lastRestart: lastRestart ? { ...lastRestart } : null });
   const notify = () => options.onChange?.(snapshot());
 
   function run(operation) {
@@ -142,12 +149,18 @@ function createLocalProxyController(options = {}) {
         return true;
       });
     },
-    restart() {
+    restart(source = 'manual') {
       return run(async () => {
         const canonical = await validate(executablePath);
         const result = await restart(canonical);
-        lastRestartAt = Date.now();
+        lastRestartAt = clock();
+        lastRestart = { at: lastRestartAt, processId: result.processId, stoppedCount: result.stoppedCount,
+          source: source === 'auto' ? 'auto' : 'manual' };
         notice = { kind: 'success', text: 'Đã mở lại proxy (PID ' + result.processId + ').' };
+        try { await options.saveRestart?.({ ...lastRestart }); }
+        catch (error) {
+          notice = { kind: 'success', text: notice.text + ' Chưa lưu được lịch sử reset: ' + error.message };
+        }
         return true;
       });
     }

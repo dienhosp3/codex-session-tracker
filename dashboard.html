@@ -383,6 +383,43 @@ function renderGatewayPayload(){
     (c.truncated?'<div class="gateway-warn gateway-meta">Log cũ đã bị cắt: '+esc(String(c.capturedBytes))+'/'+esc(String(c.totalBytes))+' bytes.</div>':'')+
     headers+'<pre>'+esc(c.content||'')+'</pre>'+(c.complete?'':'<div class="gateway-actions"><button id="gwLoadMorePayload">Tải thêm nội dung</button></div>')+'</div>';
 }
+function proxyRestartTitle(localProxy = {}) {
+  const watchdog = localProxy.watchdog || {};
+  const assessment = watchdog.assessment || {};
+  const last = localProxy.lastRestart;
+  const timestamp = value => {
+    const at = Number(value);
+    return Number.isFinite(at) && at > 0
+      ? new Date(at).toLocaleString('vi-VN', { hour12: false }) + ' · ' + relTime(at)
+      : 'Chưa ghi nhận';
+  };
+  const lines = [
+    localProxy.busy ? 'Đang khởi động lại proxy…' : 'Khởi động lại proxy',
+    'Reset thành công gần nhất: ' + timestamp(last?.at || localProxy.lastRestartAt)
+  ];
+  if (last) {
+    lines.push('Nguồn: ' + (last.source === 'auto' ? 'Tự động' : 'Bấm tay') +
+      (last.processId ? ' · PID ' + last.processId : '') +
+      ' · Đã dừng ' + (last.stoppedCount || 0) + ' tiến trình');
+  }
+  lines.push('Lần thử gần nhất: ' + timestamp(watchdog.lastAttemptAt));
+  lines.push('Tự restart: ' + (watchdog.enabled ? 'Bật' : 'Tắt') + ' · Ngưỡng ' + (watchdog.minutes || 5) + ' phút');
+  if (assessment.checkedAt) {
+    lines.push('Task đang chạy: ' + (assessment.taskCount || 0));
+    if (assessment.latestActivityAt) {
+      const seconds = Math.max(0, Math.floor((Date.now() - assessment.latestActivityAt) / 1000));
+      lines.push('Task mới nhất hoạt động: ' + timestamp(assessment.latestActivityAt) + ' (' + seconds + ' giây trước)');
+    }
+    lines.push('Đánh giá gần nhất: ' + timestamp(assessment.checkedAt));
+  }
+  lines.push('Trạng thái: ' + (watchdog.notice || (watchdog.enabled ? 'Chờ đánh giá task.' : 'Tự restart đang tắt.')));
+  if (localProxy.recovery?.pendingCount) lines.push('Khôi phục: đang theo dõi ' + localProxy.recovery.pendingCount + ' chat.');
+  if (localProxy.recovery?.notice) lines.push(localProxy.recovery.notice);
+  if (localProxy.notice?.text) lines.push(localProxy.notice.text);
+  lines.push(localProxy.executablePath ? 'EXE: ' + localProxy.executablePath : 'Chưa chọn file proxy .exe.');
+  lines.push('Chuột phải để cài đặt');
+  return lines.join('\n');
+}
 function renderGateway(){
   const g=state.gateway||{},commands=Array.isArray(g.commands)?g.commands:[],cmd=commands[0],settings=gatewaySettingsValue(),managed=g.managedConfig||{},traffic=Array.isArray(g.traffic)?g.traffic:[];
   const status=g.running?'Gateway chạy '+esc((g.address&&g.address.host||'127.0.0.1')+':'+(g.address&&g.address.port||'')):(g.enabled?'Gateway lỗi: '+esc(g.error||'không chạy'):'Gateway tắt');
@@ -393,8 +430,7 @@ function renderGateway(){
   const compactStatus = g.running ? 'Đang chạy' : (g.enabled ? 'Lỗi' : 'Đã tắt');
   const compactClass = g.enabled && !g.running ? ' gateway-bad' : '';
   const localProxy=state.localProxy||{};
-  const watchdog=localProxy.watchdog||{};
-  const proxyTitle=(localProxy.busy?'Đang khởi động lại proxy…':'Khởi động lại proxy') + (localProxy.executablePath?'\n'+localProxy.executablePath:'\nChọn file .exe ở lần bấm đầu tiên') + '\nTự restart: '+(watchdog.enabled?'Bật':'Tắt')+' · '+(watchdog.minutes||5)+' phút\nChuột phải để cài đặt' + (localProxy.notice?.text?'\n'+localProxy.notice.text:'') + (watchdog.notice?'\n'+watchdog.notice:'') + (localProxy.recovery?.notice?'\n'+localProxy.recovery.notice:'');
+  const proxyTitle=proxyRestartTitle(localProxy);
   let html = '<details class="card gateway-disclosure" data-state-key="gateway-status">' +
     '<summary id="gatewaySummary" class="gateway-summary"><span class="card-title gateway-summary-label">Trạng thái giao tiếp</span>' +
     '<span class="gateway-summary-status' + compactClass + '">' + compactStatus + '</span>' +

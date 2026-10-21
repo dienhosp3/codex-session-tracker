@@ -1,12 +1,17 @@
-# Codex Session Tracker 0.12.12
+# Codex Session Tracker 0.12.13
 
-## Restart a local proxy (0.12.12)
+## Restart a local proxy (0.12.13)
 
 The yellow restart icon on the compact **Trạng thái giao tiếp** row restarts
 your local proxy EXE. On the first click, choose its `.exe`; Tracker saves the
 absolute path in VS Code global extension state for subsequent sessions.
 Expand the row and use **…** to change the executable. The tooltip shows the
 saved path and latest result. Selecting a replacement path only saves it.
+Hover the yellow icon to see the last successful reset (date/time, manual or
+automatic, PID and stopped-process count), the last attempt, idle threshold,
+running-task count, newest task activity and current watchdog decision.
+Successful reset history persists across window reloads. A failed attempt
+does not overwrite the last success; older versions did not retain this history.
 
 Restart stops processes whose complete executable path matches the selected
 file, rechecks each process before stopping it, waits for exit, and launches
@@ -40,6 +45,10 @@ one that has moved to another turn, is left alone. Definite non-delivery may
 retry after ten seconds, at most six attempts with the same message UUID;
 unknown delivery is retained without an automatic resend. Restart recovery
 uses the existing Codex connection and does not open a separate Codex window.
+Pending recovery no longer blocks the watchdog for the entire ten-minute
+recovery window. A running chat still idle for the configured threshold may
+trigger the next reset after the normal cooldown. If recovery attempts to send
+a continuation, the watchdog waits for a fresh task scan before another reset.
 
 Stopped-chat composers now attach the same input/event handlers as running
 chats. Drafts survive polling and switching chats. Each send has its own
@@ -567,13 +576,13 @@ Build on Windows with Git Bash:
 Expected artifact:
 
 ```text
-codex-session-tracker-0.12.12.vsix
+codex-session-tracker-0.12.13.vsix
 ```
 
 Install:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.12.12.vsix --force
+code --install-extension .\codex-session-tracker-0.12.13.vsix --force
 ```
 
 Then run **Developer: Reload Window** once.

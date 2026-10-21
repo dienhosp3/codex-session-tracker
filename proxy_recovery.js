@@ -49,9 +49,11 @@ function createProxyRecovery(options = {}) {
       options.onChange?.();
     },
     async consider(observation) {
-      if (busy || plan?.phase !== 'watching' || !observation?.complete || !Array.isArray(observation.roots)) return;
+      if (busy) return true;
+      if (plan?.phase !== 'watching' || !observation?.complete || !Array.isArray(observation.roots)) return false;
       const now = clock();
-      if (now - observation.checkedAt > 30000 || observation.checkedAt > now) return;
+      if (!Number.isFinite(observation.checkedAt) || now - observation.checkedAt > 30000 || observation.checkedAt > now) return false;
+      let deliveryAttempted = false;
       busy = true;
       try {
         for (const task of plan.tasks) {
@@ -75,6 +77,7 @@ function createProxyRecovery(options = {}) {
             throw error;
           }
           try {
+            deliveryAttempted = true;
             const result = await options.send({ ...task, message: RECOVERY_TEXT });
             if (!result?.turnId) {
               const error = new Error('Thiếu xác nhận lượt chat mới.');
@@ -97,6 +100,7 @@ function createProxyRecovery(options = {}) {
         busy = false;
         options.onChange?.();
       }
+      return deliveryAttempted;
     }
   };
 }
