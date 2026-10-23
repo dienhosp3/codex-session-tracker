@@ -11,6 +11,19 @@ function usageIntervalError(value) {
   return undefined;
 }
 
+function normalizeAccountKey(value) {
+  const key = String(value || '').trim().toLowerCase();
+  if (!key || key.length > 200) return 'account:unknown';
+  return key.replace(/[^a-z0-9._:@-]/g, '_');
+}
+
+function accountKeyFromResult(result) {
+  const account = result?.account && typeof result.account === 'object' ? result.account : {};
+  const explicit = result?.accountKey || result?.accountId || account.email || account.accountId || account.account_id || account.id || account.uuid;
+  if (explicit) return normalizeAccountKey(String(explicit).includes(':') ? explicit : `${account.type || 'account'}:${explicit}`);
+  return normalizeAccountKey(account.type || result?.accountType || 'account:unknown');
+}
+
 function normalizeUsage(result) {
   if (!result || typeof result !== 'object') throw new Error('Codex chưa trả dữ liệu Usage.');
   const buckets = result.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === 'object'
@@ -38,7 +51,9 @@ function normalizeUsage(result) {
     if (windows.length) groups.push({ id, name: typeof bucket.limitName === 'string' ? bucket.limitName : '', windows });
   }
   if (!groups.length) throw new Error('Codex chưa trả các cửa sổ hạn mức Usage.');
-  return groups.sort((a, b) => Number(b.id === 'codex') - Number(a.id === 'codex'));
+  const accountKey = accountKeyFromResult(result);
+  return groups.map(group => ({ ...group, accountKey }))
+    .sort((a, b) => Number(b.id === 'codex') - Number(a.id === 'codex'));
 }
 
 function createUsageMonitor(options) {
@@ -157,4 +172,4 @@ function usageStatus(state) {
   return { text, valueText, windows, color: primaryWindow ? 'charts.yellow' : undefined, tooltip: lines.join('\n'), level: maxUsed >= 100 ? 'error' : maxUsed >= 80 || state.error ? 'warning' : '' };
 }
 
-module.exports = { normalizeUsage, intervalMinutes, usageIntervalError, createUsageMonitor, usageStatus };
+module.exports = { normalizeUsage, normalizeAccountKey, accountKeyFromResult, intervalMinutes, usageIntervalError, createUsageMonitor, usageStatus };

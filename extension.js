@@ -8,7 +8,8 @@ const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
 const { ensureOwnerBridge } = require('./codex_owner_bridge');
 const { disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend } = require('./codex_live_backend');
-const { createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus } = require('./codex_usage');
+const { createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus, accountKeyFromResult } = require('./codex_usage');
+const { normalizeUsageAlertSettings, evaluateUsageAlerts, usageAlertSummary } = require('./codex_usage_alerts');
 const codexDelete = require('./codex_delete');
 const codexAuth = require('./codex_auth');
 const { createConversationNavigator } = require('./codex_navigation');
@@ -17,7 +18,7 @@ const { createLocalProxyController, restartExecutable } = require('./local_proxy
 const { createProxyWatchdog, thresholdError } = require('./proxy_watchdog');
 const { createProxyRecovery } = require('./proxy_recovery');
 const { createErrorHistory, createRetryLimitMonitor } = require('./codex_error_alerts');
-const { DEFAULT_ERROR_SOUND, createErrorSoundController } = require('./codex_error_sound');
+const { DEFAULT_ERROR_SOUND, DEFAULT_MODEL_CAPACITY_SOUND, createErrorSoundController } = require('./codex_error_sound');
 const openCodexConversation = createConversationNavigator(vscode);
 const { CodexGateway } = require('./gateway');
 const gatewayConfig = require('./gateway/config_manager');
@@ -27,6 +28,8 @@ const clientRuntime = require('./gateway/client_runtime');
 const {SavedTraffic}=require('./gateway/saved_traffic');
 const TRAFFIC_SETTINGS_KEY='codexSessionTracker.trafficSettings.v1';
 const USAGE_INTERVAL_KEY = 'codexSessionTracker.usageIntervalMinutes.v1';
+const USAGE_ALERT_SETTINGS_KEY = 'codexSessionTracker.usageAlertSettings.v1';
+const USAGE_ALERT_STATE_KEY = 'codexSessionTracker.usageAlertState.v1';
 const LOCAL_PROXY_KEY = 'codexSessionTracker.localProxyExecutable.v1';
 let localProxy = null;
 let localProxyPicker = null;
@@ -38,11 +41,17 @@ const PROXY_RESTART_KEY = 'codexSessionTracker.proxyLastRestart.v1';
 const PROXY_RECOVERY_KEY = 'codexSessionTracker.proxyRecovery.v1';
 const ERROR_MONITOR_KEY = 'codexSessionTracker.retryErrorMonitor.v1';
 const ERROR_SOUND_KEY = 'codexSessionTracker.errorSoundFile.v1';
+const CAPACITY_SOUND_KEY = 'codexSessionTracker.modelCapacitySoundFile.v1';
+const USER_INPUT_SOUND_KEY = 'codexSessionTracker.userInputSoundFile.v1';
 let errorMonitor = null;
 let errorHistory = null;
 let errorSound = null;
 let usageMonitor = null;
 let usageStatusBar = null;
+let usageAlertSettings = null;
+let usageAlertState = null;
+let usageAlertCheckedAt = 0;
+let usageAlertPromise = Promise.resolve();
 let trafficSettings={directory:path.join(require('os').homedir(),'Documents','Codex Logs'),enabled:true,mode:'post-get',maxRequests:1000};
 let savedTraffic=null;
 
@@ -162,13 +171,29 @@ async function activate(context) {
   });
   context.subscriptions.push(currentChatTracker);
   const savedUsageInterval = context.globalState.get(USAGE_INTERVAL_KEY, 5);
+  usageAlertSettings = normalizeUsageAlertSettings(context.globalState.get(USAGE_ALERT_SETTINGS_KEY));
+  usageAlertState = context.globalState.get(USAGE_ALERT_STATE_KEY) || { schemaVersion: 1, initialized: false, windows: {} };
   usageMonitor = createUsageMonitor({
     intervalMinutes: Number.isInteger(savedUsageInterval) && savedUsageInterval >= 0 && savedUsageInterval <= 1440 ? savedUsageInterval : 5,
     async read() {
       await prepareOwnerBridge();
-      return readRateLimitsInLocalBackend();
+      const rateLimits = await readRateLimitsInLocalBackend();
+      try {
+        const account = await readAccountInLocalBackend();
+        return { ...rateLimits, accountKey: accountKeyFromResult(account) };
+      } catch {
+        return { ...rateLimits, accountKey: 'account:unknown' };
+      }
     },
-    onChange: () => { renderUsageStatus(); postViewState(); }
+    onChange: () => {
+      const snapshot = usageMonitor?.snapshot();
+      if (snapshot?.checkedAt && snapshot.checkedAt !== usageAlertCheckedAt) {
+        usageAlertCheckedAt = snapshot.checkedAt;
+        processUsageAlerts(snapshot);
+      }
+      renderUsageStatus();
+      postViewState();
+    }
   });
   context.subscriptions.push(usageMonitor);
   renderUsageStatus();
@@ -209,12 +234,17 @@ async function activate(context) {
     vscode.commands.registerCommand('codexSessionTracker.refresh', () => refreshAll(true)),
     vscode.commands.registerCommand('codexSessionTracker.checkUsage', () => usageMonitor?.refresh()),
     vscode.commands.registerCommand('codexSessionTracker.configureUsageInterval', configureUsageInterval),
+    vscode.commands.registerCommand('codexSessionTracker.configureUsageAlerts', configureUsageAlerts),
     vscode.commands.registerCommand('codexSessionTracker.configureLocalProxy', configureLocalProxy),
     vscode.commands.registerCommand('codexSessionTracker.restartLocalProxy', restartLocalProxy),
     vscode.commands.registerCommand('codexSessionTracker.configureProxyWatchdog', configureProxyWatchdog),
     vscode.commands.registerCommand('codexSessionTracker.openErrorHistory', openErrorHistory),
     vscode.commands.registerCommand('codexSessionTracker.configureErrorSound', configureErrorSound),
     vscode.commands.registerCommand('codexSessionTracker.previewErrorSound', previewErrorSound),
+    vscode.commands.registerCommand('codexSessionTracker.configureModelCapacitySound', configureModelCapacitySound),
+    vscode.commands.registerCommand('codexSessionTracker.previewModelCapacitySound', previewModelCapacitySound),
+    vscode.commands.registerCommand('codexSessionTracker.configureUserInputSound', configureUserInputSound),
+    vscode.commands.registerCommand('codexSessionTracker.previewUserInputSound', previewUserInputSound),
     vscode.commands.registerCommand('codexSessionTracker.clearSelection', clearSelection),
     vscode.commands.registerCommand('codexSessionTracker.reprobeCodexCli', async () => { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }),
     vscode.commands.registerCommand('codexSessionTracker.exportGatewayDiagnostics', exportGatewayDiagnostics),
@@ -239,8 +269,15 @@ async function activate(context) {
 function startErrorMonitoring(context) {
   errorHistory = createErrorHistory(context.globalStorageUri.fsPath);
   errorSound = createErrorSoundController({
-    file: context.globalState.get(ERROR_SOUND_KEY, '') || path.join(context.extensionUri.fsPath, 'media', DEFAULT_ERROR_SOUND),
-    save: value => context.globalState.update(ERROR_SOUND_KEY, value)
+    files: {
+      retry_429: context.globalState.get(ERROR_SOUND_KEY, '') || path.join(context.extensionUri.fsPath, 'media', DEFAULT_ERROR_SOUND),
+      model_capacity: context.globalState.get(CAPACITY_SOUND_KEY, '') || path.join(context.extensionUri.fsPath, 'media', DEFAULT_MODEL_CAPACITY_SOUND),
+      user_input: context.globalState.get(USER_INPUT_SOUND_KEY, '') || context.globalState.get(ERROR_SOUND_KEY, '') || path.join(context.extensionUri.fsPath, 'media', DEFAULT_ERROR_SOUND)
+    },
+    save: (value, soundKey) => context.globalState.update(
+      soundKey === 'model_capacity' ? CAPACITY_SOUND_KEY : soundKey === 'user_input' ? USER_INPUT_SOUND_KEY : ERROR_SOUND_KEY,
+      value
+    )
   });
   errorMonitor = createRetryLimitMonitor({
     state: context.globalState.get(ERROR_MONITOR_KEY),
@@ -253,7 +290,14 @@ function startErrorMonitoring(context) {
       return { threadId, title: names.get(threadId)?.name || 'Codex chat' };
     },
     save: value => context.globalState.update(ERROR_MONITOR_KEY, value),
-    notify: () => errorSound.play(),
+    notify: event => {
+      if (event.alertType === 'user_input_required') {
+        const approval = ['exec_approval_request', 'apply_patch_approval_request', 'request_permissions'].includes(event.code);
+        const prefix = approval ? 'Codex đang chờ mày duyệt' : 'Codex đang chờ mày trả lời';
+        vscode.window.showWarningMessage(`${prefix} trong "${event.title}": ${event.message}`);
+      }
+      return errorSound.play(event.soundKey || 'retry_429');
+    },
     onError: error => console.warn('[Codex Session Tracker] Error alert: ' + friendlyError(error))
   });
   context.subscriptions.push(errorMonitor);
@@ -272,18 +316,31 @@ async function openErrorHistory() {
 }
 
 async function configureErrorSound() {
+  return configureErrorSoundProfile('retry_429', 'Chọn âm báo lỗi 429 (MP3)');
+}
+
+async function configureModelCapacitySound() {
+  return configureErrorSoundProfile('model_capacity', 'Chọn âm thanh cứu hoả cho lỗi model quá tải (MP3)');
+}
+
+async function configureUserInputSound() {
+  return configureErrorSoundProfile('user_input', 'Chọn âm báo khi Codex chờ mày trả lời hoặc duyệt (MP3)');
+}
+
+async function configureErrorSoundProfile(soundKey, title) {
   if (!errorSound) return false;
   try {
+    const current = errorSound.snapshot().files?.[soundKey] || errorSound.snapshot().file;
     const choice = await vscode.window.showOpenDialog({
-      title: 'Chọn âm báo lỗi 429 (MP3)',
-      defaultUri: vscode.Uri.file(errorSound.snapshot().file),
+      title,
+      defaultUri: vscode.Uri.file(current),
       canSelectFiles: true,
       canSelectFolders: false,
       canSelectMany: false,
       filters: { MP3: ['mp3'] }
     });
     if (!choice?.[0]) return false;
-    await errorSound.setFile(choice[0].fsPath);
+    await errorSound.setFile(choice[0].fsPath, soundKey);
     vscode.window.setStatusBarMessage('Đã lưu âm báo lỗi Codex.', 5000);
     errorMonitor?.poll(config().sessionsDir);
     return true;
@@ -294,13 +351,96 @@ async function configureErrorSound() {
 }
 
 async function previewErrorSound() {
-  try { await errorSound?.play(); }
+  try { await errorSound?.play('retry_429'); }
   catch (error) { vscode.window.showErrorMessage('Không phát được âm báo lỗi Codex: ' + friendlyError(error)); }
+}
+
+async function previewModelCapacitySound() {
+  try { await errorSound?.play('model_capacity'); }
+  catch (error) { vscode.window.showErrorMessage('Không phát được âm thanh cứu hoả: ' + friendlyError(error)); }
+}
+
+async function previewUserInputSound() {
+  try { await errorSound?.play('user_input'); }
+  catch (error) { vscode.window.showErrorMessage('Không phát được âm báo chờ trả lời: ' + friendlyError(error)); }
+}
+
+function processUsageAlerts(snapshot) {
+  usageAlertPromise = usageAlertPromise.then(async () => {
+    const result = evaluateUsageAlerts(snapshot.groups, usageAlertSettings, usageAlertState);
+    usageAlertState = result.state;
+    await contextRef?.globalState.update(USAGE_ALERT_STATE_KEY, usageAlertState);
+    for (const event of result.events) {
+      const historyEvent = {
+        id: event.id,
+        source: 'usage',
+        alertType: event.alertType,
+        soundKey: event.soundKey,
+        eventType: 'usage_check',
+        threadId: '',
+        title: 'Codex Usage',
+        occurredAt: event.occurredAt,
+        detectedAt: new Date().toISOString(),
+        window: event.window,
+        thresholdPercent: event.thresholdPercent,
+        ratePerHour: event.ratePerHour,
+        thresholdRatePerHour: event.thresholdRatePerHour,
+        usedPercent: event.usedPercent,
+        remainingPercent: event.remainingPercent,
+        message: event.message,
+        historical: false
+      };
+      await errorHistory?.append(historyEvent);
+      if (event.notify) vscode.window.showWarningMessage(event.message);
+      if (event.soundKey) await errorSound?.play(event.soundKey);
+    }
+  }).catch(error => console.warn('[Codex Session Tracker] Usage alert: ' + friendlyError(error)));
+  return usageAlertPromise;
+}
+
+async function configureUsageAlerts() {
+  if (!contextRef) return false;
+  const current = usageAlertSettings || normalizeUsageAlertSettings();
+  const enabled = await vscode.window.showQuickPick([
+    { label: 'Bật cảnh báo quota 5h', value: true },
+    { label: 'Tắt cảnh báo quota 5h', value: false }
+  ], { title: 'Cảnh báo Usage theo quota 5h' });
+  if (!enabled) return false;
+  const value = await vscode.window.showInputBox({
+    title: 'Các mốc cảnh báo quota 5h',
+    prompt: 'Nhập % đã dùng, cách nhau bằng dấu phẩy. Ví dụ: 50,70,85,95',
+    value: current.primary.thresholds.map(item => item.usedPercent).join(','),
+    validateInput: input => {
+      const values = String(input || '').split(',').map(item => Number(item.trim()));
+      return values.length && values.every(item => Number.isFinite(item) && item > 0 && item < 100) ? undefined : 'Nhập các số từ 1 đến 99, cách nhau bằng dấu phẩy.';
+    }
+  });
+  if (value === undefined) return false;
+  const thresholds = value.split(',').map(item => ({ usedPercent: Number(item.trim()), notify: true, soundKey: '' }));
+  const rateValue = await vscode.window.showInputBox({
+    title: 'Tốc độ tụt quota 5h',
+    prompt: 'Nhập các mốc % quota đã dùng trung bình mỗi giờ; để trống nếu không cần. Ví dụ: 10,20,30',
+    value: current.primary.rateThresholds.map(item => item.percentPerHour).join(','),
+    validateInput: input => {
+      if (!String(input || '').trim()) return undefined;
+      const values = String(input).split(',').map(item => Number(item.trim()));
+      return values.length && values.every(item => Number.isFinite(item) && item > 0 && item <= 1000) ? undefined : 'Nhập các số lớn hơn 0, cách nhau bằng dấu phẩy.';
+    }
+  });
+  if (rateValue === undefined) return false;
+  const rateThresholds = String(rateValue || '').trim()
+    ? rateValue.split(',').map(item => ({ percentPerHour: Number(item.trim()), notify: true, soundKey: '' }))
+    : [];
+  usageAlertSettings = normalizeUsageAlertSettings({ ...current, enabled: true, primary: { ...current.primary, enabled: true, thresholds, rateThresholds } });
+  await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
+  postViewState();
+  return true;
 }
 
 function renderUsageStatus() {
   if (!usageMonitor || !contextRef) return;
   const display = usageStatus(usageMonitor.snapshot());
+  const alertSummary = usageAlertSummary(usageAlertState, usageAlertSettings);
   if (!usageStatusBar) {
     usageStatusBar = vscode.window.createStatusBarItem('codexSessionTracker.usage', vscode.StatusBarAlignment.Right, 99);
     usageStatusBar.name = 'Codex Usage';
@@ -308,7 +448,7 @@ function renderUsageStatus() {
     contextRef.subscriptions.push(usageStatusBar);
   }
   usageStatusBar.text = display.text;
-  usageStatusBar.tooltip = display.tooltip;
+  usageStatusBar.tooltip = display.tooltip + '\nCảnh báo quota 5h: ' + (alertSummary.enabled ? 'bật' : 'tắt') + '. Mốc: ' + alertSummary.thresholds.join('%, ') + '% đã dùng.';
   usageStatusBar.color = display.color ? new vscode.ThemeColor(display.color) : undefined;
   usageStatusBar.accessibilityInformation = { label: 'Hạn mức Codex còn lại: ' + display.valueText + '. Bấm để kiểm tra ngay.' };
   usageStatusBar.show();
@@ -1857,7 +1997,7 @@ function postViewState() {
       codexCurrentThreadId,
       usage: (() => {
         const state = usageMonitor?.snapshot() || { intervalMinutes: 5, groups: [] };
-        return { ...state, display: usageStatus(state) };
+        return { ...state, display: usageStatus(state), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) } };
       })(),
       selected: selected && latestSnapshot ? serializeSnapshot(latestSnapshot) : (selected ? serializeSelectedShell() : null),
       queue: {

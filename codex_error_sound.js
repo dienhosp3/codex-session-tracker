@@ -5,6 +5,7 @@ const path = require('node:path');
 const childProcess = require('node:child_process');
 
 const DEFAULT_ERROR_SOUND = 'error_429.mp3';
+const DEFAULT_MODEL_CAPACITY_SOUND = 'error_model_capacity.mp3';
 const MP3_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
@@ -65,21 +66,25 @@ async function playErrorSound(options = {}) {
 
 function createErrorSoundController(options = {}) {
   let file = String(options.file || '');
+  const files = { ...(options.files || {}) };
+  if (!files.retry_429 && file) files.retry_429 = file;
   let queue = Promise.resolve();
   return {
-    snapshot() { return { file }; },
-    async setFile(value) {
+    snapshot() { return { file: files.retry_429 || file, files: { ...files } }; },
+    async setFile(value, soundKey = 'retry_429') {
       const validated = await (options.validate || validateErrorSound)(value);
-      await options.save?.(validated);
-      file = validated;
+      await options.save?.(validated, soundKey);
+      files[soundKey] = validated;
+      if (soundKey === 'retry_429') file = validated;
       return validated;
     },
-    play() {
-      const operation = queue.then(() => (options.play || playErrorSound)({ file }));
+    play(soundKey = 'retry_429') {
+      const selected = files[soundKey] || (soundKey === 'retry_429' ? file : '');
+      const operation = queue.then(() => (options.play || playErrorSound)({ file: selected, soundKey }));
       queue = operation.catch(() => {});
       return operation;
     }
   };
 }
 
-module.exports = { DEFAULT_ERROR_SOUND, MP3_SCRIPT, validateErrorSound, playErrorSound, createErrorSoundController };
+module.exports = { DEFAULT_ERROR_SOUND, DEFAULT_MODEL_CAPACITY_SOUND, MP3_SCRIPT, validateErrorSound, playErrorSound, createErrorSoundController };

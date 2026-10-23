@@ -9,6 +9,15 @@ const HISTORY_FILE = 'codex-retry-errors.jsonl';
 const CHUNK_BYTES = 64 * 1024;
 const MAX_RECORD_BYTES = 512 * 1024;
 const RETRY_MESSAGE = 'exceeded retry limit, last status: 429 Too Many Requests';
+const CAPACITY_MESSAGE = 'Selected model is at capacity. Please try a different model.';
+const MODEL_CAPACITY_SOUND_COOLDOWN_MS = 5 * 60 * 1000;
+const USER_INPUT_PAYLOAD_TYPES = new Set([
+  'request_user_input',
+  'elicitation_request',
+  'exec_approval_request',
+  'apply_patch_approval_request',
+  'request_permissions'
+]);
 
 function digest(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -26,6 +35,8 @@ function retryLimitError(item) {
   if (status !== 429 && !exactMessage) return null;
   const at = Date.parse(item.timestamp);
   return {
+    alertType: 'retry_limit_429',
+    soundKey: 'retry_429',
     eventType: payload.type,
     turnId: String(payload.turn_id || ''),
     occurredAt: Number.isFinite(at) ? new Date(at).toISOString() : '',
@@ -33,6 +44,56 @@ function retryLimitError(item) {
     code: 'response_too_many_failed_attempts',
     message: message.slice(0, 2000) || RETRY_MESSAGE
   };
+}
+
+function modelCapacityError(item) {
+  if (!item || item.type !== 'event_msg') return null;
+  const payload = item.payload;
+  if (!payload || !['task_complete', 'turn_complete'].includes(payload.type)) return null;
+  const error = payload.error;
+  if (!error || typeof error !== 'object') return null;
+  const message = String(error.message || '');
+  const code = String(error.codex_error_info || '');
+  if (code && code !== 'server_overloaded') return null;
+  if (code !== 'server_overloaded' && !/Selected model is at capacity\.\s*Please try a different model\./i.test(message)) return null;
+  const at = Date.parse(item.timestamp);
+  return {
+    alertType: 'model_capacity',
+    soundKey: 'model_capacity',
+    eventType: payload.type,
+    turnId: String(payload.turn_id || ''),
+    occurredAt: Number.isFinite(at) ? new Date(at).toISOString() : '',
+    httpStatus: null,
+    code: 'server_overloaded',
+    message: message.slice(0, 2000) || CAPACITY_MESSAGE
+  };
+}
+
+function userInputRequired(item) {
+  if (!item || item.type !== 'event_msg') return null;
+  const payload = item.payload;
+  if (!payload || !USER_INPUT_PAYLOAD_TYPES.has(String(payload.type || ''))) return null;
+  const at = Date.parse(item.timestamp);
+  const detail = payload.question || payload.prompt || payload.reason || payload.command || payload.message || '';
+  return {
+    alertType: 'user_input_required',
+    soundKey: 'user_input',
+    eventType: payload.type,
+    turnId: String(payload.turn_id || ''),
+    requestId: String(payload.request_id || payload.call_id || payload.id || ''),
+    occurredAt: Number.isFinite(at) ? new Date(at).toISOString() : '',
+    httpStatus: null,
+    code: String(payload.type),
+    message: String(detail).slice(0, 2000) || 'Codex đang chờ mày trả lời hoặc duyệt thao tác.'
+  };
+}
+
+function classifyCodexError(item) {
+  return modelCapacityError(item) || retryLimitError(item);
+}
+
+function classifyCodexAlert(item) {
+  return classifyCodexError(item) || userInputRequired(item);
 }
 
 async function lockHistory(file) {
@@ -130,8 +191,12 @@ function createRetryLimitMonitor(options) {
     }
   }
   const pendingSounds = Array.isArray(options.state?.pendingSounds)
-    ? options.state.pendingSounds.filter(event => event && typeof event.id === 'string' && event.httpStatus === 429)
+    ? options.state.pendingSounds.filter(event => event && typeof event.id === 'string' && (event.alertType || event.httpStatus === 429))
     : [];
+  const soundCooldowns = new Map(
+    Object.entries(options.state?.soundCooldowns || {})
+      .filter(([, value]) => Number.isFinite(value) && value >= 0)
+  );
   let initialized = false;
   let disposed = false;
   let polling = null;
@@ -150,7 +215,8 @@ function createRetryLimitMonitor(options) {
       await options.save({
         schemaVersion: 1,
         files: Object.fromEntries([...files].map(([key, cursor]) => [key, { ...cursor }])),
-        pendingSounds: pendingSounds.map(event => ({ ...event }))
+        pendingSounds: pendingSounds.map(event => ({ ...event })),
+        soundCooldowns: Object.fromEntries(soundCooldowns)
       });
       dirty = false;
     } catch (error) { report(error); }
@@ -188,19 +254,19 @@ function createRetryLimitMonitor(options) {
           if (newline >= 0 && newline < bytesRead) {
             if (!oversized) {
               const text = Buffer.concat(fragments, length).toString('utf8');
-              if (text.includes('response_too_many_failed_attempts') || /exceeded retry limit/i.test(text)) {
+              if (text.includes('response_too_many_failed_attempts') || text.includes('server_overloaded') || /exceeded retry limit|Selected model is at capacity|request_user_input|elicitation_request|exec_approval_request|apply_patch_approval_request|request_permissions/i.test(text)) {
                 let item;
                 try { item = JSON.parse(text); } catch {}
-                const failure = retryLimitError(item);
-                if (failure) {
+                const alert = classifyCodexAlert(item);
+                if (alert) {
                   if (!description) description = await options.describe(file);
                   const threadId = String(description?.threadId || file.fileThreadId || '');
-                  const id = digest(JSON.stringify([threadId, failure.turnId, failure.occurredAt || [digest(file.file), lineStart], failure.code]));
-                  const eventAt = Date.parse(failure.occurredAt);
+                  const id = digest(JSON.stringify([threadId, alert.turnId, alert.requestId, alert.occurredAt || [digest(file.file), lineStart], alert.code, alert.alertType]));
+                  const eventAt = Date.parse(alert.occurredAt);
                   const isNew = !historical || (Number.isFinite(eventAt) && eventAt >= startedAt);
                   const event = {
                     id,
-                    ...failure,
+                    ...alert,
                     detectedAt: new Date(now()).toISOString(),
                     threadId,
                     title: String(description?.title || 'Codex chat'),
@@ -250,8 +316,19 @@ function createRetryLimitMonitor(options) {
     await persist();
     while (pendingSounds.length && !disposed) {
       try {
+        const event = pendingSounds[0];
+        const cooldownKey = event.soundKey === 'model_capacity'
+          ? String(event.threadId || event.title || 'model_capacity')
+          : '';
+        const lastNotifiedAt = cooldownKey ? soundCooldowns.get(cooldownKey) : null;
+        if (cooldownKey && Number.isFinite(lastNotifiedAt) && now() - lastNotifiedAt < (options.modelCapacitySoundCooldownMs ?? MODEL_CAPACITY_SOUND_COOLDOWN_MS)) {
+          pendingSounds.shift();
+          dirty = true;
+          continue;
+        }
         const notify = options.notify || (() => playErrorSound({ file: options.soundFile }));
-        await notify(pendingSounds[0]);
+        await notify(event);
+        if (cooldownKey) soundCooldowns.set(cooldownKey, now());
         pendingSounds.shift();
         dirty = true;
       } catch (error) {
@@ -270,8 +347,8 @@ function createRetryLimitMonitor(options) {
       return polling;
     },
     dispose() { disposed = true; },
-    snapshot() { return { pendingSounds: pendingSounds.length, error: lastError }; }
+    snapshot() { return { pendingSounds: pendingSounds.length, error: lastError, soundCooldowns: Object.fromEntries(soundCooldowns) }; }
   };
 }
 
-module.exports = { HISTORY_FILE, retryLimitError, createErrorHistory, createRetryLimitMonitor };
+module.exports = { HISTORY_FILE, RETRY_MESSAGE, CAPACITY_MESSAGE, MODEL_CAPACITY_SOUND_COOLDOWN_MS, retryLimitError, modelCapacityError, userInputRequired, classifyCodexError, classifyCodexAlert, createErrorHistory, createRetryLimitMonitor };

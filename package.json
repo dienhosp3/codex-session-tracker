@@ -2,7 +2,7 @@
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
   "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
-  "version": "0.12.15",
+  "version": "0.12.16",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -33,6 +33,22 @@
         "title": "Codex Tracker: Nghe thử âm thanh lỗi 429"
       },
       {
+        "command": "codexSessionTracker.configureModelCapacitySound",
+        "title": "Codex Tracker: Chọn âm thanh cứu hoả cho model quá tải"
+      },
+      {
+        "command": "codexSessionTracker.previewModelCapacitySound",
+        "title": "Codex Tracker: Nghe thử âm thanh cứu hoả"
+      },
+      {
+        "command": "codexSessionTracker.configureUserInputSound",
+        "title": "Codex Tracker: Chọn âm báo khi Codex chờ trả lời"
+      },
+      {
+        "command": "codexSessionTracker.previewUserInputSound",
+        "title": "Codex Tracker: Nghe thử âm báo chờ trả lời"
+      },
+      {
         "command": "codexSessionTracker.openErrorHistory",
         "title": "Codex Tracker: Xem lịch sử lỗi 429"
       },
@@ -55,6 +71,10 @@
       {
         "command": "codexSessionTracker.configureUsageInterval",
         "title": "Codex Tracker: Set Usage Check Interval"
+      },
+      {
+        "command": "codexSessionTracker.configureUsageAlerts",
+        "title": "Codex Tracker: Cấu hình cảnh báo quota Usage"
       },
       {
         "command": "codexSessionTracker.openTracker",
@@ -237,6 +257,7 @@
     "proxy_recovery.js",
     "codex_error_alerts.js",
     "codex_error_sound.js",
+    "codex_usage_alerts.js",
     "runtime_versions.js",
     "gateway",
     "dashboard.html",

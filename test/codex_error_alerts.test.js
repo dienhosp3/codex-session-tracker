@@ -6,7 +6,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { listRolloutFiles } = require('../tracker');
-const { retryLimitError, createErrorHistory, createRetryLimitMonitor } = require('../codex_error_alerts');
+const { retryLimitError, modelCapacityError, userInputRequired, classifyCodexError, classifyCodexAlert, createErrorHistory, createRetryLimitMonitor } = require('../codex_error_alerts');
 
 const START = Date.parse('2026-10-22T05:00:00Z');
 const MESSAGE = 'exceeded retry limit, last status: 429 Too Many Requests';
@@ -23,6 +23,30 @@ function failure(at = START + 1000, turnId = 'turn-1') {
 }
 
 function line(item) { return JSON.stringify(item) + '\n'; }
+
+function capacityFailure(at = START + 1000, turnId = 'capacity-turn') {
+  return {
+    timestamp: new Date(at).toISOString(),
+    type: 'event_msg',
+    payload: {
+      type: 'task_complete', turn_id: turnId,
+      error: { message: 'Selected model is at capacity. Please try a different model.', codex_error_info: 'server_overloaded' }
+    }
+  };
+}
+
+function waitingRequest(at = START + 1000, type = 'request_user_input', requestId = 'request-1') {
+  return {
+    timestamp: new Date(at).toISOString(),
+    type: 'event_msg',
+    payload: {
+      type,
+      turn_id: 'waiting-turn',
+      request_id: requestId,
+      question: 'Mày có muốn tiếp tục công việc không?'
+    }
+  };
+}
 
 async function fixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-retry-alert-test-'));
@@ -86,6 +110,70 @@ test('ordinary 429 retries, other failures and quoted conversation text never tr
   assert.equal(retryLimitError(transient), null);
   assert.equal(retryLimitError({ type: 'response_item', payload: failure().payload }), null);
   assert.equal(retryLimitError(null), null);
+});
+
+test('model capacity errors use the dedicated alert and ignore quoted text', () => {
+  const event = modelCapacityError(capacityFailure());
+  assert.equal(event.alertType, 'model_capacity');
+  assert.equal(event.soundKey, 'model_capacity');
+  assert.equal(event.code, 'server_overloaded');
+  assert.equal(classifyCodexError(capacityFailure()).alertType, 'model_capacity');
+  const wrapped = capacityFailure();
+  wrapped.payload.error.message = 'Error running remote compact task: Selected model is at capacity. Please try a different model.';
+  assert.equal(modelCapacityError(wrapped).alertType, 'model_capacity');
+  const quoted = { type: 'response_item', payload: { type: 'message', role: 'user', text: 'Selected model is at capacity. Please try a different model.' } };
+  assert.equal(modelCapacityError(quoted), null);
+  const ordinary = capacityFailure();
+  ordinary.payload.error = { message: 'Selected model is at capacity. Please try a different model.', codex_error_info: 'other_error' };
+  assert.equal(modelCapacityError(ordinary), null);
+});
+
+test('questions and approvals become explicit waiting alerts and quoted text is ignored', () => {
+  const question = userInputRequired(waitingRequest());
+  assert.equal(question.alertType, 'user_input_required');
+  assert.equal(question.soundKey, 'user_input');
+  assert.equal(question.code, 'request_user_input');
+  assert.equal(classifyCodexAlert(waitingRequest('2026-10-22T05:00:02Z', 'exec_approval_request')).code, 'exec_approval_request');
+  const quoted = { type: 'response_item', payload: { type: 'message', role: 'user', text: 'Mày có muốn tiếp tục công việc không?' } };
+  assert.equal(userInputRequired(quoted), null);
+});
+
+test('model capacity rollout events are recorded and notified once', async t => {
+  const f = await fixture(t);
+  await f.poll();
+  await f.append(capacityFailure());
+  await f.poll();
+  await f.poll();
+  assert.equal(f.sounds.length, 1);
+  assert.equal(f.sounds[0].soundKey, 'model_capacity');
+  assert.equal((await f.records())[0].alertType, 'model_capacity');
+});
+
+test('waiting questions are recorded and beeped without sending an answer', async t => {
+  const f = await fixture(t);
+  await f.poll();
+  await f.append(waitingRequest());
+  await f.poll();
+  assert.equal(f.sounds.length, 1);
+  assert.equal(f.sounds[0].alertType, 'user_input_required');
+  assert.equal(f.sounds[0].soundKey, 'user_input');
+  assert.equal((await f.records())[0].code, 'request_user_input');
+});
+
+test('capacity sound is throttled per chat while every error remains in history', async t => {
+  const f = await fixture(t);
+  await f.poll();
+  await f.append(capacityFailure(START + 1000, 'capacity-1'));
+  await f.append(capacityFailure(START + 2000, 'capacity-2'));
+  await f.poll();
+  assert.equal(f.sounds.length, 1);
+  assert.equal((await f.records()).length, 2);
+  assert.equal(f.saved().soundCooldowns['fixture-thread'], START);
+  f.setTime(START + 5 * 60 * 1000 + 1);
+  await f.append(capacityFailure(START + 5 * 60 * 1000 + 2, 'capacity-3'));
+  await f.poll();
+  assert.equal(f.sounds.length, 2);
+  assert.equal((await f.records()).length, 3);
 });
 
 test('existing historical errors are recorded silently and new errors alert once', async t => {

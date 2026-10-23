@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { createRequire } = require('node:module');
-const { normalizeUsage, createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus } = require('../codex_usage');
+const { normalizeUsage, accountKeyFromResult, createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus } = require('../codex_usage');
 
 const response = percent => ({ rateLimits: { limitId: 'codex', primary: { usedPercent: percent, windowDurationMins: 300, resetsAt: 1800000000 }, secondary: { usedPercent: 80, windowDurationMins: 10080 } } });
 
@@ -37,8 +37,16 @@ test('usage preserves all metered buckets, legacy compatibility and actual windo
   value.rateLimitsByLimitId = { other: { limitName: 'Other', primary: { usedPercent: 12, windowDurationMins: 60 } }, codex: value.rateLimits };
   const groups = normalizeUsage(value);
   assert.deepEqual(groups.map(group => group.id), ['codex', 'other']);
+  assert.equal(groups[0].accountKey, 'account:unknown');
   assert.equal(groups[0].windows[0].resetsAt, 1800000000000);
   assert.equal(groups[0].windows[1].durationMinutes, 10080);
+});
+
+test('usage identity uses a safe account key and never uses API credentials', () => {
+  assert.equal(accountKeyFromResult({ account: { type: 'chatgpt', email: 'User@Example.com' } }), 'chatgpt:user@example.com');
+  assert.equal(accountKeyFromResult({ account: { type: 'chatgpt', id: 'acct-123' } }), 'chatgpt:acct-123');
+  assert.equal(accountKeyFromResult({ account: { type: 'apiKey' } }), 'apikey');
+  assert.equal(accountKeyFromResult({ account: { type: 'apiKey', apiKey: 'sk-secret' } }), 'apikey');
 });
 
 test('missing usage is an error rather than a fabricated zero percent', () => {

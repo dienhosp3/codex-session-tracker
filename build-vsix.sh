@@ -66,6 +66,9 @@ cp "$ROOT/media/tracker.svg" "$STAGE/extension/media/tracker.svg"
 if [[ -f "$ROOT/media/error_429.mp3" ]]; then
   cp "$ROOT/media/error_429.mp3" "$STAGE/extension/media/error_429.mp3"
 fi
+if [[ -f "$ROOT/media/error_model_capacity.mp3" ]]; then
+  cp "$ROOT/media/error_model_capacity.mp3" "$STAGE/extension/media/error_model_capacity.mp3"
+fi
 cp "$ROOT/media/codex_current_chat_observer.js" "$STAGE/extension/media/codex_current_chat_observer.js"
 cp "$ROOT/README.md" "$STAGE/extension/README.md"
 cp "$ROOT/LICENSE" "$STAGE/extension/LICENSE.txt"
