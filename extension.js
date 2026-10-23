@@ -398,6 +398,73 @@ function processUsageAlerts(snapshot) {
   return usageAlertPromise;
 }
 
+function parseUsageAlertList(value, kind, allowEmpty = false) {
+  const text = String(value ?? '').trim();
+  if (!text) return allowEmpty ? [] : null;
+  const values = text.split(',').map(item => Number(item.trim()));
+  const valid = values.length > 0 && values.every(item => {
+    if (!Number.isFinite(item)) return false;
+    if (kind === 'percent') return item > 0 && item < 100;
+    return item > 0 && item <= 1000;
+  });
+  return valid ? values : null;
+}
+
+async function saveUsageAlertSettings(input) {
+  if (!contextRef) return false;
+  const current = usageAlertSettings || normalizeUsageAlertSettings();
+  const primaryInput = input.primary && typeof input.primary === 'object' ? input.primary : {};
+  const secondaryInput = input.secondary && typeof input.secondary === 'object' ? input.secondary : {};
+  const listValue = (value, fallback) => value === undefined ? fallback : value;
+  const primaryThresholds = parseUsageAlertList(
+    listValue(primaryInput.thresholds, current.primary.thresholds.map(item => item.usedPercent).join(',')),
+    'percent'
+  );
+  const primaryRates = parseUsageAlertList(
+    listValue(primaryInput.rateThresholds, current.primary.rateThresholds.map(item => item.percentPerHour).join(',')),
+    'rate',
+    true
+  );
+  const secondaryThresholds = parseUsageAlertList(
+    listValue(secondaryInput.thresholds, current.secondary.thresholds.map(item => item.usedPercent).join(',')),
+    'percent',
+    true
+  );
+  const secondaryRates = parseUsageAlertList(
+    listValue(secondaryInput.rateThresholds, current.secondary.rateThresholds.map(item => item.percentPerHour).join(',')),
+    'rate',
+    true
+  );
+  if (!primaryThresholds) {
+    vscode.window.showErrorMessage('Mốc quota 5h phải là các số từ 1 đến 99, cách nhau bằng dấu phẩy.');
+    return false;
+  }
+  if (!primaryRates || !secondaryThresholds || !secondaryRates) {
+    vscode.window.showErrorMessage('Mốc tốc độ phải là các số lớn hơn 0, tối đa 1000, cách nhau bằng dấu phẩy.');
+    return false;
+  }
+  const enabled = input.enabled !== false;
+  usageAlertSettings = normalizeUsageAlertSettings({
+    ...current,
+    enabled,
+    primary: {
+      ...current.primary,
+      enabled: enabled && primaryInput.enabled !== false,
+      thresholds: primaryThresholds.map(usedPercent => ({ usedPercent, notify: true, soundKey: '' })),
+      rateThresholds: primaryRates.map(percentPerHour => ({ percentPerHour, notify: true, soundKey: '' }))
+    },
+    secondary: {
+      ...current.secondary,
+      enabled: enabled && secondaryInput.enabled === true,
+      thresholds: secondaryThresholds.map(usedPercent => ({ usedPercent, notify: true, soundKey: '' })),
+      rateThresholds: secondaryRates.map(percentPerHour => ({ percentPerHour, notify: true, soundKey: '' }))
+    }
+  });
+  await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
+  postViewState();
+  return true;
+}
+
 async function configureUsageAlerts() {
   if (!contextRef) return false;
   const current = usageAlertSettings || normalizeUsageAlertSettings();
@@ -419,6 +486,7 @@ async function configureUsageAlerts() {
   const value = await vscode.window.showInputBox({
     title: 'Các mốc cảnh báo quota 5h',
     prompt: 'Nhập % đã dùng, cách nhau bằng dấu phẩy. Ví dụ: 50,70,85,95',
+    placeHolder: '50,70,85,95',
     value: current.primary.thresholds.map(item => item.usedPercent).join(','),
     validateInput: input => {
       const values = String(input || '').split(',').map(item => Number(item.trim()));
@@ -430,6 +498,7 @@ async function configureUsageAlerts() {
   const rateValue = await vscode.window.showInputBox({
     title: 'Tốc độ tụt quota 5h',
     prompt: 'Nhập các mốc % quota đã dùng trung bình mỗi giờ; để trống nếu không cần. Ví dụ: 10,20,30',
+    placeHolder: '10,20,30 (%/giờ)',
     value: current.primary.rateThresholds.map(item => item.percentPerHour).join(','),
     validateInput: input => {
       if (!String(input || '').trim()) return undefined;
@@ -513,6 +582,7 @@ class TrackerViewProvider {
       if (message.command === 'checkUsage') await usageMonitor?.refresh();
       if (message.command === 'configureUsageInterval') await configureUsageInterval();
       if (message.command === 'configureUsageAlerts') await configureUsageAlerts();
+      if (message.command === 'saveUsageAlertSettings') await saveUsageAlertSettings(message.settings || {});
       if (message.command === 'configureLocalProxy') await configureLocalProxy();
       if (message.command === 'restartLocalProxy') await restartLocalProxy();
       if (message.command === 'configureProxyWatchdog') await configureProxyWatchdog();

@@ -83,6 +83,24 @@
 .usage-head .iconbtn{flex:0 0 auto;height:18px;padding:0 3px;font:inherit;line-height:18px}
 .usage-head .usage-alerts{color:var(--vscode-editorWarning-foreground,#d7ba7d);font-weight:700}
 .usage-head .usage-alerts:hover,.usage-head .usage-alerts:focus-visible{background:var(--vscode-editorWarning-background,rgba(215,186,125,.18));color:var(--vscode-editorWarning-foreground,#ffd75e)}
+.usage-alert-dialog{width:min(500px,calc(100vw - 28px));max-height:calc(100vh - 28px);padding:0;border:1px solid var(--vscode-panel-border);border-radius:7px;background:var(--vscode-editorWidget-background,var(--vscode-editor-background));color:var(--vscode-foreground)}
+.usage-alert-dialog::backdrop{background:rgba(0,0,0,.48)}
+.usage-alert-form{display:grid;gap:10px;padding:14px}
+.usage-alert-dialog h3{margin:0;font-size:14px}
+.usage-alert-help{margin:0;color:var(--vscode-descriptionForeground);font-size:11px}
+.usage-alert-section{display:grid;gap:8px;padding:9px;border:1px solid var(--vscode-panel-border);border-radius:5px}
+.usage-alert-section-title{font-weight:650}
+.usage-alert-field{display:grid;gap:4px}
+.usage-alert-field label{font-size:11px;color:var(--vscode-descriptionForeground)}
+.usage-alert-field input[type="text"]{width:100%;padding:6px 7px;border:1px solid var(--vscode-input-border);border-radius:4px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);font:inherit}
+.usage-alert-field input:focus{border-color:var(--vscode-focusBorder);outline:0}
+.usage-alert-check{display:flex;align-items:center;gap:7px;font-weight:600}
+.usage-alert-check input{margin:0}
+.usage-alert-actions{display:flex;justify-content:flex-end;gap:7px}
+.usage-alert-actions button{padding:6px 11px;border:1px solid var(--vscode-button-border);border-radius:4px;background:var(--vscode-button-secondaryBackground,var(--vscode-button-background));color:var(--vscode-button-secondaryForeground,var(--vscode-button-foreground));font:inherit;cursor:pointer}
+.usage-alert-actions button.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+.usage-alert-actions button:hover{background:var(--vscode-button-hoverBackground)}
+.usage-alert-error{min-height:16px;color:var(--vscode-errorForeground);font-size:11px}
 .gateway-summary{display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;list-style:none}
 .gateway-summary::-webkit-details-marker{display:none}
 .gateway-summary::before{content:'▸';flex:0 0 auto;color:var(--vscode-descriptionForeground)}
@@ -530,7 +548,7 @@ function renderUsage(){
   const alertSummary=usage.alerts&&usage.alerts.summary||{};
   const alertState=alertSummary.enabled?'đang bật':'đang tắt';
   const alertLevels=Array.isArray(alertSummary.thresholds)&&alertSummary.thresholds.length?alertSummary.thresholds.join('%, ')+'% đã dùng':'chưa đặt mốc';
-  const alertTitle='Cấu hình cảnh báo quota ('+alertState+'). Mốc: '+alertLevels+'. Bấm để chỉnh.';
+  const alertTitle='Cấu hình cảnh báo quota ('+alertState+'). Mốc: '+alertLevels+'. Cú pháp mốc %: 50,70,85,95; tốc độ %/giờ: 10,20,30. Bấm để chỉnh.';
   const settings=interval?'Tự kiểm tra mỗi '+interval+' phút. Bấm để đổi.':'Kiểm tra thủ công. Bấm để đổi chu kỳ.';
   return '<div class="usage-head usage-card"><span class="card-title">Usage</span>'+
     '<span class="usage-value" title="'+esc(display.tooltip||usage.error||'Hạn mức Codex còn lại')+'">'+valueHtml+'</span>'+
@@ -545,7 +563,77 @@ function bindUsageUi(){
   const settings=document.getElementById('usageSettings');
   if(settings)settings.onclick=()=>vscode.postMessage({command:'configureUsageInterval'});
   const alerts=document.getElementById('usageAlertsSettings');
-  if(alerts)alerts.onclick=()=>vscode.postMessage({command:'configureUsageAlerts'});
+  const dialog=document.getElementById('usageAlertDialog');
+  if(alerts)alerts.onclick=()=>{if(dialog?.showModal)dialog.showModal()};
+  const cancel=document.getElementById('usageAlertCancel');
+  if(cancel)cancel.onclick=()=>dialog?.close();
+  const save=document.getElementById('usageAlertSave');
+  if(save)save.onclick=()=>saveUsageAlertDialog(dialog);
+  const form=dialog?.querySelector('form');
+  if(form)form.onsubmit=event=>{event.preventDefault();saveUsageAlertDialog(dialog)};
+}
+
+function usageAlertListValue(items,key){
+  return Array.isArray(items)?items.map(item=>item&&item[key]).filter(value=>Number.isFinite(Number(value))).join(','):'';
+}
+
+function renderUsageAlertDialog(){
+  const settings=state.usage&&state.usage.alerts&&state.usage.alerts.settings||{};
+  const primary=settings.primary||{},secondary=settings.secondary||{};
+  const enabled=settings.enabled!==false;
+  const primaryEnabled=primary.enabled!==false;
+  const secondaryEnabled=secondary.enabled===true;
+  return '<dialog id="usageAlertDialog" class="usage-alert-dialog" aria-labelledby="usageAlertDialogTitle">'+
+    '<form class="usage-alert-form" method="dialog">'+
+    '<h3 id="usageAlertDialogTitle">Cấu hình cảnh báo quota</h3>'+
+    '<p class="usage-alert-help">Nhập nhiều mốc bằng dấu phẩy. Mốc quota là % đã dùng; tốc độ là % quota đã dùng trung bình mỗi giờ.</p>'+
+    '<label class="usage-alert-check"><input id="usageAlertsEnabled" type="checkbox" '+(enabled?'checked':'')+'> Bật cảnh báo quota</label>'+
+    '<section class="usage-alert-section"><div class="usage-alert-section-title">Quota 5h</div>'+
+    '<label class="usage-alert-check"><input id="usageAlertPrimaryEnabled" type="checkbox" '+(primaryEnabled?'checked':'')+'> Theo dõi quota 5h</label>'+
+    '<div class="usage-alert-field"><label for="usageAlertPrimaryThresholds">Mốc % đã dùng</label><input id="usageAlertPrimaryThresholds" type="text" value="'+esc(usageAlertListValue(primary.thresholds,'usedPercent'))+'" placeholder="50,70,85,95"><span class="usage-alert-help">Ví dụ: 50,70,85,95</span></div>'+
+    '<div class="usage-alert-field"><label for="usageAlertPrimaryRates">Tốc độ trung bình (%/giờ)</label><input id="usageAlertPrimaryRates" type="text" value="'+esc(usageAlertListValue(primary.rateThresholds,'percentPerHour'))+'" placeholder="10,20,30"><span class="usage-alert-help">Ví dụ: 10,20,30</span></div></section>'+
+    '<section class="usage-alert-section"><div class="usage-alert-section-title">Quota 7d</div>'+
+    '<label class="usage-alert-check"><input id="usageAlertSecondaryEnabled" type="checkbox" '+(secondaryEnabled?'checked':'')+'> Theo dõi quota 7d</label>'+
+    '<div class="usage-alert-field"><label for="usageAlertSecondaryThresholds">Mốc % đã dùng</label><input id="usageAlertSecondaryThresholds" type="text" value="'+esc(usageAlertListValue(secondary.thresholds,'usedPercent'))+'" placeholder="70,90"><span class="usage-alert-help">Ví dụ: 70,90</span></div>'+
+    '<div class="usage-alert-field"><label for="usageAlertSecondaryRates">Tốc độ trung bình (%/giờ)</label><input id="usageAlertSecondaryRates" type="text" value="'+esc(usageAlertListValue(secondary.rateThresholds,'percentPerHour'))+'" placeholder="5,10"><span class="usage-alert-help">Ví dụ: 5,10; có thể để trống</span></div></section>'+
+    '<div id="usageAlertDialogError" class="usage-alert-error" role="alert"></div>'+
+    '<div class="usage-alert-actions"><button id="usageAlertCancel" type="button">Hủy</button><button id="usageAlertSave" class="primary" type="button">Lưu cấu hình</button></div>'+
+    '</form></dialog>';
+}
+
+function parseUsageAlertDialogList(id,kind,allowEmpty){
+  const value=String(document.getElementById(id)?.value||'').trim();
+  if(!value)return allowEmpty?[]:null;
+  const values=value.split(',').map(item=>Number(item.trim()));
+  const valid=values.length>0&&values.every(item=>Number.isFinite(item)&&(kind==='percent'?(item>0&&item<100):(item>0&&item<=1000)));
+  return valid?values:null;
+}
+
+function saveUsageAlertDialog(dialog){
+  const error=document.getElementById('usageAlertDialogError');
+  const primaryThresholds=parseUsageAlertDialogList('usageAlertPrimaryThresholds','percent',false);
+  const primaryRates=parseUsageAlertDialogList('usageAlertPrimaryRates','rate',true);
+  const secondaryThresholds=parseUsageAlertDialogList('usageAlertSecondaryThresholds','percent',true);
+  const secondaryRates=parseUsageAlertDialogList('usageAlertSecondaryRates','rate',true);
+  if(!primaryThresholds||!primaryRates||!secondaryThresholds||!secondaryRates){
+    if(error)error.textContent='Kiểm tra lại cú pháp: dùng các số cách nhau bằng dấu phẩy, ví dụ 50,70,85,95 hoặc 10,20,30.';
+    return;
+  }
+  const toText=values=>values.join(',');
+  vscode.postMessage({command:'saveUsageAlertSettings',settings:{
+    enabled:Boolean(document.getElementById('usageAlertsEnabled')?.checked),
+    primary:{
+      enabled:Boolean(document.getElementById('usageAlertPrimaryEnabled')?.checked),
+      thresholds:toText(primaryThresholds),
+      rateThresholds:toText(primaryRates)
+    },
+    secondary:{
+      enabled:Boolean(document.getElementById('usageAlertSecondaryEnabled')?.checked),
+      thresholds:toText(secondaryThresholds),
+      rateThresholds:toText(secondaryRates)
+    }
+  }});
+  dialog?.close();
 }
 
 function renderAuthSession(){
@@ -554,7 +642,7 @@ function renderAuthSession(){
   const disabled = auth.busy || auth.canDeactivate === false;
   return '<section class="card auth-session-card">' +
     '<div class="auth-session-row"><span class="auth-session-account" title="' + account + '">' + account + '</span>' +
-    '<button class="send" id="deactivateSession" type="button" ' + (disabled ? 'disabled' : '') + '>Deactive</button></div>'+renderUsage()+'</section>';
+    '<button class="send" id="deactivateSession" type="button" ' + (disabled ? 'disabled' : '') + '>Deactive</button></div>'+renderUsage()+renderUsageAlertDialog()+'</section>';
 }
 
 function bindAuthSessionUi(){
