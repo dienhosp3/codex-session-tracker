@@ -37,6 +37,7 @@ fixture = {
     'usage': {
         'intervalMinutes': 5,
         'checkedAt': 1800000000000,
+        'alerts': {'summary': {'enabled': True, 'thresholds': [50, 70, 85, 95]}},
         'groups': [{'id': 'codex', 'name': '', 'windows': [
             {'key': 'primary', 'usedPercent': 45, 'durationMinutes': 300, 'resetsAt': 1800000300000},
             {'key': 'secondary', 'usedPercent': 7, 'durationMinutes': 10080, 'resetsAt': 1800000600000},
@@ -125,6 +126,10 @@ try:
             assert usage.locator('.usage-percent-yellow').evaluate('(node) => getComputedStyle(node).color') != usage.locator('.usage-percent-green').evaluate('(node) => getComputedStyle(node).color')
             assert 'Đặt lại' in usage.locator('.usage-value').get_attribute('title')
             assert '5 phút' in page.locator('#usageSettings').get_attribute('title')
+            assert usage.locator('#usageAlertsSettings').count() == 1
+            assert '50%, 70%, 85%, 95%' in page.locator('#usageAlertsSettings').get_attribute('title')
+            page.locator('#usageAlertsSettings').click()
+            assert page.evaluate("window.__trackerMessages.at(-1).command") == 'configureUsageAlerts'
             page.locator('#usageSettings').click()
             assert page.evaluate("window.__trackerMessages.at(-1).command") == 'configureUsageInterval'
             interval_changed = deepcopy(fixture)
@@ -302,6 +307,7 @@ try:
                 'onlyMatchingAcknowledgementClearsDraft': True,
                 'separateDraftPerChat': True,
                 'usageSettingsAndManualCheck': True,
+                'usageAlertButtonAndConfiguration': True,
                 'usageExactCompactTextAndSeparatePercentageColors': True,
                 'usageDetailsOnlyOnHover': True,
             })

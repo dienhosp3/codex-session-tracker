@@ -81,6 +81,8 @@
 .usage-percent-yellow{color:var(--vscode-charts-yellow,#d7ba7d)}
 .usage-percent-green{color:var(--vscode-charts-green,#89d185)}
 .usage-head .iconbtn{flex:0 0 auto;height:18px;padding:0 3px;font:inherit;line-height:18px}
+.usage-head .usage-alerts{color:var(--vscode-editorWarning-foreground,#d7ba7d);font-weight:700}
+.usage-head .usage-alerts:hover,.usage-head .usage-alerts:focus-visible{background:var(--vscode-editorWarning-background,rgba(215,186,125,.18));color:var(--vscode-editorWarning-foreground,#ffd75e)}
 .gateway-summary{display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;list-style:none}
 .gateway-summary::-webkit-details-marker{display:none}
 .gateway-summary::before{content:'▸';flex:0 0 auto;color:var(--vscode-descriptionForeground)}
@@ -525,11 +527,16 @@ function renderUsage(){
   const windows=Array.isArray(display.windows)?display.windows:[];
   const valueHtml=windows.length?windows.map(window=>esc(window.label)+' <span class="usage-percent-'+(window.tone==='green'?'green':'yellow')+'">'+esc(window.percent)+'</span>').join(' - '):esc(value);
   const interval=usage.intervalMinutes??5;
+  const alertSummary=usage.alerts&&usage.alerts.summary||{};
+  const alertState=alertSummary.enabled?'đang bật':'đang tắt';
+  const alertLevels=Array.isArray(alertSummary.thresholds)&&alertSummary.thresholds.length?alertSummary.thresholds.join('%, ')+'% đã dùng':'chưa đặt mốc';
+  const alertTitle='Cấu hình cảnh báo quota ('+alertState+'). Mốc: '+alertLevels+'. Bấm để chỉnh.';
   const settings=interval?'Tự kiểm tra mỗi '+interval+' phút. Bấm để đổi.':'Kiểm tra thủ công. Bấm để đổi chu kỳ.';
   return '<div class="usage-head usage-card"><span class="card-title">Usage</span>'+
     '<span class="usage-value" title="'+esc(display.tooltip||usage.error||'Hạn mức Codex còn lại')+'">'+valueHtml+'</span>'+
     '<button class="iconbtn" id="checkUsage" type="button" title="Kiểm tra Usage ngay" aria-label="Kiểm tra Usage ngay" '+(usage.busy?'disabled':'')+'>'+(usage.busy?'…':'↻')+'</button>'+
-    '<button class="iconbtn" id="usageSettings" type="button" title="'+esc(settings)+'" aria-label="Đổi chu kỳ kiểm tra Usage">⚙</button></div>';
+    '<button class="iconbtn" id="usageSettings" type="button" title="'+esc(settings)+'" aria-label="Đổi chu kỳ kiểm tra Usage">⚙</button>'+
+    '<button class="iconbtn usage-alerts" id="usageAlertsSettings" type="button" title="'+esc(alertTitle)+'" aria-label="Cấu hình cảnh báo quota">⚠</button></div>';
 }
 
 function bindUsageUi(){
@@ -537,6 +544,8 @@ function bindUsageUi(){
   if(button)button.onclick=()=>{if(!button.disabled){button.disabled=true;vscode.postMessage({command:'checkUsage'})}};
   const settings=document.getElementById('usageSettings');
   if(settings)settings.onclick=()=>vscode.postMessage({command:'configureUsageInterval'});
+  const alerts=document.getElementById('usageAlertsSettings');
+  if(alerts)alerts.onclick=()=>vscode.postMessage({command:'configureUsageAlerts'});
 }
 
 function renderAuthSession(){

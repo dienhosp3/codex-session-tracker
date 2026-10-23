@@ -406,6 +406,16 @@ async function configureUsageAlerts() {
     { label: 'Tắt cảnh báo quota 5h', value: false }
   ], { title: 'Cảnh báo Usage theo quota 5h' });
   if (!enabled) return false;
+  if (enabled.value === false) {
+    usageAlertSettings = normalizeUsageAlertSettings({
+      ...current,
+      enabled: false,
+      primary: { ...current.primary, enabled: false }
+    });
+    await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
+    postViewState();
+    return true;
+  }
   const value = await vscode.window.showInputBox({
     title: 'Các mốc cảnh báo quota 5h',
     prompt: 'Nhập % đã dùng, cách nhau bằng dấu phẩy. Ví dụ: 50,70,85,95',
@@ -502,6 +512,7 @@ class TrackerViewProvider {
       if (message.command === 'deactivateSession') await deactivateCodexSession();
       if (message.command === 'checkUsage') await usageMonitor?.refresh();
       if (message.command === 'configureUsageInterval') await configureUsageInterval();
+      if (message.command === 'configureUsageAlerts') await configureUsageAlerts();
       if (message.command === 'configureLocalProxy') await configureLocalProxy();
       if (message.command === 'restartLocalProxy') await restartLocalProxy();
       if (message.command === 'configureProxyWatchdog') await configureProxyWatchdog();
