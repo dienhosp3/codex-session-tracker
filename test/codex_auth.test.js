@@ -142,7 +142,7 @@ test('dashboard combines account and usage without a login heading and blocks du
   assert.doesNotMatch(rendered, /Phiên đăng nhập Codex|Codex Home|giữ nguyên|Reload|Đăng xuất|Xoá phiên/);
   assert.equal((rendered.match(/auth-session-card/g) || []).length, 1);
   assert.equal((rendered.match(/class="usage-alert-dialog"/g) || []).length, 1);
-  assert.equal((rendered.match(/class="usage-alert-section"/g) || []).length, 2);
+  assert.equal((rendered.match(/class="usage-alert-section"/g) || []).length, 3);
   assert.match(rendered, /auth-session-card/);
   assert.match(rendered, /usage-head usage-card/);
   assert.match(rendered, /id="checkUsage"/);

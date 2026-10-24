@@ -10,6 +10,7 @@ const { ensureOwnerBridge } = require('./codex_owner_bridge');
 const { disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend } = require('./codex_live_backend');
 const { createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus, accountKeyFromResult } = require('./codex_usage');
 const { normalizeUsageAlertSettings, evaluateUsageAlerts, usageAlertSummary } = require('./codex_usage_alerts');
+const { normalizeUsageHistory, recordUsageSample, createUsageHistoryStore, usageHistoryChart } = require('./codex_usage_history');
 const codexDelete = require('./codex_delete');
 const codexAuth = require('./codex_auth');
 const { createConversationNavigator } = require('./codex_navigation');
@@ -52,6 +53,9 @@ let usageAlertSettings = null;
 let usageAlertState = null;
 let usageAlertCheckedAt = 0;
 let usageAlertPromise = Promise.resolve();
+let usageHistoryState = { schemaVersion: 1, samples: [] };
+let usageHistoryPromise = Promise.resolve();
+let usageHistoryStore = null;
 let trafficSettings={directory:path.join(require('os').homedir(),'Documents','Codex Logs'),enabled:true,mode:'post-get',maxRequests:1000};
 let savedTraffic=null;
 
@@ -173,6 +177,8 @@ async function activate(context) {
   const savedUsageInterval = context.globalState.get(USAGE_INTERVAL_KEY, 5);
   usageAlertSettings = normalizeUsageAlertSettings(context.globalState.get(USAGE_ALERT_SETTINGS_KEY));
   usageAlertState = context.globalState.get(USAGE_ALERT_STATE_KEY) || { schemaVersion: 1, initialized: false, windows: {} };
+  usageHistoryStore = createUsageHistoryStore(context.globalStorageUri.fsPath);
+  usageHistoryState = { samples: await usageHistoryStore.load().catch(error => { console.warn('[Codex Session Tracker] Usage history read: ' + friendlyError(error)); return []; }) };
   usageMonitor = createUsageMonitor({
     intervalMinutes: Number.isInteger(savedUsageInterval) && savedUsageInterval >= 0 && savedUsageInterval <= 1440 ? savedUsageInterval : 5,
     async read() {
@@ -189,6 +195,8 @@ async function activate(context) {
       const snapshot = usageMonitor?.snapshot();
       if (snapshot?.checkedAt && snapshot.checkedAt !== usageAlertCheckedAt) {
         usageAlertCheckedAt = snapshot.checkedAt;
+        usageHistoryState = recordUsageSample(snapshot, usageHistoryState, snapshot.checkedAt);
+        usageHistoryPromise = usageHistoryPromise.then(() => usageHistoryStore?.append(snapshot, snapshot.checkedAt)).catch(error => console.warn('[Codex Session Tracker] Usage history write: ' + friendlyError(error)));
         processUsageAlerts(snapshot);
       }
       renderUsageStatus();
@@ -443,6 +451,14 @@ async function saveUsageAlertSettings(input) {
     vscode.window.showErrorMessage('Mốc tốc độ phải là các số lớn hơn 0, tối đa 1000, cách nhau bằng dấu phẩy.');
     return false;
   }
+  const currentMinutes = usageMonitor?.snapshot().intervalMinutes ?? contextRef.globalState.get(USAGE_INTERVAL_KEY, 5);
+  const intervalValue = input.intervalMinutes === undefined ? currentMinutes : input.intervalMinutes;
+  const intervalError = usageIntervalError(String(intervalValue));
+  if (intervalError) {
+    vscode.window.showErrorMessage(intervalError);
+    return false;
+  }
+  const minutes = Number(String(intervalValue).trim());
   const enabled = input.enabled !== false;
   usageAlertSettings = normalizeUsageAlertSettings({
     ...current,
@@ -460,7 +476,14 @@ async function saveUsageAlertSettings(input) {
       rateThresholds: secondaryRates.map(percentPerHour => ({ percentPerHour, notify: true, soundKey: '' }))
     }
   });
-  await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
+  try {
+    await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
+    await contextRef.globalState.update(USAGE_INTERVAL_KEY, minutes);
+    usageMonitor?.setInterval(minutes);
+  } catch (error) {
+    vscode.window.showErrorMessage(error.message);
+    return false;
+  }
   postViewState();
   return true;
 }
@@ -539,6 +562,7 @@ async function deactivate() {
   errorMonitor = null;
   errorHistory = null;
   errorSound = null;
+  usageHistoryStore = null;
   currentChatTracker?.dispose();
   currentChatTracker = null;
   usageMonitor?.dispose();
@@ -2078,7 +2102,7 @@ function postViewState() {
       codexCurrentThreadId,
       usage: (() => {
         const state = usageMonitor?.snapshot() || { intervalMinutes: 5, groups: [] };
-        return { ...state, display: usageStatus(state), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) } };
+        return { ...state, display: usageStatus(state), chart: usageHistoryChart(usageHistoryState), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) } };
       })(),
       selected: selected && latestSnapshot ? serializeSnapshot(latestSnapshot) : (selected ? serializeSelectedShell() : null),
       queue: {

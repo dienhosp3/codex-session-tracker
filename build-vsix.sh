@@ -46,6 +46,7 @@ cp "$ROOT/proxy_watchdog.js" "$STAGE/extension/proxy_watchdog.js"
 cp "$ROOT/proxy_recovery.js" "$STAGE/extension/proxy_recovery.js"
 cp "$ROOT/codex_error_alerts.js" "$STAGE/extension/codex_error_alerts.js"
 cp "$ROOT/codex_error_sound.js" "$STAGE/extension/codex_error_sound.js"
+cp "$ROOT/codex_usage_history.js" "$STAGE/extension/codex_usage_history.js"
 cp "$ROOT/runtime_versions.js" "$STAGE/extension/runtime_versions.js"
 if [[ ! -f "$ROOT/runtime/bin/windows-x86_64/codex.exe" || ! -f "$ROOT/runtime/manifest.json" ]]; then
   echo "Build the client runtime with scripts/build-runtime.ps1 first." >&2

@@ -1,4 +1,4 @@
-# Codex Session Tracker 0.12.15
+# Codex Session Tracker 0.12.21
 
 ## Retry-limit error alerts, MP3 sound and history (0.12.15)
 
@@ -609,13 +609,13 @@ Build on Windows with Git Bash:
 Expected artifact:
 
 ```text
-codex-session-tracker-0.12.15.vsix
+codex-session-tracker-0.12.21.vsix
 ```
 
 Install:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.12.15.vsix --force
+code --install-extension .\codex-session-tracker-0.12.21.vsix --force
 ```
 
 Then run **Developer: Reload Window** once.

@@ -83,6 +83,18 @@
 .usage-head .iconbtn{flex:0 0 auto;height:18px;padding:0 3px;font:inherit;line-height:18px}
 .usage-head .usage-alerts{color:var(--vscode-editorWarning-foreground,#d7ba7d);font-weight:700}
 .usage-head .usage-alerts:hover,.usage-head .usage-alerts:focus-visible{background:var(--vscode-editorWarning-background,rgba(215,186,125,.18));color:var(--vscode-editorWarning-foreground,#ffd75e)}
+.usage-head .usage-chart{color:var(--vscode-charts-blue,#75beff);font-weight:700}
+.usage-chart-dialog{width:min(560px,calc(100vw - 28px));max-height:calc(100vh - 28px);padding:0;border:1px solid var(--vscode-panel-border);border-radius:7px;background:var(--vscode-editorWidget-background,var(--vscode-editor-background));color:var(--vscode-foreground)}
+.usage-chart-dialog::backdrop{background:rgba(0,0,0,.48)}
+.usage-chart-form{display:grid;gap:10px;padding:14px}
+.usage-chart-dialog h3{margin:0;font-size:14px}
+.usage-chart-summary{margin:0;color:var(--vscode-descriptionForeground);font-size:11px}
+.usage-chart-plot{width:100%;height:auto;display:block;border:1px solid var(--vscode-panel-border);border-radius:5px;background:var(--vscode-editor-background)}
+.usage-chart-empty{padding:28px 12px;text-align:center;color:var(--vscode-descriptionForeground);border:1px dashed var(--vscode-panel-border);border-radius:5px}
+.usage-chart-axis{stroke:var(--vscode-panel-border);stroke-width:1}
+.usage-chart-line{fill:none;stroke:var(--vscode-charts-blue,#75beff);stroke-width:2}
+.usage-chart-point{fill:var(--vscode-charts-blue,#75beff);stroke:var(--vscode-editor-background);stroke-width:1.5}
+.usage-chart-label{fill:var(--vscode-descriptionForeground);font:10px var(--vscode-font-family)}
 .usage-alert-dialog{width:min(500px,calc(100vw - 28px));max-height:calc(100vh - 28px);padding:0;border:1px solid var(--vscode-panel-border);border-radius:7px;background:var(--vscode-editorWidget-background,var(--vscode-editor-background));color:var(--vscode-foreground)}
 .usage-alert-dialog::backdrop{background:rgba(0,0,0,.48)}
 .usage-alert-form{display:grid;gap:10px;padding:14px}
@@ -541,6 +553,7 @@ function bindGatewayUi(){
 
 function renderUsage(){
   const usage=state.usage||{},display=usage.display||{};
+  const chart=usage.chart||{};
   const value=display.valueText||'Chưa có dữ liệu';
   const windows=Array.isArray(display.windows)?display.windows:[];
   const valueHtml=windows.length?windows.map(window=>esc(window.label)+' <span class="usage-percent-'+(window.tone==='green'?'green':'yellow')+'">'+esc(window.percent)+'</span>').join(' - '):esc(value);
@@ -558,19 +571,25 @@ function renderUsage(){
 }
 
 function bindUsageUi(){
+  const dialog=moveUsageAlertDialog();
   const button=document.getElementById('checkUsage');
   if(button)button.onclick=()=>{if(!button.disabled){button.disabled=true;vscode.postMessage({command:'checkUsage'})}};
   const settings=document.getElementById('usageSettings');
   if(settings)settings.onclick=()=>vscode.postMessage({command:'configureUsageInterval'});
   const alerts=document.getElementById('usageAlertsSettings');
-  const dialog=document.getElementById('usageAlertDialog');
-  if(alerts)alerts.onclick=()=>{if(dialog?.showModal)dialog.showModal()};
+  syncUsageAlertDialog(dialog);
+  if(alerts)alerts.onclick=()=>{syncUsageAlertDialog(dialog);if(dialog?.showModal)dialog.showModal()};
   const cancel=document.getElementById('usageAlertCancel');
   if(cancel)cancel.onclick=()=>dialog?.close();
   const save=document.getElementById('usageAlertSave');
   if(save)save.onclick=()=>saveUsageAlertDialog(dialog);
   const form=dialog?.querySelector('form');
   if(form)form.onsubmit=event=>{event.preventDefault();saveUsageAlertDialog(dialog)};
+  const chartButton=document.getElementById('usageChartButton');
+  const chartDialog=document.getElementById('usageChartDialog');
+  if(chartButton)chartButton.onclick=()=>{if(chartDialog?.showModal)chartDialog.showModal()};
+  const chartClose=document.getElementById('usageChartClose');
+  if(chartClose)chartClose.onclick=()=>chartDialog?.close();
 }
 
 function usageAlertListValue(items,key){
@@ -583,10 +602,13 @@ function renderUsageAlertDialog(){
   const enabled=settings.enabled!==false;
   const primaryEnabled=primary.enabled!==false;
   const secondaryEnabled=secondary.enabled===true;
+  const interval=state.usage&&state.usage.intervalMinutes!==undefined?state.usage.intervalMinutes:5;
   return '<dialog id="usageAlertDialog" class="usage-alert-dialog" aria-labelledby="usageAlertDialogTitle">'+
     '<form class="usage-alert-form" method="dialog">'+
     '<h3 id="usageAlertDialogTitle">Cấu hình cảnh báo quota</h3>'+
     '<p class="usage-alert-help">Nhập nhiều mốc bằng dấu phẩy. Mốc quota là % đã dùng; tốc độ là % quota đã dùng trung bình mỗi giờ.</p>'+
+    '<section class="usage-alert-section"><div class="usage-alert-section-title">Chu kỳ kiểm tra Usage</div>'+
+    '<div class="usage-alert-field"><label for="usageAlertInterval">Số phút giữa các lần kiểm tra (0 = thủ công)</label><input id="usageAlertInterval" type="number" min="0" max="1440" step="1" value="'+esc(interval)+'"><span class="usage-alert-help">Nhập từ 0 đến 1440 phút.</span></div></section>'+
     '<label class="usage-alert-check"><input id="usageAlertsEnabled" type="checkbox" '+(enabled?'checked':'')+'> Bật cảnh báo quota</label>'+
     '<section class="usage-alert-section"><div class="usage-alert-section-title">Quota 5h</div>'+
     '<label class="usage-alert-check"><input id="usageAlertPrimaryEnabled" type="checkbox" '+(primaryEnabled?'checked':'')+'> Theo dõi quota 5h</label>'+
@@ -601,6 +623,33 @@ function renderUsageAlertDialog(){
     '</form></dialog>';
 }
 
+function moveUsageAlertDialog(){
+  const dialogs=Array.from(document.querySelectorAll('#usageAlertDialog'));
+  if(!dialogs.length)return null;
+  const dialog=dialogs.find(item=>item.open)||dialogs.find(item=>item.parentElement===main)||dialogs[0];
+  if(dialog.parentElement!==document.body)document.body.appendChild(dialog);
+  for(const duplicate of dialogs)if(duplicate!==dialog)duplicate.remove();
+  return dialog;
+}
+
+function syncUsageAlertDialog(dialog){
+  if(!dialog||dialog.open)return;
+  const settings=state.usage&&state.usage.alerts&&state.usage.alerts.settings||{};
+  const primary=settings.primary||{},secondary=settings.secondary||{};
+  const setValue=(id,value)=>{const field=document.getElementById(id);if(field)field.value=String(value??'')};
+  const setChecked=(id,value)=>{const field=document.getElementById(id);if(field)field.checked=Boolean(value)};
+  setValue('usageAlertInterval',state.usage&&state.usage.intervalMinutes!==undefined?state.usage.intervalMinutes:5);
+  setChecked('usageAlertsEnabled',settings.enabled!==false);
+  setChecked('usageAlertPrimaryEnabled',primary.enabled!==false);
+  setValue('usageAlertPrimaryThresholds',usageAlertListValue(primary.thresholds,'usedPercent'));
+  setValue('usageAlertPrimaryRates',usageAlertListValue(primary.rateThresholds,'percentPerHour'));
+  setChecked('usageAlertSecondaryEnabled',secondary.enabled===true);
+  setValue('usageAlertSecondaryThresholds',usageAlertListValue(secondary.thresholds,'usedPercent'));
+  setValue('usageAlertSecondaryRates',usageAlertListValue(secondary.rateThresholds,'percentPerHour'));
+  const error=document.getElementById('usageAlertDialogError');
+  if(error)error.textContent='';
+}
+
 function parseUsageAlertDialogList(id,kind,allowEmpty){
   const value=String(document.getElementById(id)?.value||'').trim();
   if(!value)return allowEmpty?[]:null;
@@ -609,18 +658,27 @@ function parseUsageAlertDialogList(id,kind,allowEmpty){
   return valid?values:null;
 }
 
+function parseUsageAlertDialogInterval(){
+  const value=String(document.getElementById('usageAlertInterval')?.value||'').trim();
+  if(!/^\d+$/.test(value))return null;
+  const minutes=Number(value);
+  return Number.isInteger(minutes)&&minutes>=0&&minutes<=1440?minutes:null;
+}
+
 function saveUsageAlertDialog(dialog){
   const error=document.getElementById('usageAlertDialogError');
+  const interval=parseUsageAlertDialogInterval();
   const primaryThresholds=parseUsageAlertDialogList('usageAlertPrimaryThresholds','percent',false);
   const primaryRates=parseUsageAlertDialogList('usageAlertPrimaryRates','rate',true);
   const secondaryThresholds=parseUsageAlertDialogList('usageAlertSecondaryThresholds','percent',true);
   const secondaryRates=parseUsageAlertDialogList('usageAlertSecondaryRates','rate',true);
-  if(!primaryThresholds||!primaryRates||!secondaryThresholds||!secondaryRates){
-    if(error)error.textContent='Kiểm tra lại cú pháp: dùng các số cách nhau bằng dấu phẩy, ví dụ 50,70,85,95 hoặc 10,20,30.';
+  if(interval===null||!primaryThresholds||!primaryRates||!secondaryThresholds||!secondaryRates){
+    if(error)error.textContent=interval===null?'Chu kỳ phải là số nguyên từ 0 đến 1440 phút.':'Kiểm tra lại cú pháp: dùng các số cách nhau bằng dấu phẩy, ví dụ 50,70,85,95 hoặc 10,20,30.';
     return;
   }
   const toText=values=>values.join(',');
   vscode.postMessage({command:'saveUsageAlertSettings',settings:{
+    intervalMinutes:interval,
     enabled:Boolean(document.getElementById('usageAlertsEnabled')?.checked),
     primary:{
       enabled:Boolean(document.getElementById('usageAlertPrimaryEnabled')?.checked),

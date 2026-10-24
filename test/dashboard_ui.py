@@ -112,8 +112,9 @@ try:
             assert account.locator('.usage-card').count() == 1
             assert account.locator('.auth-session-row').count() == 1
             assert 'Phiên đăng nhập Codex' not in account.inner_text()
-            assert account.locator('.usage-alert-dialog').count() == 1
-            assert account.locator('.usage-alert-dialog .usage-alert-section').count() == 2
+            assert page.locator('.usage-alert-dialog').count() == 1
+            assert page.locator('.usage-alert-dialog').evaluate('(node) => !node.closest("#main")')
+            assert page.locator('.usage-alert-dialog .usage-alert-section').count() == 3
             assert usage.evaluate('(node) => !!(document.querySelector(".auth-session-row").compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)')
             account_height = account.bounding_box()['height']
             assert account_height <= 90, account_height
@@ -133,8 +134,13 @@ try:
             assert 'tốc độ %/giờ: 10,20,30' in page.locator('#usageAlertsSettings').get_attribute('title')
             page.locator('#usageAlertsSettings').click()
             assert page.locator('#usageAlertDialog').is_visible()
+            assert page.locator('#usageAlertInterval').input_value() == '5'
             assert page.locator('#usageAlertPrimaryThresholds').get_attribute('placeholder') == '50,70,85,95'
             assert page.locator('#usageAlertPrimaryRates').get_attribute('placeholder') == '10,20,30'
+            page.locator('#usageAlertInterval').fill('7')
+            update(fixture)
+            assert page.locator('#usageAlertDialog').is_visible()
+            assert page.locator('#usageAlertInterval').input_value() == '7'
             page.locator('#usageAlertCancel').click()
             page.locator('#usageSettings').click()
             assert page.evaluate("window.__trackerMessages.at(-1).command") == 'configureUsageInterval'
