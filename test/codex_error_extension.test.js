@@ -127,6 +127,7 @@ test('release metadata includes the error monitor, MP3 module and commands', () 
   assert.ok(pkg.files.includes('codex_error_alerts.js'));
   assert.ok(pkg.files.includes('codex_error_sound.js'));
   assert.ok(pkg.files.includes('codex_usage_history.js'));
+  assert.ok(pkg.files.includes('codex_usage_voice.js'));
   assert.ok(pkg.contributes.commands.some(item => item.command === 'codexSessionTracker.configureErrorSound'));
   assert.ok(pkg.contributes.commands.some(item => item.command === 'codexSessionTracker.previewErrorSound'));
   assert.ok(pkg.contributes.commands.some(item => item.command === 'codexSessionTracker.openErrorHistory'));
@@ -134,4 +135,5 @@ test('release metadata includes the error monitor, MP3 module and commands', () 
   assert.match(builder, /cp "\$ROOT\/codex_error_alerts\.js" "\$STAGE\/extension\/codex_error_alerts\.js"/);
   assert.match(builder, /cp "\$ROOT\/codex_error_sound\.js" "\$STAGE\/extension\/codex_error_sound\.js"/);
   assert.match(builder, /cp "\$ROOT\/codex_usage_history\.js" "\$STAGE\/extension\/codex_usage_history\.js"/);
+  assert.match(builder, /cp "\$ROOT\/codex_usage_voice\.js" "\$STAGE\/extension\/codex_usage_voice\.js"/);
 });

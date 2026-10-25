@@ -1,4 +1,15 @@
-# Codex Session Tracker 0.12.21
+# Codex Session Tracker 0.12.22
+
+## Vietnamese quota voice alerts
+
+The Usage alert dialog can optionally read the primary quota percentage in
+Vietnamese when two consecutive checks differ. The value is rounded and
+clamped to an integer from 0 through 100. Normal changes and large changes
+can be enabled independently; the large-change threshold is configurable from
+1 through 100 percentage points. Windows speech prefers an installed `vi-*`
+voice and falls back to the default Windows voice while preserving Vietnamese
+text. The feature is disabled by default and does not change the existing MP3
+error, model-capacity or user-input sound choices.
 
 ## Retry-limit error alerts, MP3 sound and history (0.12.15)
 
@@ -19,6 +30,14 @@ lỗi 429** to play it once. Playback uses Windows MCI in a hidden process and
 does not substitute system beeps. The bundled sound is used until another file
 is selected. An unavailable or
 invalid file preserves pending notifications for a later retry after selection.
+
+## Session runtime diagnostics and stop
+
+Running and selected sessions show the latest model, reasoning effort and
+output-token speed when the rollout provides those records. The **Dừng** button
+sends the app-server `turn/interrupt` request for the selected active turn and
+reports unsupported or unconfirmed delivery instead of pretending that the
+turn stopped.
 
 Use **Codex Tracker: Xem lịch sử lỗi 429** in the Command Palette to open the
 saved history. `codex-retry-errors.jsonl` lives in the extension's VS Code

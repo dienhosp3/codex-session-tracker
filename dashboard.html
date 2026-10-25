@@ -132,6 +132,11 @@
 .local-proxy-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--vscode-descriptionForeground)}
 .local-proxy-row .iconbtn{flex:0 0 auto;padding:1px 5px}
 .local-proxy-row+.gateway-notice{margin:0 0 8px}
+.runtime-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px;color:var(--vscode-descriptionForeground);font-size:10px;min-width:0}
+.runtime-meta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.runtime-meta b{color:var(--vscode-foreground);font-weight:600}
+.send.stop{background:var(--vscode-testing-iconFailed,var(--vscode-errorForeground));color:var(--vscode-button-foreground)}
+.send.stop:hover:not(:disabled){background:var(--vscode-errorForeground)}
 </style>
 </head>
 <body>
@@ -147,6 +152,7 @@ const relTime=ms=>{if(!ms)return '';const s=Math.max(0,Math.floor((Date.now()-ms
 const timeAgeClass=ms=>{const age=Date.now()-Number(ms||0);if(!Number.isFinite(age)||!ms)return 'age-old';if(age<5*60*1000)return 'age-now';if(age<60*60*1000)return 'age-recent';if(age<24*60*60*1000)return 'age-today';return 'age-old'};
 const short=(s,n=130)=>{s=String(s||'').replace(/\s+/g,' ').trim();return s.length>n?s.slice(0,n-1)+'…':s};
 const baseName=p=>String(p||'').replace(/[\\/]+$/,'').split(/[\\/]/).pop()||p||'';
+const runtimeMeta=r=>{r=r||{};const parts=[];if(r.model)parts.push('<span><b>Model</b> '+esc(r.model)+'</span>');if(r.reasoning)parts.push('<span><b>Reasoning</b> '+esc(r.reasoning)+'</span>');if(Number(r.speedTokensPerSecond)>0)parts.push('<span><b>Tốc độ</b> '+esc(Number(r.speedTokensPerSecond).toFixed(2))+' tok/s</span>');return parts.length?'<div class="runtime-meta">'+parts.join(' · ')+'</div>':''};
 function renderChats(){
   const nonRunning=Boolean(state.showNonRunning);
   const runningTab=document.getElementById('runningTab'),nonRunningTab=document.getElementById('nonRunningTab');
@@ -164,7 +170,7 @@ function renderChats(){
     const at=Number(c.lastActivity)||0;
     const deleteButton=nonRunning?'<button class="iconbtn chat-delete" type="button" data-delete="'+esc(c.threadId)+'" title="Xóa cuộc trò chuyện" aria-label="Xóa cuộc trò chuyện" '+(deletion.busy?'disabled':'')+'>&#128465;</button>':'';
     const currentChat=c.threadId===state.codexCurrentThreadId;
-    return '<div class="chat '+(c.threadId===state.selectedThreadId?'selected':'')+'" data-id="'+esc(c.threadId)+'" title="'+esc(c.cwd||'')+'" role="button" tabindex="0"><div class="titleline"><span class="dot '+(nonRunning?'dot-stopped':'')+'"></span><span class="chat-title'+(currentChat?' codex-current':'')+'"'+(currentChat?' title="Đang mở trong Codex"':'')+'>'+esc(c.title||'Codex chat')+'</span>'+deleteButton+'</div><div class="chat-meta"><span class="ellipsis">'+esc(baseName(c.cwd)||'No workspace')+esc(agents)+'</span><span class="'+timeAgeClass(at)+'" title="'+esc(absTime(at))+'">'+esc(absTime(at))+' · '+esc(relTime(at))+'</span></div></div>';
+    return '<div class="chat '+(c.threadId===state.selectedThreadId?'selected':'')+'" data-id="'+esc(c.threadId)+'" title="'+esc(c.cwd||'')+'" role="button" tabindex="0"><div class="titleline"><span class="dot '+(nonRunning?'dot-stopped':'')+'"></span><span class="chat-title'+(currentChat?' codex-current':'')+'"'+(currentChat?' title="Đang mở trong Codex"':'')+'>'+esc(c.title||'Codex chat')+'</span>'+deleteButton+'</div><div class="chat-meta"><span class="ellipsis">'+esc(baseName(c.cwd)||'No workspace')+esc(agents)+'</span><span class="'+timeAgeClass(at)+'" title="'+esc(absTime(at))+'">'+esc(absTime(at))+' · '+esc(relTime(at))+'</span></div>'+runtimeMeta(c.runtime)+'</div>';
   }).join('');
   for(const el of chatList.querySelectorAll('.chat')){
     el.onclick=()=>vscode.postMessage({command:'selectChat',threadId:el.dataset.id});
@@ -190,14 +196,15 @@ function queueInfo(){
   return null;
 }
 function bindComposer(wasFocused,start,end){
-  const ta=document.getElementById('composerInput'),steer=document.getElementById('steerBtn'),queue=document.getElementById('queueBtn'),next=document.getElementById('continueBtn'),reprobe=document.getElementById('reprobe'),picker=document.getElementById('imagePicker'),addImage=document.getElementById('addImageBtn');
+  const ta=document.getElementById('composerInput'),steer=document.getElementById('steerBtn'),queue=document.getElementById('queueBtn'),stop=document.getElementById('stopBtn'),next=document.getElementById('continueBtn'),reprobe=document.getElementById('reprobe'),picker=document.getElementById('imagePicker'),addImage=document.getElementById('addImageBtn');
   if(!ta||(!next&&(!steer||!queue)))return;
   ta.value=draft;
   const update=()=>{
     draft=ta.value;
-    const hasText=Boolean(String(draft).trim()),hasImages=draftImages.length>0,a=state.steer||{},q=state.queue||{},c=state.continuation||{},busy=Boolean(a.busy||q.busy||c.busy||Object.values(pendingContinuation).some(item=>item.threadId===state.selectedThreadId));
+    const hasText=Boolean(String(draft).trim()),hasImages=draftImages.length>0,a=state.steer||{},q=state.queue||{},i=state.interrupt||{},c=state.continuation||{},busy=Boolean(a.busy||q.busy||i.busy||c.busy||Object.values(pendingContinuation).some(item=>item.threadId===state.selectedThreadId));
     if(steer)steer.disabled=!(hasText||hasImages)||!a.available||busy;
     if(queue)queue.disabled=!hasText||hasImages||!q.available||busy;
+    if(stop)stop.disabled=Boolean(i.busy)||!state.selected||state.selected.stateKind!=='running';
     if(next)next.disabled=!(hasText||hasImages)||busy||!state.selected||state.selected.stateKind==='unknown';
   };
   ta.oninput=update;
@@ -211,6 +218,7 @@ function bindComposer(wasFocused,start,end){
   if(steer)steer.onclick=()=>{if(!steer.disabled)send('steerMessage')};
   if(queue)queue.onclick=()=>{if(!queue.disabled)send('queueMessage')};
   if(next)next.onclick=()=>{if(!next.disabled)send('continueMessage')};
+  if(stop)stop.onclick=()=>{if(!stop.disabled)vscode.postMessage({command:'interruptChat',threadId:state.selectedThreadId})};
   if(reprobe)reprobe.onclick=()=>vscode.postMessage({command:'reprobeCodex'});
   if(addImage&&picker)addImage.onclick=()=>picker.click();
   if(picker)picker.onchange=()=>{addDraftImages(picker.files);picker.value=''};
@@ -335,7 +343,7 @@ function renderCurrent(d){
   if(!d.current)return '';
   const at=Number(d.current.at)||Number(d.lastActivityMs)||0,detail=String(d.current.detail||'').trim();
   const detailHtml=detail.length>140?'<details class="current-detail-expand" data-state-key="current"><summary title="'+esc(detail)+'">'+esc(short(detail,140))+'</summary><pre>'+esc(detail)+'</pre></details>':(detail?'<div class="current-detail" title="'+esc(detail)+'">'+esc(detail)+'</div>':'');
-  return '<section class="card"><div class="card-title">Hoạt động hiện tại</div><div class="current-card"><div><div class="current-label">'+esc(d.current.label||'Đang xử lý')+' <span class="timeline-actor">'+esc(d.current.actor||'Main')+'</span></div>'+detailHtml+'</div>'+timeHtml(at)+'</div></section>';
+  return '<section class="card"><div class="card-title">Hoạt động hiện tại</div><div class="current-card"><div><div class="current-label">'+esc(d.current.label||'Đang xử lý')+' <span class="timeline-actor">'+esc(d.current.actor||'Main')+'</span></div>'+detailHtml+runtimeMeta(d.runtime)+'</div>'+timeHtml(at)+'</div></section>';
 }
 function renderWorkers(d){
   if(d.stateKind!=='running')return '';
@@ -344,7 +352,7 @@ function renderWorkers(d){
   if(!workers.length)html+='<div class="sub">Đang cập nhật trạng thái thread...</div>';
   else html+=workers.map(n=>{
     const detail=String(n.currentDetail||'').trim(),text=String(n.currentText||'').trim(),task=String(n.taskPreview||'').trim(),has=Boolean(detail||text||task),at=Number(n.currentAt)||Number(n.updatedAt)||0;
-    return '<details class="worker '+(has?'has-detail':'')+'" data-state-key="worker:'+esc(n.threadId||n.actor||'')+'"><summary><div class="worker-row"><span class="dot"></span><div class="worker-action"><b>'+esc(n.actor||'Sub-agent')+'</b> · '+esc(n.current||'Đang xử lý')+(detail?' <span class="muted">· '+esc(short(detail,100))+'</span>':'')+'</div>'+timeHtml(at,'worker-time')+'</div></summary>'+(has?'<div class="worker-detail">'+(detail?'<div>Chi tiết hiện tại</div><pre>'+esc(detail)+'</pre>':'')+(text?'<div>Nội dung hiện tại</div><pre>'+esc(text)+'</pre>':'')+(!text&&!detail&&task?'<div>Nhiệm vụ</div><pre>'+esc(task)+'</pre>':'')+'</div>':'')+'</details>';
+    return '<details class="worker '+(has?'has-detail':'')+'" data-state-key="worker:'+esc(n.threadId||n.actor||'')+'"><summary><div class="worker-row"><span class="dot"></span><div class="worker-action"><b>'+esc(n.actor||'Sub-agent')+'</b> · '+esc(n.current||'Đang xử lý')+(detail?' <span class="muted">· '+esc(short(detail,100))+'</span>':'')+runtimeMeta(n.runtime)+'</div>'+timeHtml(at,'worker-time')+'</div></summary>'+(has?'<div class="worker-detail">'+(detail?'<div>Chi tiết hiện tại</div><pre>'+esc(detail)+'</pre>':'')+(text?'<div>Nội dung hiện tại</div><pre>'+esc(text)+'</pre>':'')+(!text&&!detail&&task?'<div>Nhiệm vụ</div><pre>'+esc(task)+'</pre>':'')+'</div>':'')+'</details>';
   }).join('');
   return html+'</div></section>';
 }
@@ -598,10 +606,15 @@ function usageAlertListValue(items,key){
 
 function renderUsageAlertDialog(){
   const settings=state.usage&&state.usage.alerts&&state.usage.alerts.settings||{};
+  const voice=state.usage&&state.usage.voice||{};
   const primary=settings.primary||{},secondary=settings.secondary||{};
   const enabled=settings.enabled!==false;
   const primaryEnabled=primary.enabled!==false;
   const secondaryEnabled=secondary.enabled===true;
+  const voiceEnabled=voice.enabled===true;
+  const voiceOnChange=voice.speakOnChange!==false;
+  const voiceOnLargeChange=voice.speakOnLargeChange!==false;
+  const voiceLargeChange=Number.isInteger(Number(voice.largeChangePercent))?Math.max(1,Math.min(100,Number(voice.largeChangePercent))):10;
   const interval=state.usage&&state.usage.intervalMinutes!==undefined?state.usage.intervalMinutes:5;
   return '<dialog id="usageAlertDialog" class="usage-alert-dialog" aria-labelledby="usageAlertDialogTitle">'+
     '<form class="usage-alert-form" method="dialog">'+
@@ -618,6 +631,11 @@ function renderUsageAlertDialog(){
     '<label class="usage-alert-check"><input id="usageAlertSecondaryEnabled" type="checkbox" '+(secondaryEnabled?'checked':'')+'> Theo dõi quota 7d</label>'+
     '<div class="usage-alert-field"><label for="usageAlertSecondaryThresholds">Mốc % đã dùng</label><input id="usageAlertSecondaryThresholds" type="text" value="'+esc(usageAlertListValue(secondary.thresholds,'usedPercent'))+'" placeholder="70,90"><span class="usage-alert-help">Ví dụ: 70,90</span></div>'+
     '<div class="usage-alert-field"><label for="usageAlertSecondaryRates">Tốc độ trung bình (%/giờ)</label><input id="usageAlertSecondaryRates" type="text" value="'+esc(usageAlertListValue(secondary.rateThresholds,'percentPerHour'))+'" placeholder="5,10"><span class="usage-alert-help">Ví dụ: 5,10; có thể để trống</span></div></section>'+
+    '<section class="usage-alert-section"><div class="usage-alert-section-title">Đọc quota bằng tiếng Việt</div>'+
+    '<label class="usage-alert-check"><input id="usageVoiceEnabled" type="checkbox" '+(voiceEnabled?'checked':'')+'> Bật đọc phần trăm bằng tiếng Việt</label>'+
+    '<label class="usage-alert-check"><input id="usageVoiceOnChange" type="checkbox" '+(voiceOnChange?'checked':'')+'> Đọc khi phần trăm thay đổi</label>'+
+    '<label class="usage-alert-check"><input id="usageVoiceOnLargeChange" type="checkbox" '+(voiceOnLargeChange?'checked':'')+'> Đọc khi thay đổi lớn</label>'+
+    '<div class="usage-alert-field"><label for="usageVoiceLargeChange">Thay đổi từ bao nhiêu điểm % là lớn</label><input id="usageVoiceLargeChange" type="number" min="1" max="100" step="1" value="'+esc(voiceLargeChange)+'"><span class="usage-alert-help">Số nguyên từ 1 đến 100. Giá trị đọc luôn là số nguyên từ 0 đến 100.</span></div></section>'+
     '<div id="usageAlertDialogError" class="usage-alert-error" role="alert"></div>'+
     '<div class="usage-alert-actions"><button id="usageAlertCancel" type="button">Hủy</button><button id="usageAlertSave" class="primary" type="button">Lưu cấu hình</button></div>'+
     '</form></dialog>';
@@ -635,6 +653,7 @@ function moveUsageAlertDialog(){
 function syncUsageAlertDialog(dialog){
   if(!dialog||dialog.open)return;
   const settings=state.usage&&state.usage.alerts&&state.usage.alerts.settings||{};
+  const voice=state.usage&&state.usage.voice||{};
   const primary=settings.primary||{},secondary=settings.secondary||{};
   const setValue=(id,value)=>{const field=document.getElementById(id);if(field)field.value=String(value??'')};
   const setChecked=(id,value)=>{const field=document.getElementById(id);if(field)field.checked=Boolean(value)};
@@ -646,6 +665,10 @@ function syncUsageAlertDialog(dialog){
   setChecked('usageAlertSecondaryEnabled',secondary.enabled===true);
   setValue('usageAlertSecondaryThresholds',usageAlertListValue(secondary.thresholds,'usedPercent'));
   setValue('usageAlertSecondaryRates',usageAlertListValue(secondary.rateThresholds,'percentPerHour'));
+  setChecked('usageVoiceEnabled',voice.enabled===true);
+  setChecked('usageVoiceOnChange',voice.speakOnChange!==false);
+  setChecked('usageVoiceOnLargeChange',voice.speakOnLargeChange!==false);
+  setValue('usageVoiceLargeChange',voice.largeChangePercent||10);
   const error=document.getElementById('usageAlertDialogError');
   if(error)error.textContent='';
 }
@@ -665,6 +688,13 @@ function parseUsageAlertDialogInterval(){
   return Number.isInteger(minutes)&&minutes>=0&&minutes<=1440?minutes:null;
 }
 
+function parseUsageVoiceLargeChange(){
+  const value=String(document.getElementById('usageVoiceLargeChange')?.value||'').trim();
+  if(!/^\d+$/.test(value))return null;
+  const percent=Number(value);
+  return Number.isInteger(percent)&&percent>=1&&percent<=100?percent:null;
+}
+
 function saveUsageAlertDialog(dialog){
   const error=document.getElementById('usageAlertDialogError');
   const interval=parseUsageAlertDialogInterval();
@@ -672,8 +702,9 @@ function saveUsageAlertDialog(dialog){
   const primaryRates=parseUsageAlertDialogList('usageAlertPrimaryRates','rate',true);
   const secondaryThresholds=parseUsageAlertDialogList('usageAlertSecondaryThresholds','percent',true);
   const secondaryRates=parseUsageAlertDialogList('usageAlertSecondaryRates','rate',true);
-  if(interval===null||!primaryThresholds||!primaryRates||!secondaryThresholds||!secondaryRates){
-    if(error)error.textContent=interval===null?'Chu kỳ phải là số nguyên từ 0 đến 1440 phút.':'Kiểm tra lại cú pháp: dùng các số cách nhau bằng dấu phẩy, ví dụ 50,70,85,95 hoặc 10,20,30.';
+  const voiceLargeChange=parseUsageVoiceLargeChange();
+  if(interval===null||!primaryThresholds||!primaryRates||!secondaryThresholds||!secondaryRates||voiceLargeChange===null){
+    if(error)error.textContent=interval===null?'Chu kỳ phải là số nguyên từ 0 đến 1440 phút.':voiceLargeChange===null?'Mức thay đổi lớn phải là số nguyên từ 1 đến 100.':'Kiểm tra lại cú pháp: dùng các số cách nhau bằng dấu phẩy, ví dụ 50,70,85,95 hoặc 10,20,30.';
     return;
   }
   const toText=values=>values.join(',');
@@ -689,6 +720,12 @@ function saveUsageAlertDialog(dialog){
       enabled:Boolean(document.getElementById('usageAlertSecondaryEnabled')?.checked),
       thresholds:toText(secondaryThresholds),
       rateThresholds:toText(secondaryRates)
+    },
+    voice:{
+      enabled:Boolean(document.getElementById('usageVoiceEnabled')?.checked),
+      speakOnChange:Boolean(document.getElementById('usageVoiceOnChange')?.checked),
+      speakOnLargeChange:Boolean(document.getElementById('usageVoiceOnLargeChange')?.checked),
+      largeChangePercent:voiceLargeChange
     }
   }});
   dialog?.close();
@@ -715,8 +752,8 @@ function bindAuthSessionUi(){
 function renderComposer(){
   const running=state.selected&&state.selected.stateKind==='running',si=running&&steerInfo(),qi=running&&queueInfo();
   const n=state.continuation&&state.continuation.notice,ci=n&&n.threadId===state.selectedThreadId?n:null;
-  const statuses=[si&&'<div class="action-status '+esc(si.cls)+'" role="status"><b>Steer ngay:</b> '+esc(si.text)+'</div>',qi&&'<div class="action-status '+esc(qi.cls)+'" role="status"><b>Gửi sau:</b> '+esc(qi.text)+'</div>',ci&&'<div class="action-status '+(ci.kind==='success'?'ok':'err')+'" role="status">'+esc(ci.text)+'</div>',composerNotice&&'<div class="action-status err" role="alert">'+esc(composerNotice)+'</div>'].filter(Boolean).join('');
-  const buttons=running?'<button class="send steer" id="steerBtn" title="Gửi vào lượt đang chạy">Steer ngay</button><button class="send queue" id="queueBtn" title="Xếp tin nhắn gửi sau lượt hiện tại">Gửi sau</button>':'<button class="send continue" id="continueBtn" title="Bắt đầu lượt mới trong cuộc trò chuyện này">Tiếp tục chat</button>';
+  const ii=state.interrupt||{};const statuses=[si&&'<div class="action-status '+esc(si.cls)+'" role="status"><b>Steer ngay:</b> '+esc(si.text)+'</div>',qi&&'<div class="action-status '+esc(qi.cls)+'" role="status"><b>G&#7917;i sau:</b> '+esc(qi.text)+'</div>',ii.notice&&'<div class="action-status '+(ii.notice.kind==='success'?'ok':'err')+'" role="status"><b>D&#7915;ng:</b> '+esc(ii.notice.text)+'</div>',ci&&'<div class="action-status '+(ci.kind==='success'?'ok':'err')+'" role="status">'+esc(ci.text)+'</div>',composerNotice&&'<div class="action-status err" role="alert">'+esc(composerNotice)+'</div>'].filter(Boolean).join('');
+  const buttons=running?'<button class="send steer" id="steerBtn" title="G&#7917;i v&#224;o l&#432;&#7907;t &#273;ang ch&#7841;y">Steer ngay</button><button class="send queue" id="queueBtn" title="X&#7871;p tin nh&#7855;n g&#7917;i sau l&#432;&#7907;t hi&#7879;n t&#7841;i">G&#7917;i sau</button><button class="send stop" id="stopBtn" title="D&#7915;ng l&#432;&#7907;t &#273;ang ch&#7841;y">D&#7915;ng</button>':'<button class="send continue" id="continueBtn" title="B&#7855;t &#273;&#7847;u l&#432;&#7907;t m&#7899;i trong cu&#7897;c tr&#242; chuy&#7879;n n&#224;y">Ti\u1ebfp t\u1ee5c chat</button>';
   return '<section class="card composer-card"><div class="card-title">'+(running?'Nhắn vào chat này':'Tiếp tục cuộc trò chuyện')+'</div><div class="composer"><textarea id="composerInput" placeholder="'+(running?'Nhập tin nhắn hoặc dán ảnh...':'Nhập yêu cầu tiếp theo hoặc dán ảnh...')+'" aria-label="Tin nhắn cho chat này"></textarea><div class="composer-actions">'+buttons+'</div></div><div class="composer-image-tools"><button class="iconbtn" type="button" id="addImageBtn" title="Thêm ảnh" aria-label="Thêm ảnh">▧ Ảnh</button><input id="imagePicker" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>'+imageMarkup(draftImages,true)+'</div><div class="composer-meta">'+statuses+'<button class="iconbtn" type="button" id="reprobe" title="Kiểm tra lại khả năng gửi" aria-label="Kiểm tra lại khả năng gửi">↻</button></div></section>';
 }
 function renderMain(){
@@ -731,7 +768,7 @@ function renderMain(){
     return;
   }
   const running=d.stateKind==='running',at=Number(d.lastActivityMs)||0;
-  let html='<div class="head"><div class="head-left"><div class="title">'+esc(d.title||'Codex chat')+'</div><div class="sub" title="'+esc(d.cwd||'')+'">'+esc(baseName(d.cwd)||d.cwd||'')+' · hoạt động '+timeHtml(at,'head-time')+'</div></div><div class="state '+(running?'running':'stopped')+'">'+esc(d.state||'Unknown')+'</div></div>';
+  let html='<div class="head"><div class="head-left"><div class="title">'+esc(d.title||'Codex chat')+'</div><div class="sub" title="'+esc(d.cwd||'')+'">'+esc(baseName(d.cwd)||d.cwd||'')+' · hoạt động '+timeHtml(at,'head-time')+'</div>'+runtimeMeta(d.runtime)+'</div><div class="state '+(running?'running':'stopped')+'">'+esc(d.state||'Unknown')+'</div></div>';
   html+='<div class="view-switch" role="tablist" aria-label="Cách xem lịch sử"><button type="button" id="summaryView" role="tab" aria-selected="'+String(viewMode==='summary')+'">Tổng quan</button><button type="button" id="chronologicalView" role="tab" aria-selected="'+String(viewMode==='chronological')+'">Theo thứ tự</button></div>';
   html+=renderAuthSession()+renderGateway();
   if(viewMode==='chronological')html+=renderTranscript(d);

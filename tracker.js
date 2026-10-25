@@ -11,6 +11,7 @@ const BACKWARD_CHUNK_BYTES = 256 * 1024;
 const ACTIVITY_TAIL_BYTES = 6 * 1024 * 1024;
 const sessionMetaCache = new Map();
 const activityCache = new Map();
+const runtimeProfileCache = new Map();
 
 function getCodexHome(configuredHome = '') {
   const explicit = String(configuredHome || '').trim();
@@ -842,6 +843,105 @@ function messageTimestamp(item, payload) {
   return timestampValue(item && item.timestamp, undefined) || timestampFromItem(item, payload) || 0;
 }
 
+function emptyRuntimeProfile() {
+  return {
+    model: '',
+    reasoning: '',
+    turnId: '',
+    turnStartedAt: 0,
+    firstTokenAt: 0,
+    lastTokenAt: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    timeToFirstTokenMs: 0,
+    updatedAt: 0,
+    currentSpeedTokensPerSecond: 0,
+    speedTokensPerSecond: 0
+  };
+}
+
+function updateRuntimeProfile(profile, item) {
+  if (!item || typeof item !== 'object') return;
+  const payload = item.payload && typeof item.payload === 'object' ? item.payload : item;
+  const at = messageTimestamp(item, payload);
+  if (at) profile.updatedAt = Math.max(profile.updatedAt, at);
+  if (item.type === 'turn_context') {
+    const nextTurnId = String(payload.turn_id || '');
+    if (nextTurnId && profile.turnId && nextTurnId !== profile.turnId) {
+      profile.firstTokenAt = 0;
+      profile.lastTokenAt = 0;
+      profile.outputTokens = 0;
+      profile.totalTokens = 0;
+      profile.timeToFirstTokenMs = 0;
+    }
+    if (nextTurnId) profile.turnId = nextTurnId;
+    if (payload.model) profile.model = String(payload.model);
+    if (payload.effort || payload.reasoning_effort) profile.reasoning = String(payload.effort || payload.reasoning_effort);
+    if (at && !profile.turnStartedAt) profile.turnStartedAt = at;
+  }
+  if (item.type === 'event_msg' && payload.type === 'task_started' || item.type === 'event_msg' && payload.type === 'turn_started') {
+    const nextTurnId = String(payload.turn_id || payload.id || '');
+    if (nextTurnId) profile.turnId = nextTurnId;
+    if (at) profile.turnStartedAt = at;
+  }
+  if (item.type === 'event_msg' && payload.type === 'task_complete' && Number.isFinite(Number(payload.time_to_first_token_ms))) {
+    profile.timeToFirstTokenMs = Math.max(0, Math.round(Number(payload.time_to_first_token_ms)));
+  }
+  if (item.type !== 'token_usage_record') return;
+  const usage = payload.usage && typeof payload.usage === 'object'
+    ? payload.usage
+    : payload.turn_token_usage && typeof payload.turn_token_usage === 'object'
+      ? payload.turn_token_usage
+      : null;
+  if (!usage) return;
+  const outputTokens = Number(usage.output_tokens);
+  const totalTokens = Number(usage.total_tokens);
+  const roundedOutput = Number.isFinite(outputTokens) && outputTokens >= 0 ? Math.round(outputTokens) : null;
+  if (roundedOutput !== null && at && profile.lastTokenAt && at > profile.lastTokenAt && roundedOutput >= profile.outputTokens) {
+    profile.currentSpeedTokensPerSecond = Math.round(((roundedOutput - profile.outputTokens) / ((at - profile.lastTokenAt) / 1000)) * 100) / 100;
+  }
+  if (roundedOutput !== null) profile.outputTokens = roundedOutput;
+  if (Number.isFinite(totalTokens) && totalTokens >= 0) profile.totalTokens = Math.round(totalTokens);
+  if (at) {
+    if (!profile.firstTokenAt) profile.firstTokenAt = at;
+    profile.lastTokenAt = at;
+  }
+}
+
+function finalizeRuntimeProfile(profile) {
+  const start = profile.turnStartedAt || profile.firstTokenAt;
+  const elapsedSeconds = start && profile.lastTokenAt > start ? (profile.lastTokenAt - start) / 1000 : 0;
+  profile.speedTokensPerSecond = profile.currentSpeedTokensPerSecond > 0
+    ? profile.currentSpeedTokensPerSecond
+    : elapsedSeconds > 0 && profile.outputTokens >= 0
+    ? Math.round((profile.outputTokens / elapsedSeconds) * 100) / 100
+    : 0;
+  return profile;
+}
+
+function runtimeProfileFromText(text) {
+  const profile = emptyRuntimeProfile();
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const item = parseJsonLine(line);
+    if (item) updateRuntimeProfile(profile, item);
+  }
+  return finalizeRuntimeProfile(profile);
+}
+
+async function readSessionRuntimeProfile(file, knownStat = null) {
+  let stat = knownStat;
+  if (!stat || typeof stat.mtimeMs !== 'number') stat = await fsp.stat(file);
+  const cached = runtimeProfileCache.get(file);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.value;
+  const [prefix, tail] = await Promise.all([
+    readPrefix(file, 512 * 1024).catch(() => ''),
+    readTail(file, 512 * 1024)
+  ]);
+  const value = runtimeProfileFromText(String(prefix || '') + '\n' + String(tail.text || ''));
+  runtimeProfileCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, value });
+  return value;
+}
+
 async function readRecentActivity(file, session, rootThreadId, options = {}) {
   const maxBytes = clampInt(options.maxBytes, ACTIVITY_TAIL_BYTES, 128 * 1024, 32 * 1024 * 1024);
   const timelineLimit = clampInt(options.timelineLimit, 40, 5, 200);
@@ -860,11 +960,13 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
   let streamingAssistantText = '';
   let latestReasoningText = '';
   let streamingReasoningText = '';
+  const runtime = emptyRuntimeProfile();
   const operationKinds = new Map();
 
   for (const line of text.split(/\r?\n/)) {
     const item = parseJsonLine(line);
     if (!item) continue;
+    updateRuntimeProfile(runtime, item);
     const userText = firstUserTextFromItem(item);
     if (userText) {
       latestUserText = userText;
@@ -944,6 +1046,7 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
     latestAssistantText: streamingAssistantText || latestAssistantText,
     latestAssistantTextAt,
     latestReasoningText: streamingReasoningText || latestReasoningText,
+    runtime: finalizeRuntimeProfile(runtime),
     truncated,
     mtimeMs: stat.mtimeMs,
     size: stat.size
@@ -1181,6 +1284,10 @@ async function scanConversationSessions(options = {}) {
       if (session.status) session.status.mtimeMs = Math.max(session.status.mtimeMs || 0, indexedUpdatedAtMs);
     }
   }
+  const runtimeProfiles = await mapLimit(all, 8, session => readSessionRuntimeProfile(session.file, session));
+  for (let index = 0; index < all.length; index += 1) {
+    all[index].runtime = runtimeProfiles[index] && !runtimeProfiles[index].__error ? runtimeProfiles[index] : emptyRuntimeProfile();
+  }
   active.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
   nonRunning.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
   return {
@@ -1329,16 +1436,18 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
   const stateTimes = readStateThreadActivity(codexHome, tree.map(session => session && session.threadId));
   const indexedNames = options.indexedActivity instanceof Map ? options.indexedActivity : new Map();
   const nodes = await mapLimit(tree, 6, async session => {
-    const [activity, summary] = await Promise.all([
+    const [activity, summary, runtime] = await Promise.all([
       readRecentActivity(session.file, session, rootThreadId, {
         maxBytes: options.activityMaxBytes,
         timelineLimit: options.timelinePerNode || 30
       }),
-      readSessionSummary(session.file, session).catch(() => null)
+      readSessionSummary(session.file, session).catch(() => null),
+      readSessionRuntimeProfile(session.file, session).catch(() => null)
     ]);
     return {
       ...session,
       ...activity,
+      runtime: runtime || activity.runtime || emptyRuntimeProfile(),
       indexedUpdatedAtMs: Math.max(stateTimes.get(session.threadId) || 0, Number(indexedNames.get(session.threadId) || 0)),
       taskPreview: summary && summary.preview || ''
     };
@@ -1403,6 +1512,8 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
   }
   currentCandidates.sort((a, b) => (b.at || 0) - (a.at || 0));
   const current = currentCandidates.find(item => item.nodeStatus && item.nodeStatus.kind === 'running') || currentCandidates[0] || null;
+  const runtimeCandidates = validNodes.slice().sort((a, b) => (b.runtime?.updatedAt || 0) - (a.runtime?.updatedAt || 0));
+  const runtime = runtimeCandidates[0]?.runtime || emptyRuntimeProfile();
 
   const latestAssistantNode = validNodes.filter(node => node.latestAssistantText).sort((a, b) => (b.latestAssistantTextAt || b.mtimeMs || 0) - (a.latestAssistantTextAt || a.mtimeMs || 0))[0];
   const latestUserNode = rootNode && (rootNode.latestUserText || rootNode.latestUserImages && rootNode.latestUserImages.length)
@@ -1428,6 +1539,7 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
     completedSummary,
     overallStatus,
     current,
+    runtime,
     timeline: allTimeline.slice(0, clampInt(options.timelineLimit, 40, 10, 200)),
     latestAssistantText: latestAssistantNode ? latestAssistantNode.latestAssistantText : '',
     latestAssistantTextAt: latestAssistantNode ? latestAssistantNode.latestAssistantTextAt || 0 : 0,
@@ -1485,6 +1597,7 @@ module.exports = {
   listRolloutFiles,
   readSessionMeta,
   readSessionSummary,
+  readSessionRuntimeProfile,
   readLatestTaskEvent,
   readRecentActivity,
   scanSessions,

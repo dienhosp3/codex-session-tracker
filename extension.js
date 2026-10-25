@@ -7,10 +7,11 @@ const tracker = require('./tracker');
 const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
 const { ensureOwnerBridge } = require('./codex_owner_bridge');
-const { disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend } = require('./codex_live_backend');
+const { disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, interruptInLocalBackend } = require('./codex_live_backend');
 const { createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus, accountKeyFromResult } = require('./codex_usage');
 const { normalizeUsageAlertSettings, evaluateUsageAlerts, usageAlertSummary } = require('./codex_usage_alerts');
 const { normalizeUsageHistory, recordUsageSample, createUsageHistoryStore, usageHistoryChart } = require('./codex_usage_history');
+const { normalizeUsageVoiceSettings, normalizeUsageVoiceState, evaluateUsageVoice, createUsageVoiceController } = require('./codex_usage_voice');
 const codexDelete = require('./codex_delete');
 const codexAuth = require('./codex_auth');
 const { createConversationNavigator } = require('./codex_navigation');
@@ -31,6 +32,8 @@ const TRAFFIC_SETTINGS_KEY='codexSessionTracker.trafficSettings.v1';
 const USAGE_INTERVAL_KEY = 'codexSessionTracker.usageIntervalMinutes.v1';
 const USAGE_ALERT_SETTINGS_KEY = 'codexSessionTracker.usageAlertSettings.v1';
 const USAGE_ALERT_STATE_KEY = 'codexSessionTracker.usageAlertState.v1';
+const USAGE_VOICE_SETTINGS_KEY = 'codexSessionTracker.usageVoiceSettings.v1';
+const USAGE_VOICE_STATE_KEY = 'codexSessionTracker.usageVoiceState.v1';
 const LOCAL_PROXY_KEY = 'codexSessionTracker.localProxyExecutable.v1';
 let localProxy = null;
 let localProxyPicker = null;
@@ -53,6 +56,10 @@ let usageAlertSettings = null;
 let usageAlertState = null;
 let usageAlertCheckedAt = 0;
 let usageAlertPromise = Promise.resolve();
+let usageVoiceSettings = normalizeUsageVoiceSettings();
+let usageVoiceState = normalizeUsageVoiceState();
+let usageVoice = null;
+let usageVoicePromise = Promise.resolve();
 let usageHistoryState = { schemaVersion: 1, samples: [] };
 let usageHistoryPromise = Promise.resolve();
 let usageHistoryStore = null;
@@ -94,6 +101,8 @@ let steerCapabilityCheckedAt = 0;
 let steerCapabilityConversationId = '';
 let steerBusy = false;
 let steerNotice = null;
+let interruptBusy = false;
+let interruptNotice = null;
 let continueBusy = false;
 let continueNotice = null;
 let ownerBridgePromise = null;
@@ -177,6 +186,9 @@ async function activate(context) {
   const savedUsageInterval = context.globalState.get(USAGE_INTERVAL_KEY, 5);
   usageAlertSettings = normalizeUsageAlertSettings(context.globalState.get(USAGE_ALERT_SETTINGS_KEY));
   usageAlertState = context.globalState.get(USAGE_ALERT_STATE_KEY) || { schemaVersion: 1, initialized: false, windows: {} };
+  usageVoiceSettings = normalizeUsageVoiceSettings(context.globalState.get(USAGE_VOICE_SETTINGS_KEY));
+  usageVoiceState = normalizeUsageVoiceState(context.globalState.get(USAGE_VOICE_STATE_KEY));
+  usageVoice = createUsageVoiceController();
   usageHistoryStore = createUsageHistoryStore(context.globalStorageUri.fsPath);
   usageHistoryState = { samples: await usageHistoryStore.load().catch(error => { console.warn('[Codex Session Tracker] Usage history read: ' + friendlyError(error)); return []; }) };
   usageMonitor = createUsageMonitor({
@@ -198,6 +210,7 @@ async function activate(context) {
         usageHistoryState = recordUsageSample(snapshot, usageHistoryState, snapshot.checkedAt);
         usageHistoryPromise = usageHistoryPromise.then(() => usageHistoryStore?.append(snapshot, snapshot.checkedAt)).catch(error => console.warn('[Codex Session Tracker] Usage history write: ' + friendlyError(error)));
         processUsageAlerts(snapshot);
+        processUsageVoice(snapshot);
       }
       renderUsageStatus();
       postViewState();
@@ -406,6 +419,16 @@ function processUsageAlerts(snapshot) {
   return usageAlertPromise;
 }
 
+function processUsageVoice(snapshot) {
+  const result = evaluateUsageVoice(snapshot, usageVoiceState, usageVoiceSettings, snapshot?.checkedAt || Date.now());
+  usageVoiceState = result.state;
+  usageVoicePromise = usageVoicePromise.then(async () => {
+    await contextRef?.globalState.update(USAGE_VOICE_STATE_KEY, usageVoiceState);
+    for (const event of result.events) await usageVoice?.speak(event.text);
+  }).catch(error => console.warn('[Codex Session Tracker] Usage voice: ' + friendlyError(error)));
+  return usageVoicePromise;
+}
+
 function parseUsageAlertList(value, kind, allowEmpty = false) {
   const text = String(value ?? '').trim();
   if (!text) return allowEmpty ? [] : null;
@@ -460,6 +483,14 @@ async function saveUsageAlertSettings(input) {
   }
   const minutes = Number(String(intervalValue).trim());
   const enabled = input.enabled !== false;
+  const voiceInput = input.voice && typeof input.voice === 'object' ? input.voice : {};
+  usageVoiceSettings = normalizeUsageVoiceSettings({
+    ...usageVoiceSettings,
+    ...(Object.prototype.hasOwnProperty.call(voiceInput, 'enabled') ? { enabled: voiceInput.enabled === true } : {}),
+    ...(Object.prototype.hasOwnProperty.call(voiceInput, 'speakOnChange') ? { speakOnChange: voiceInput.speakOnChange !== false } : {}),
+    ...(Object.prototype.hasOwnProperty.call(voiceInput, 'speakOnLargeChange') ? { speakOnLargeChange: voiceInput.speakOnLargeChange !== false } : {}),
+    ...(Object.prototype.hasOwnProperty.call(voiceInput, 'largeChangePercent') ? { largeChangePercent: voiceInput.largeChangePercent } : {})
+  });
   usageAlertSettings = normalizeUsageAlertSettings({
     ...current,
     enabled,
@@ -479,6 +510,7 @@ async function saveUsageAlertSettings(input) {
   try {
     await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
     await contextRef.globalState.update(USAGE_INTERVAL_KEY, minutes);
+    await contextRef.globalState.update(USAGE_VOICE_SETTINGS_KEY, usageVoiceSettings);
     usageMonitor?.setInterval(minutes);
   } catch (error) {
     vscode.window.showErrorMessage(error.message);
@@ -562,6 +594,8 @@ async function deactivate() {
   errorMonitor = null;
   errorHistory = null;
   errorSound = null;
+  usageVoice = null;
+  usageVoicePromise = Promise.resolve();
   usageHistoryStore = null;
   currentChatTracker?.dispose();
   currentChatTracker = null;
@@ -599,6 +633,7 @@ class TrackerViewProvider {
       if (message.command === 'clear') await clearSelection();
       if (message.command === 'queueMessage') await sendComposerRequest('queue', message, () => sendQueuedMessage(message.text, message.images));
       if (message.command === 'steerMessage') await sendComposerRequest('steer', message, () => sendSteeredMessage(message.text, message.images));
+      if (message.command === 'interruptChat') await interruptSelectedChat(message.threadId);
       if (message.command === 'continueMessage') await sendContinuedMessage(message.text, message.images, message.threadId, message.requestId);
       if (message.command === 'setShowNonRunning') await setShowNonRunning(Boolean(message.enabled));
       if (message.command === 'deleteChat' && message.threadId) await deleteChat(String(message.threadId));
@@ -901,6 +936,11 @@ async function startGateway() {
         codexHome: config().codexHome,
         cwd: input.cwd || undefined,
         onProgress: input.onProgress
+      }),
+      interrupt: async input => interruptInLocalBackend({
+        threadId: input.threadId,
+        turnId: input.turnId,
+        conversationId: input.threadId
       }),
       queue: async input => {
         const current = config();
@@ -2018,6 +2058,34 @@ async function sendSteeredMessage(rawText, rawImages) {
   }
 }
 
+async function interruptSelectedChat(threadId) {
+  if (interruptBusy || steerBusy || queueBusy || continueBusy || !selected || selected.threadId !== threadId) return;
+  await refreshTrackedStatus(true);
+  if (!selected || selected.threadId !== threadId || selected.status?.kind !== 'running') return;
+  interruptBusy = true;
+  interruptNotice = null;
+  postViewState();
+  const turnId = String(selected.status?.turnId || latestSnapshot?.overallStatus?.turnId || '').trim();
+  try {
+    await prepareOwnerBridge();
+    const activeGateway = gateway || await startGateway();
+    const result = activeGateway
+      ? await activeGateway.interrupt({ threadId, turnId })
+      : await interruptInLocalBackend({ threadId, conversationId: threadId, turnId });
+    interruptNotice = {
+      kind: result?.supported === false ? 'error' : 'success',
+      text: result?.supported === false ? 'Bản Codex hiện tại chưa hỗ trợ dừng qua app-server.' : 'Đã gửi yêu cầu dừng lượt đang chạy.',
+      at: Date.now()
+    };
+    await refreshTrackedStatus(true);
+  } catch (error) {
+    interruptNotice = { kind: 'error', text: 'Không dừng được lượt đang chạy: ' + friendlyError(error), at: Date.now() };
+  } finally {
+    interruptBusy = false;
+    postViewState();
+  }
+}
+
 async function continueThread(target) {
   await prepareOwnerBridge();
   const activeGateway = gateway || await startGateway();
@@ -2102,7 +2170,7 @@ function postViewState() {
       codexCurrentThreadId,
       usage: (() => {
         const state = usageMonitor?.snapshot() || { intervalMinutes: 5, groups: [] };
-        return { ...state, display: usageStatus(state), chart: usageHistoryChart(usageHistoryState), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) } };
+        return { ...state, display: usageStatus(state), chart: usageHistoryChart(usageHistoryState), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) }, voice: usageVoiceSettings };
       })(),
       selected: selected && latestSnapshot ? serializeSnapshot(latestSnapshot) : (selected ? serializeSelectedShell() : null),
       queue: {
@@ -2124,6 +2192,7 @@ function postViewState() {
         ownerClientId: steerCapability.ownerClientId || '',
         notice: steerNotice
       },
+      interrupt: { busy: interruptBusy, notice: interruptNotice },
       continuation: { busy: continueBusy, notice: continueNotice }
     }
   });
@@ -2139,7 +2208,8 @@ function serializeActiveChat(chat) {
     runningChildren: chat.status && chat.status.runningChildren || 0,
     runningCount: chat.status && chat.status.runningCount || 0,
     stateKind: chat.status && chat.status.kind || 'unknown',
-    state: displayState(chat.status || { kind: 'unknown' })
+    state: displayState(chat.status || { kind: 'unknown' }),
+    runtime: chat.runtime || null
   };
 }
 
@@ -2159,6 +2229,7 @@ function serializeSelectedShell() {
     latestUserImages: [],
     latestAssistantText: '',
     latestAssistantTextAt: 0,
+    runtime: null,
     timeline: [],
     activeNodes: [],
     truncated: false
@@ -2210,6 +2281,7 @@ function serializeSnapshot(snapshot) {
       selected.indexedUpdatedAtMs || 0
     ),
     lastActivitySource: snapshot.lastActivitySource || 'rollout-event',
+    runtime: snapshot.runtime || null,
     current: snapshot.current ? {
       label: localizeActivity(snapshot.current.label),
       detail: snapshot.current.detail || '',
@@ -2240,6 +2312,7 @@ function serializeSnapshot(snapshot) {
       currentText: node.current && node.current.text || '',
       currentAt: node.current && Number.isFinite(node.current.at) ? node.current.at : 0,
       taskPreview: node.taskPreview || '',
+      runtime: node.runtime || null,
       updatedAt: Math.max(node.mtimeMs || 0, node.indexedUpdatedAtMs || 0)
     })),
     truncated: Boolean(snapshot.truncated)

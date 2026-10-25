@@ -86,6 +86,17 @@ test('steer uses the existing live root turn, UUID and Unicode without resume/st
   assert.equal(f.providers.size, 0);
 });
 
+test('interrupt sends turn/interrupt to the existing live app-server turn', async () => {
+  const f = fixture(), backend = createLiveBackend(f.connection);
+  try {
+    const result = await backend.interrupt({ conversationId: 'target', turnId: 'live-turn' });
+    assert.equal(result.turnId, 'live-turn');
+    assert.equal(result.transport, 'codex-existing-app-server');
+    assert.deepEqual(f.requests.map(r => r.method), ['turn/interrupt']);
+    assert.deepEqual(f.requests[0].params, { threadId: 'target', turnId: 'live-turn' });
+  } finally { backend.dispose(); }
+});
+
 for (const [name, options] of [['unloaded', { loaded: false }], ['idle', { idle: true }], ['completed', { completed: true }]]) {
   test(name + ' thread never receives steer or gets resumed', async () => {
     const f = fixture(options), backend = createLiveBackend(f.connection);

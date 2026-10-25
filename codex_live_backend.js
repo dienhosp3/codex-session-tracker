@@ -102,6 +102,13 @@ function createLiveBackend(connection, options = {}) {
     if (!result?.turnId || result.turnId !== expectedTurnId) throw failure('App-server did not acknowledge the expected steer turn.', 'unknown');
     return { ...result, transport: 'codex-existing-app-server', ownerPid: connection.proc?.pid };
   }
+  async function interrupt(params) {
+    const threadId = params.conversationId || params.threadId;
+    if (!threadId) throw failure('Invalid interrupt input.', 'not_sent');
+    const turnId = params.turnId || await activeTurn(threadId);
+    const result = await request('turn/interrupt', { threadId, turnId }, true);
+    return { ...(result || {}), turnId, transport: 'codex-existing-app-server', ownerPid: connection.proc?.pid };
+  }
   async function continueConversation(params, onReady = () => {}) {
     const threadId = params.conversationId;
     if (!threadId || !Array.isArray(params.input) || !params.input.length) throw failure('Invalid continuation input.', 'not_sent');
@@ -140,7 +147,7 @@ function createLiveBackend(connection, options = {}) {
   }
   const readAccount = () => request('account/read', { refreshToken: false });
   const readRateLimits = () => request('account/rateLimits/read', {});
-  return { available, isLoaded, activeTurn, steer, continueConversation, readAccount, readRateLimits, dispose };
+  return { available, isLoaded, activeTurn, steer, interrupt, continueConversation, readAccount, readRateLimits, dispose };
 }
 
 const BRIDGE_KEY = Symbol.for('codexSessionTracker.ownerBridge.v2');
@@ -154,7 +161,7 @@ function installOwnerBridge(connections, streams, options = {}) {
     const client = stream?.ipcClient;
     const handlers = client?.requestHandlers;
     if (!(handlers instanceof Map) || typeof stream.ownsThread !== 'function') continue;
-    if (client[BRIDGE_KEY]?.revision === 6) {
+    if (client[BRIDGE_KEY]?.revision === 7) {
       installedBridges.add(client[BRIDGE_KEY]);
       results.push(client[BRIDGE_KEY].info);
       continue;
@@ -206,7 +213,7 @@ function installOwnerBridge(connections, streams, options = {}) {
     handlers.set('thread-owner-discovery', newDiscovery);
     handlers.set('thread-follower-steer-turn', newSteer);
     if (newStart) handlers.set('thread-follower-start-turn', newStart);
-    client[BRIDGE_KEY] = { revision: 6, info, available: backend.available, readAccount: backend.readAccount, readRateLimits: backend.readRateLimits, ownsThread: id => stream.ownsThread('local', id), continueConversation: continueHere, dispose() {
+    client[BRIDGE_KEY] = { revision: 7, info, available: backend.available, readAccount: backend.readAccount, readRateLimits: backend.readRateLimits, interrupt: backend.interrupt, ownsThread: id => stream.ownsThread('local', id), continueConversation: continueHere, dispose() {
       if (handlers.get('thread-owner-discovery') === newDiscovery) handlers.set('thread-owner-discovery', discovery);
       if (handlers.get('thread-follower-steer-turn') === newSteer) handlers.set('thread-follower-steer-turn', steer);
       if (newStart && handlers.get('thread-follower-start-turn') === newStart) handlers.set('thread-follower-start-turn', start);
@@ -251,4 +258,15 @@ async function readRateLimitsInLocalBackend() {
   if (unique.size !== 1) throw new Error('Chưa kết nối được Codex trong cửa sổ này.');
   return unique.values().next().value.readRateLimits();
 }
-module.exports = { createLiveBackend, installOwnerBridge, installedBridgeInfo, disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, BRIDGE_KEY };
+async function interruptInLocalBackend(params) {
+  const candidates = [...installedBridges].filter(bridge => bridge.available() && typeof bridge.interrupt === 'function');
+  const owned = candidates.filter(bridge => bridge.ownsThread(params.conversationId || params.threadId));
+  const choices = owned.length ? owned : candidates;
+  if (choices.length !== 1) {
+    const error = new Error('Chưa có kết nối Codex local duy nhất để dừng lượt chat.');
+    error.delivery = 'not_sent';
+    throw error;
+  }
+  return choices[0].interrupt(params);
+}
+module.exports = { createLiveBackend, installOwnerBridge, installedBridgeInfo, disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, interruptInLocalBackend, BRIDGE_KEY };

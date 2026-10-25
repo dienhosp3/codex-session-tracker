@@ -90,6 +90,26 @@ test('reads VS Code session title and running state', async t => {
   assert.equal(activity.latestUserTextAt, Date.parse('2026-09-30T07:00:01Z'));
 });
 
+test('reads model reasoning effort and latest token speed for a session', async t => {
+  const root = await tempRoot();
+  t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+  const file = await writeRollout(root, 'rollout-runtime.jsonl', [
+    meta('thread-runtime'),
+    { timestamp: '2026-09-30T07:00:02Z', type: 'turn_context', payload: { turn_id: 'turn-runtime', model: 'gpt-6.1-sol', effort: 'high' } },
+    { timestamp: '2026-09-30T07:00:03Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-runtime', started_at_ms: Date.parse('2026-09-30T07:00:02Z') } },
+    { timestamp: '2026-09-30T07:00:12Z', type: 'token_usage_record', payload: { usage: { output_tokens: 10, total_tokens: 100 } } },
+    { timestamp: '2026-09-30T07:00:17Z', type: 'token_usage_record', payload: { usage: { output_tokens: 30, total_tokens: 140 } } }
+  ]);
+  const profile = await tracker.readSessionRuntimeProfile(file);
+  assert.equal(profile.model, 'gpt-6.1-sol');
+  assert.equal(profile.reasoning, 'high');
+  assert.equal(profile.outputTokens, 30);
+  assert.equal(profile.speedTokensPerSecond, 4);
+  const activity = await tracker.readRecentActivity(file, await tracker.readSessionSummary(file), 'thread-runtime');
+  assert.equal(activity.runtime.model, 'gpt-6.1-sol');
+  assert.equal(activity.runtime.reasoning, 'high');
+});
+
 test('task_complete makes the latest state completed', async t => {
   const root = await tempRoot();
   t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
