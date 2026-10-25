@@ -133,6 +133,20 @@ try:
             assert usage.locator('.usage-percent-yellow').inner_text() == '55%'
             assert usage.locator('.usage-percent-green').inner_text() == '93%'
             assert usage.locator('.usage-percent-yellow').evaluate('(node) => getComputedStyle(node).color') != usage.locator('.usage-percent-green').evaluate('(node) => getComputedStyle(node).color')
+            assert page.locator('#usageChartButton').get_attribute('aria-label') == 'Bật/tắt đồ thị quota theo thời điểm'
+            page.locator('#usageChartButton').click()
+            assert page.locator('#usageChartDialog').is_visible()
+            assert 'Chưa có dữ liệu' in page.locator('#usageChartDialog').inner_text()
+            page.locator('#usageChartClose').click()
+            chart_data = deepcopy(fixture)
+            chart_data['usage']['chart'] = {'available': True, 'sampleCount': 2, 'rangeStart': 1800000000000, 'rangeEnd': 1800000300000, 'points': [
+                {'at': 1800000000000, 'usedPercent': 45}, {'at': 1800000300000, 'usedPercent': 52}
+            ]}
+            update(chart_data)
+            page.locator('#usageChartButton').click()
+            assert page.locator('#usageChartDialog .usage-chart-plot').count() == 1
+            assert page.locator('#usageChartDialog .usage-chart-point').count() == 2
+            page.locator('#usageChartClose').click()
             assert 'Đặt lại' in usage.locator('.usage-value').get_attribute('title')
             assert '5 phút' in page.locator('#usageSettings').get_attribute('title')
             assert usage.locator('#usageAlertsSettings').count() == 1
@@ -242,6 +256,9 @@ try:
             assert page.locator('#contextCompactButton').get_attribute('aria-label') == 'Dừng, compact context và tiếp tục'
             page.locator('#contextCompactButton').click()
             assert page.evaluate("window.__trackerMessages.at(-1).command") == 'compactContext'
+            assert page.locator('#pauseGoalBtn').is_visible()
+            page.locator('#pauseGoalBtn').click()
+            assert page.evaluate("window.__trackerMessages.at(-1).command") == 'pauseGoal'
             assert page.locator('#stopBtn').is_visible()
             assert page.locator('#stopBtn').inner_text() == 'Dừng'
             page.locator('#stopBtn').click()
@@ -249,9 +266,27 @@ try:
 
             selected = deepcopy(fixture)
             selected['selectedThreadId'] = 'fixture-thread'
-            selected['selected'] = {'title': 'Fixture conversation', 'stateKind': 'completed', 'state': 'Completed', 'timeline': []}
+            selected['selected'] = {'title': 'Fixture conversation', 'stateKind': 'completed', 'state': 'Completed', 'timeline': [
+                {'kind': 'user', 'label': 'Người dùng gửi', 'text': 'Yêu cầu Unicode'},
+                {'kind': 'command', 'label': 'Đã chạy lệnh', 'detail': 'node test'},
+                {'kind': 'message', 'label': 'Đã trả lời', 'text': 'Phản hồi Unicode'}
+            ], 'latestUserText': 'Yêu cầu Unicode', 'latestUserTextAt': 1800000000000, 'latestAssistantText': 'Phản hồi Unicode', 'latestAssistantTextAt': 1800000000000}
             update(selected)
             assert card.evaluate('(node) => node.open')
+            page.locator('#chronologicalView').click()
+            assert page.locator('#conversationFilter').is_visible()
+            assert page.locator('.transcript-entry').count() == 3
+            page.locator('#conversationFilter').click()
+            assert page.locator('.transcript-entry').count() == 2
+            page.locator('#summaryView').click()
+            assert page.locator('[data-copy-latest="request"]').is_visible()
+            assert page.locator('[data-copy-latest="response"]').is_visible()
+            page.locator('[data-copy-latest="request"]').click()
+            copied = page.evaluate("window.__trackerMessages.at(-1)")
+            assert copied['command'] == 'copyChatText' and copied['text'] == 'Yêu cầu Unicode'
+            page.locator('[data-copy-latest="response"]').click()
+            copied = page.evaluate("window.__trackerMessages.at(-1)")
+            assert copied['command'] == 'copyChatText' and copied['text'] == 'Phản hồi Unicode'
             composer = page.locator('#composerInput')
             composer.fill('Tiếp tục kiểm tra bản nháp')
             for _ in range(4):

@@ -1,4 +1,4 @@
-# Codex Session Tracker 0.12.23
+# Codex Session Tracker 0.12.24
 
 ## Context usage and compact/resume
 
@@ -10,6 +10,12 @@ app-server owner. The **Tự compact context** section in **Cấu hình cảnh b
 quota** can enable the automatic sequence and set an integer threshold from 1
 through 99 percent. Automatic compaction runs once for each active turn and
 does not start a competing Codex process.
+
+Usage has a visible **Đồ thị** toggle for quota samples by time. The summary
+and chronological views use separate colors; chronological view can be filtered
+to the user/Codex dialogue only. The latest request and response cards expose
+Copy buttons, and the composer keeps its input and text selection stable while
+background activity refreshes.
 
 ## Vietnamese quota voice alerts
 
@@ -639,13 +645,13 @@ Build on Windows with Git Bash:
 Expected artifact:
 
 ```text
-codex-session-tracker-0.12.23.vsix
+codex-session-tracker-0.12.24.vsix
 ```
 
 Install:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.12.23.vsix --force
+code --install-extension .\codex-session-tracker-0.12.24.vsix --force
 ```
 
 Then run **Developer: Reload Window** once.

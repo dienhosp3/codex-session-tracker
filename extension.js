@@ -651,7 +651,14 @@ class TrackerViewProvider {
       if (message.command === 'queueMessage') await sendComposerRequest('queue', message, () => sendQueuedMessage(message.text, message.images));
       if (message.command === 'steerMessage') await sendComposerRequest('steer', message, () => sendSteeredMessage(message.text, message.images));
       if (message.command === 'interruptChat') await interruptSelectedChat(message.threadId);
+      if (message.command === 'pauseGoal') await interruptSelectedChat(message.threadId, true);
       if (message.command === 'compactContext') await compactSelectedChat(message.threadId);
+      if (message.command === 'copyChatText' && typeof message.text === 'string') {
+        let error = '';
+        try { await vscode.env.clipboard.writeText(message.text); }
+        catch (failure) { error = friendlyError(failure); }
+        trackerView?.webview.postMessage({ type: 'chatCopyResult', field: String(message.field || ''), error });
+      }
       if (message.command === 'continueMessage') await sendContinuedMessage(message.text, message.images, message.threadId, message.requestId);
       if (message.command === 'setShowNonRunning') await setShowNonRunning(Boolean(message.enabled));
       if (message.command === 'deleteChat' && message.threadId) await deleteChat(String(message.threadId));
@@ -2077,7 +2084,7 @@ async function sendSteeredMessage(rawText, rawImages) {
   }
 }
 
-async function interruptSelectedChat(threadId) {
+async function interruptSelectedChat(threadId, pauseGoal = false) {
   if (interruptBusy || steerBusy || queueBusy || continueBusy || !selected || selected.threadId !== threadId) return;
   await refreshTrackedStatus(true);
   if (!selected || selected.threadId !== threadId || selected.status?.kind !== 'running') return;
@@ -2093,7 +2100,7 @@ async function interruptSelectedChat(threadId) {
       : await interruptInLocalBackend({ threadId, conversationId: threadId, turnId });
     interruptNotice = {
       kind: result?.supported === false ? 'error' : 'success',
-      text: result?.supported === false ? 'Bản Codex hiện tại chưa hỗ trợ dừng qua app-server.' : 'Đã gửi yêu cầu dừng lượt đang chạy.',
+      text: result?.supported === false ? 'Bản Codex hiện tại chưa hỗ trợ dừng qua app-server.' : (pauseGoal ? 'Đã gửi yêu cầu Pause goal; lượt hiện tại đang được tạm dừng.' : 'Đã gửi yêu cầu dừng lượt đang chạy.'),
       at: Date.now()
     };
     await refreshTrackedStatus(true);

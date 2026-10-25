@@ -135,14 +135,14 @@ test('dashboard combines account and usage without a login heading and blocks du
     state: { authSession: { accountLabel: '<owner>@example.test', canDeactivate: true } },
     esc: s => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;')
   });
-  vm.runInContext(html.slice(html.indexOf('function renderUsage('), html.indexOf('function renderComposer(')), context);
+  vm.runInContext(html.slice(html.indexOf('function usageChartPlot('), html.indexOf('function renderComposer(')), context);
   const rendered = vm.runInContext('renderAuthSession()', context);
   assert.match(rendered, />Deactive<\/button>/);
   assert.match(rendered, /&lt;owner&gt;@example.test/);
   assert.doesNotMatch(rendered, /Phiên đăng nhập Codex|Codex Home|giữ nguyên|Reload|Đăng xuất|Xoá phiên/);
   assert.equal((rendered.match(/auth-session-card/g) || []).length, 1);
   assert.equal((rendered.match(/class="usage-alert-dialog"/g) || []).length, 1);
-  assert.equal((rendered.match(/class="usage-alert-section"/g) || []).length, 5);
+  assert.equal((rendered.match(/class="usage-alert-section(?:["\s])/g) || []).length, 5);
   assert.match(rendered, /auth-session-card/);
   assert.match(rendered, /usage-head usage-card/);
   assert.match(rendered, /id="checkUsage"/);

@@ -49,6 +49,9 @@
 .view-switch button{padding:4px 9px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:transparent;color:var(--vscode-descriptionForeground);font:inherit;cursor:pointer}
 .view-switch button:hover{background:var(--vscode-toolbar-hoverBackground)}
 .view-switch button[aria-pressed="true"],.view-switch button.active{border-color:var(--vscode-focusBorder);background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground)}
+.transcript-filters{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:8px 0 0;color:var(--vscode-descriptionForeground);font-size:11px}
+.transcript-filters button{padding:3px 8px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+.transcript-filters button[data-active="true"]{border-color:var(--vscode-charts-green,#89d185);background:rgba(137,209,133,.18);color:var(--vscode-charts-green,#89d185);font-weight:650}
 .transcript{display:grid;gap:8px;min-width:0;margin-top:9px}
 .transcript-entry{min-width:0;max-width:100%;padding:9px 10px;border:1px solid var(--vscode-panel-border);border-radius:6px;background:var(--vscode-editorWidget-background,var(--vscode-editor-background));overflow-wrap:anywhere}
 .transcript-entry.user{border-left:3px solid var(--vscode-textLink-foreground)}
@@ -84,6 +87,8 @@
 .usage-head .usage-alerts{color:var(--vscode-editorWarning-foreground,#d7ba7d);font-weight:700}
 .usage-head .usage-alerts:hover,.usage-head .usage-alerts:focus-visible{background:var(--vscode-editorWarning-background,rgba(215,186,125,.18));color:var(--vscode-editorWarning-foreground,#ffd75e)}
 .usage-head .usage-chart{color:var(--vscode-charts-blue,#75beff);font-weight:700}
+.usage-chart-action{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;height:18px;padding:0 5px;border:1px solid var(--vscode-panel-border);border-radius:4px;background:transparent;color:var(--vscode-charts-blue,#75beff);font:600 10px/18px var(--vscode-font-family);cursor:pointer;white-space:nowrap}
+.usage-chart-action:hover,.usage-chart-action:focus-visible{background:var(--vscode-toolbar-hoverBackground);border-color:var(--vscode-focusBorder);outline:0}
 .usage-chart-dialog{width:min(560px,calc(100vw - 28px));max-height:calc(100vh - 28px);padding:0;border:1px solid var(--vscode-panel-border);border-radius:7px;background:var(--vscode-editorWidget-background,var(--vscode-editor-background));color:var(--vscode-foreground)}
 .usage-chart-dialog::backdrop{background:rgba(0,0,0,.48)}
 .usage-chart-form{display:grid;gap:10px;padding:14px}
@@ -95,12 +100,24 @@
 .usage-chart-line{fill:none;stroke:var(--vscode-charts-blue,#75beff);stroke-width:2}
 .usage-chart-point{fill:var(--vscode-charts-blue,#75beff);stroke:var(--vscode-editor-background);stroke-width:1.5}
 .usage-chart-label{fill:var(--vscode-descriptionForeground);font:10px var(--vscode-font-family)}
+.usage-chart-actions{display:flex;justify-content:flex-end;gap:7px}
+.latest-card-title{display:flex;align-items:center;gap:6px;min-width:0}
+.latest-card-title>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.latest-card-actions{display:inline-flex;align-items:center;gap:4px;margin-left:auto;flex:0 0 auto}
+.copy-message{display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;padding:2px;color:var(--vscode-textLink-foreground);font-size:12px}
+.copy-message:hover,.copy-message:focus-visible{background:var(--vscode-toolbar-hoverBackground);outline:0}
+.copy-message svg{width:14px;height:14px;pointer-events:none}
+.copy-status{font-size:10px;font-weight:600;color:var(--vscode-testing-iconPassed)}
+.copy-status.err{color:var(--vscode-errorForeground)}
 .usage-alert-dialog{width:min(500px,calc(100vw - 28px));max-height:calc(100vh - 28px);padding:0;border:1px solid var(--vscode-panel-border);border-radius:7px;background:var(--vscode-editorWidget-background,var(--vscode-editor-background));color:var(--vscode-foreground)}
 .usage-alert-dialog::backdrop{background:rgba(0,0,0,.48)}
 .usage-alert-form{display:grid;gap:10px;padding:14px}
 .usage-alert-dialog h3{margin:0;font-size:14px}
 .usage-alert-help{margin:0;color:var(--vscode-descriptionForeground);font-size:11px}
 .usage-alert-section{display:grid;gap:8px;padding:9px;border:1px solid var(--vscode-panel-border);border-radius:5px}
+.usage-alert-section.quota-section{grid-template-columns:repeat(2,minmax(0,1fr))}
+.usage-alert-section.quota-section .usage-alert-section-title,.usage-alert-section.quota-section .usage-alert-check{grid-column:1/-1}
+.usage-alert-section.quota-section .usage-alert-field{min-width:0}
 .usage-alert-section-title{font-weight:650}
 .usage-alert-field{display:grid;gap:4px}
 .usage-alert-field label{font-size:11px;color:var(--vscode-descriptionForeground)}
@@ -113,6 +130,7 @@
 .usage-alert-actions button.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
 .usage-alert-actions button:hover{background:var(--vscode-button-hoverBackground)}
 .usage-alert-error{min-height:16px;color:var(--vscode-errorForeground);font-size:11px}
+@media(max-width:560px){.usage-alert-section.quota-section{grid-template-columns:1fr}.usage-alert-section.quota-section .usage-alert-section-title,.usage-alert-section.quota-section .usage-alert-check{grid-column:auto}}
 .usage-context{color:var(--vscode-charts-blue,#75beff);font-size:11px;font-weight:650;white-space:nowrap}
 .usage-context-button{color:var(--vscode-charts-blue,#75beff);font-weight:700}
 .gateway-summary{display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;list-style:none}
@@ -150,6 +168,14 @@
 .gateway-content{font-size:13px;line-height:1.5}
 .gateway-content .gateway-meta{font-size:12px;line-height:1.45}
 .gateway-content .gateway-notice{font-size:13px;font-weight:650;line-height:1.45}
+.composer{grid-template-columns:minmax(0,1fr)}
+.composer-actions{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.composer-actions .send{flex:1 1 120px;min-width:105px}
+.send.pause-goal{background:var(--vscode-button-secondaryBackground,#5a5860);color:var(--vscode-button-secondaryForeground,var(--vscode-foreground))}
+.send.pause-goal:hover:not(:disabled){background:var(--vscode-toolbar-hoverBackground)}
+#summaryView[aria-selected="true"]{border-color:var(--vscode-textLink-foreground);background:rgba(55,148,255,.2);color:var(--vscode-textLink-foreground);font-weight:650}
+#chronologicalView[aria-selected="true"]{border-color:var(--vscode-charts-purple,#c586c0);background:rgba(197,134,192,.2);color:var(--vscode-charts-purple,#c586c0);font-weight:650}
+#summaryView[aria-selected="false"],#chronologicalView[aria-selected="false"]{opacity:.72}
 .send.stop{background:var(--vscode-testing-iconFailed,var(--vscode-errorForeground));color:var(--vscode-button-foreground)}
 .send.stop:hover:not(:disabled){background:var(--vscode-errorForeground)}
 </style>
@@ -159,7 +185,7 @@
 <dialog id="imageDialog" class="image-dialog"><button id="closeImageDialog" class="iconbtn image-dialog-close" type="button" title="Đóng ảnh" aria-label="Đóng ảnh">×</button><img id="imageDialogImg" alt="Ảnh đính kèm"></dialog>
 <script nonce="__NONCE__">
 const vscode=acquireVsCodeApi(),chatList=document.getElementById('chatList'),activeCount=document.getElementById('activeCount'),main=document.getElementById('main'),search=document.getElementById('search');
-const savedUi=vscode.getState()||{};const minSidebarWidth=190,maxSidebarWidth=()=>Math.max(minSidebarWidth,window.innerWidth-229),clampSidebarWidth=n=>Math.max(minSidebarWidth,Math.min(maxSidebarWidth(),Math.round(n)));let sidebarWidth=clampSidebarWidth(Number(savedUi.sidebarWidth)||300);document.documentElement.style.setProperty('--sidebar-width',sidebarWidth+'px');const minSidebarHeight=100,maxSidebarHeight=()=>Math.max(minSidebarHeight,window.innerHeight-9-180),clampSidebarHeight=n=>Math.max(minSidebarHeight,Math.min(maxSidebarHeight(),Math.round(n)));let sidebarHeight=clampSidebarHeight(Number(savedUi.sidebarHeight)||190);document.documentElement.style.setProperty('--sidebar-height',sidebarHeight+'px');let state={activeChats:[],nonRunningChats:[],showNonRunning:false,selectedThreadId:'',selected:null,queue:{},steer:{},gateway:{commands:[],traffic:[]},deleteChat:{}},draft='',draftImages=[],composerNotice='',imageSources=[],viewMode=savedUi.viewMode==='chronological'?'chronological':'summary',drafts={},currentDraftThreadId='',lastNoticeAt=0,gatewaySettingsDraft=null,gatewayPayload=null,lastGatewayNoticeAt=0;
+const savedUi=vscode.getState()||{};const minSidebarWidth=190,maxSidebarWidth=()=>Math.max(minSidebarWidth,window.innerWidth-229),clampSidebarWidth=n=>Math.max(minSidebarWidth,Math.min(maxSidebarWidth(),Math.round(n)));let sidebarWidth=clampSidebarWidth(Number(savedUi.sidebarWidth)||300);document.documentElement.style.setProperty('--sidebar-width',sidebarWidth+'px');const minSidebarHeight=100,maxSidebarHeight=()=>Math.max(minSidebarHeight,window.innerHeight-9-180),clampSidebarHeight=n=>Math.max(minSidebarHeight,Math.min(maxSidebarHeight(),Math.round(n)));let sidebarHeight=clampSidebarHeight(Number(savedUi.sidebarHeight)||190);document.documentElement.style.setProperty('--sidebar-height',sidebarHeight+'px');let state={activeChats:[],nonRunningChats:[],showNonRunning:false,selectedThreadId:'',selected:null,queue:{},steer:{},gateway:{commands:[],traffic:[]},deleteChat:{}},draft='',draftImages=[],composerNotice='',imageSources=[],viewMode=savedUi.viewMode==='chronological'?'chronological':'summary',chronologicalFilter=savedUi.chronologicalFilter==='conversation'?'conversation':'all',drafts={},currentDraftThreadId='',lastNoticeAt=0,gatewaySettingsDraft=null,gatewayPayload=null,lastGatewayNoticeAt=0;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pad=n=>String(n).padStart(2,'0');
 const absTime=ms=>{if(!ms)return '--';const d=new Date(ms),now=new Date(),same=d.toDateString()===now.toDateString(),t=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());return same?t:pad(d.getDate())+'/'+pad(d.getMonth()+1)+' '+t};
@@ -211,7 +237,7 @@ function queueInfo(){
   return null;
 }
 function bindComposer(wasFocused,start,end){
-  const ta=document.getElementById('composerInput'),steer=document.getElementById('steerBtn'),queue=document.getElementById('queueBtn'),stop=document.getElementById('stopBtn'),next=document.getElementById('continueBtn'),reprobe=document.getElementById('reprobe'),picker=document.getElementById('imagePicker'),addImage=document.getElementById('addImageBtn');
+  const ta=document.getElementById('composerInput'),steer=document.getElementById('steerBtn'),queue=document.getElementById('queueBtn'),stop=document.getElementById('stopBtn'),pauseGoal=document.getElementById('pauseGoalBtn'),next=document.getElementById('continueBtn'),reprobe=document.getElementById('reprobe'),picker=document.getElementById('imagePicker'),addImage=document.getElementById('addImageBtn');
   if(!ta||(!next&&(!steer||!queue)))return;
   ta.value=draft;
   const update=()=>{
@@ -220,6 +246,7 @@ function bindComposer(wasFocused,start,end){
     if(steer)steer.disabled=!(hasText||hasImages)||!a.available||busy;
     if(queue)queue.disabled=!hasText||hasImages||!q.available||busy;
     if(stop)stop.disabled=Boolean(i.busy)||!state.selected||state.selected.stateKind!=='running';
+    if(pauseGoal)pauseGoal.disabled=Boolean(i.busy)||!state.selected||state.selected.stateKind!=='running';
     if(next)next.disabled=!(hasText||hasImages)||busy||!state.selected||state.selected.stateKind==='unknown';
   };
   ta.oninput=update;
@@ -234,6 +261,7 @@ function bindComposer(wasFocused,start,end){
   if(queue)queue.onclick=()=>{if(!queue.disabled)send('queueMessage')};
   if(next)next.onclick=()=>{if(!next.disabled)send('continueMessage')};
   if(stop)stop.onclick=()=>{if(!stop.disabled)vscode.postMessage({command:'interruptChat',threadId:state.selectedThreadId})};
+  if(pauseGoal)pauseGoal.onclick=()=>{if(!pauseGoal.disabled)vscode.postMessage({command:'pauseGoal',threadId:state.selectedThreadId})};
   if(reprobe)reprobe.onclick=()=>vscode.postMessage({command:'reprobeCodex'});
   if(addImage&&picker)addImage.onclick=()=>picker.click();
   if(picker)picker.onchange=()=>{addDraftImages(picker.files);picker.value=''};
@@ -339,7 +367,7 @@ function timeHtml(ms,cls='event-time'){
   return '<span class="'+cls+' '+timeAgeClass(at)+'" title="'+esc(at?absTime(at):'--')+'">'+esc(at?(absTime(at)+' · '+relTime(at)):'--')+'</span>';
 }
 function renderTranscript(d){
-  const events=(Array.isArray(d.timeline)?d.timeline:[]).filter(Boolean).slice().reverse();
+  const events=(Array.isArray(d.timeline)?d.timeline:[]).filter(Boolean).filter(item=>chronologicalFilter!=='conversation'||item.kind==='user'||item.kind==='message').slice().reverse();
   if(!events.length)return '<div class="card empty">Chưa có hoạt động chi tiết.</div>';
   const rows=events.map(item=>{
     const kind=String(item.kind||'activity'),isMessage=kind==='user'||kind==='message';
@@ -377,15 +405,31 @@ function renderHistory(d){
   const latest=(d.timeline||[])[0]||{},latestAt=Number(latest.at)||0,latestLabel=latest.label||latest.type||'Hoạt động';
   return '<section class="card"><div class="card-title">Lịch sử hoạt động <span class="summary-meta">· '+((d.timeline||[]).length)+' mục</span></div><details class="history" data-state-key="history"><summary class="history-summary"><span class="timeline-icon '+esc(latest.kind||'activity')+'"></span><span class="history-latest"><b>'+esc(latestLabel)+'</b><span>'+esc(latest.detail?short(latest.detail,160):'Mở để xem các hoạt động chi tiết')+'</span></span>'+timeHtml(latestAt)+'</summary><div class="history-body">'+renderTimeline(d)+'</div></details></section>';
 }
+const copyIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="1"></rect><path d="M5 16H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v1"></path></svg>';
+function latestCopyButton(field){
+  const notice=copyNotice.field===field?copyNotice:null;
+  const status=notice&&notice.text?'<span class="copy-status '+(notice.kind==='error'?'err':'')+'" role="status">'+esc(notice.text)+'</span>':'';
+  return '<span class="latest-card-actions"><button class="iconbtn copy-message" type="button" data-copy-latest="'+field+'" title="Copy nội dung" aria-label="Copy nội dung">'+copyIcon+'</button>'+status+'</span>';
+}
+function bindLatestCopy(){
+  for(const button of document.querySelectorAll('[data-copy-latest]'))button.onclick=()=>{
+    const field=String(button.dataset.copyLatest||'');
+    const text=field==='request'?String(state.selected?.latestUserText||''):String(state.selected?.latestAssistantText||'');
+    if(!text)return;
+    button.disabled=true;
+    copyNotice={field,kind:'pending',text:'Đang copy…'};
+    vscode.postMessage({command:'copyChatText',field,text});
+  };
+}
 function renderLatest(d){
   let html='';
   if(d.latestUserText||Array.isArray(d.latestUserImages)&&d.latestUserImages.length){
     const at=Number(d.latestUserTextAt)||0;
-    html+='<section class="card"><div class="card-title">Yêu cầu gần nhất '+timeHtml(at,'message-time')+'</div>'+(d.latestUserText?'<div class="message-card user">'+esc(d.latestUserText)+'</div>':'')+imageMarkup(d.latestUserImages)+'</section>';
+    html+='<section class="card"><div class="card-title latest-card-title"><span>Yêu cầu gần nhất '+timeHtml(at,'message-time')+'</span>'+(d.latestUserText?latestCopyButton('request'):'')+'</div>'+(d.latestUserText?'<div class="message-card user">'+esc(d.latestUserText)+'</div>':'')+imageMarkup(d.latestUserImages)+'</section>';
   }
   if(d.latestAssistantText){
     const at=Number(d.latestAssistantTextAt)||0;
-    html+='<section class="card"><div class="card-title">Phản hồi gần nhất '+timeHtml(at,'message-time')+'</div><div class="message-card assistant">'+esc(d.latestAssistantText)+'</div></section>';
+    html+='<section class="card"><div class="card-title latest-card-title"><span>Phản hồi gần nhất '+timeHtml(at,'message-time')+'</span>'+latestCopyButton('response')+'</div><div class="message-card assistant">'+esc(d.latestAssistantText)+'</div></section>';
   }
   return html;
 }
@@ -579,6 +623,34 @@ function bindGatewayUi(){
   });
 }
 
+function usageChartPlot(chart){
+  const points=Array.isArray(chart&&chart.points)?chart.points.filter(point=>Number.isFinite(Number(point.at))&&Number.isFinite(Number(point.usedPercent))):[];
+  if(!points.length)return '<div class="usage-chart-empty">Chưa có đủ mốc quota để vẽ đồ thị. Hãy chờ lần kiểm tra Usage tiếp theo.</div>';
+  const width=540,height=250,left=42,right=14,top=18,bottom=42;
+  const start=Number(chart.rangeStart)||points[0].at,end=Math.max(start+1,Number(chart.rangeEnd)||points.at(-1).at);
+  const x=at=>left+((Number(at)-start)/(end-start))*(width-left-right);
+  const y=percent=>top+(100-Math.max(0,Math.min(100,Number(percent)||0)))/100*(height-top-bottom);
+  const grid=[0,50,100].map(percent=>'<line class="usage-chart-axis" x1="'+left+'" y1="'+y(percent)+'" x2="'+(width-right)+'" y2="'+y(percent)+'"></line><text class="usage-chart-label" x="4" y="'+(y(percent)+4)+'">'+percent+'%</text>').join('');
+  const polyline=points.map(point=>x(point.at).toFixed(2)+','+y(point.usedPercent).toFixed(2)).join(' ');
+  const markers=points.map(point=>'<circle class="usage-chart-point" cx="'+x(point.at).toFixed(2)+'" cy="'+y(point.usedPercent).toFixed(2)+'" r="3"><title>'+esc(absTime(point.at))+' · đã dùng '+Math.round(point.usedPercent)+'%</title></circle>').join('');
+  const first=points[0],last=points.at(-1);
+  const labels='<text class="usage-chart-label" x="'+left+'" y="'+(height-12)+'">'+esc(absTime(first.at))+'</text><text class="usage-chart-label" text-anchor="end" x="'+(width-right)+'" y="'+(height-12)+'">'+esc(absTime(last.at))+'</text>';
+  return '<svg class="usage-chart-plot" viewBox="0 0 '+width+' '+height+'" role="img" aria-label="Đồ thị phần trăm quota đã dùng theo thời điểm">'+grid+'<polyline class="usage-chart-line" points="'+polyline+'"></polyline>'+markers+labels+'</svg>';
+}
+function renderUsageChartDialog(){
+  const chart=state.usage&&state.usage.chart||{};
+  const count=Number(chart.sampleCount)||0;
+  const summary=chart.available?'Quota 5h · '+count+' mốc trong chu kỳ hiện tại. Điểm đo là phần trăm đã dùng.':'Chưa có dữ liệu trong 24 giờ gần nhất.';
+  return '<dialog id="usageChartDialog" class="usage-chart-dialog" aria-labelledby="usageChartDialogTitle"><form class="usage-chart-form" method="dialog"><h3 id="usageChartDialogTitle">Đồ thị quota theo thời điểm</h3><p class="usage-chart-summary">'+esc(summary)+'</p>'+usageChartPlot(chart)+'<div class="usage-chart-actions"><button id="usageChartClose" type="button">Đóng</button></div></form></dialog>';
+}
+function moveUsageChartDialog(){
+  const dialogs=Array.from(document.querySelectorAll('#usageChartDialog'));
+  if(!dialogs.length)return null;
+  const dialog=dialogs.find(item=>item.open)||dialogs.find(item=>item.parentElement===main)||dialogs[0];
+  if(dialog.parentElement!==document.body)document.body.appendChild(dialog);
+  for(const duplicate of dialogs)if(duplicate!==dialog)duplicate.remove();
+  return dialog;
+}
 function renderUsage(){
   const usage=state.usage||{},display=usage.display||{};
   const context=usage.context||{};
@@ -596,8 +668,9 @@ function renderUsage(){
   const contextHtml=Number.isFinite(contextValue)&&contextValue>=0?'<span class="usage-context" title="Context đang dùng">Context '+esc(String(Math.round(contextValue)))+'%</span>':'';
   const contextAction= context.settings&&context.settings.resumeAfterCompact===false ? 'Dừng và compact context' : 'Dừng, compact context và tiếp tục';
   const contextButton=context.compactAvailable?'<button class="iconbtn usage-context-button" id="contextCompactButton" type="button" title="'+esc(contextAction)+'" aria-label="'+esc(contextAction)+'" '+(context.busy?'disabled':'')+'>⟳</button>':'';
+  const chartButton='<button class="usage-chart-action" id="usageChartButton" type="button" title="Bật/tắt đồ thị quota theo thời điểm" aria-label="Bật/tắt đồ thị quota theo thời điểm">Đồ thị</button>';
   return '<div class="usage-head usage-card"><span class="card-title">Usage</span>'+
-    '<span class="usage-value" title="'+esc(display.tooltip||usage.error||'Hạn mức Codex còn lại')+'">'+valueHtml+'</span>'+contextHtml+contextButton+
+    '<span class="usage-value" title="'+esc(display.tooltip||usage.error||'Hạn mức Codex còn lại')+'">'+valueHtml+'</span>'+contextHtml+contextButton+chartButton+
     '<button class="iconbtn" id="checkUsage" type="button" title="Kiểm tra Usage ngay" aria-label="Kiểm tra Usage ngay" '+(usage.busy?'disabled':'')+'>'+(usage.busy?'…':'↻')+'</button>'+
     '<button class="iconbtn" id="usageSettings" type="button" title="'+esc(settings)+'" aria-label="Đổi chu kỳ kiểm tra Usage">⚙</button>'+
     '<button class="iconbtn usage-alerts" id="usageAlertsSettings" type="button" title="'+esc(alertTitle)+'" aria-label="Cấu hình cảnh báo quota">⚠</button></div>';
@@ -605,6 +678,7 @@ function renderUsage(){
 
 function bindUsageUi(){
   const dialog=moveUsageAlertDialog();
+  const chartDialog=moveUsageChartDialog();
   const button=document.getElementById('checkUsage');
   if(button)button.onclick=()=>{if(!button.disabled){button.disabled=true;vscode.postMessage({command:'checkUsage'})}};
   const settings=document.getElementById('usageSettings');
@@ -619,8 +693,7 @@ function bindUsageUi(){
   const form=dialog?.querySelector('form');
   if(form)form.onsubmit=event=>{event.preventDefault();saveUsageAlertDialog(dialog)};
   const chartButton=document.getElementById('usageChartButton');
-  const chartDialog=document.getElementById('usageChartDialog');
-  if(chartButton)chartButton.onclick=()=>{if(chartDialog?.showModal)chartDialog.showModal()};
+  if(chartButton)chartButton.onclick=()=>{if(!chartDialog)return;if(chartDialog.open)chartDialog.close();else if(chartDialog.showModal)chartDialog.showModal()};
   const chartClose=document.getElementById('usageChartClose');
   if(chartClose)chartClose.onclick=()=>chartDialog?.close();
   const contextButton=document.getElementById('contextCompactButton');
@@ -655,11 +728,11 @@ function renderUsageAlertDialog(){
     '<section class="usage-alert-section"><div class="usage-alert-section-title">Chu kỳ kiểm tra Usage</div>'+
     '<div class="usage-alert-field"><label for="usageAlertInterval">Số phút giữa các lần kiểm tra (0 = thủ công)</label><input id="usageAlertInterval" type="number" min="0" max="1440" step="1" value="'+esc(interval)+'"><span class="usage-alert-help">Nhập từ 0 đến 1440 phút.</span></div></section>'+
     '<label class="usage-alert-check"><input id="usageAlertsEnabled" type="checkbox" '+(enabled?'checked':'')+'> Bật cảnh báo quota</label>'+
-    '<section class="usage-alert-section"><div class="usage-alert-section-title">Quota 5h</div>'+
+    '<section class="usage-alert-section quota-section"><div class="usage-alert-section-title">Quota 5h</div>'+
     '<label class="usage-alert-check"><input id="usageAlertPrimaryEnabled" type="checkbox" '+(primaryEnabled?'checked':'')+'> Theo dõi quota 5h</label>'+
     '<div class="usage-alert-field"><label for="usageAlertPrimaryThresholds">Mốc % đã dùng</label><input id="usageAlertPrimaryThresholds" type="text" value="'+esc(usageAlertListValue(primary.thresholds,'usedPercent'))+'" placeholder="50,70,85,95"><span class="usage-alert-help">Ví dụ: 50,70,85,95</span></div>'+
     '<div class="usage-alert-field"><label for="usageAlertPrimaryRates">Tốc độ trung bình (%/giờ)</label><input id="usageAlertPrimaryRates" type="text" value="'+esc(usageAlertListValue(primary.rateThresholds,'percentPerHour'))+'" placeholder="10,20,30"><span class="usage-alert-help">Ví dụ: 10,20,30</span></div></section>'+
-    '<section class="usage-alert-section"><div class="usage-alert-section-title">Quota 7d</div>'+
+    '<section class="usage-alert-section quota-section"><div class="usage-alert-section-title">Quota 7d</div>'+
     '<label class="usage-alert-check"><input id="usageAlertSecondaryEnabled" type="checkbox" '+(secondaryEnabled?'checked':'')+'> Theo dõi quota 7d</label>'+
     '<div class="usage-alert-field"><label for="usageAlertSecondaryThresholds">Mốc % đã dùng</label><input id="usageAlertSecondaryThresholds" type="text" value="'+esc(usageAlertListValue(secondary.thresholds,'usedPercent'))+'" placeholder="70,90"><span class="usage-alert-help">Ví dụ: 70,90</span></div>'+
     '<div class="usage-alert-field"><label for="usageAlertSecondaryRates">Tốc độ trung bình (%/giờ)</label><input id="usageAlertSecondaryRates" type="text" value="'+esc(usageAlertListValue(secondary.rateThresholds,'percentPerHour'))+'" placeholder="5,10"><span class="usage-alert-help">Ví dụ: 5,10; có thể để trống</span></div></section>'+
@@ -791,7 +864,7 @@ function renderAuthSession(){
   const disabled = auth.busy || auth.canDeactivate === false;
   return '<section class="card auth-session-card">' +
     '<div class="auth-session-row"><span class="auth-session-account" title="' + account + '">' + account + '</span>' +
-    '<button class="send" id="deactivateSession" type="button" ' + (disabled ? 'disabled' : '') + '>Deactive</button></div>'+renderUsage()+renderUsageAlertDialog()+'</section>';
+    '<button class="send" id="deactivateSession" type="button" ' + (disabled ? 'disabled' : '') + '>Deactive</button></div>'+renderUsage()+renderUsageAlertDialog()+renderUsageChartDialog()+'</section>';
 }
 
 function bindAuthSessionUi(){
@@ -807,7 +880,7 @@ function renderComposer(){
   const running=state.selected&&state.selected.stateKind==='running',si=running&&steerInfo(),qi=running&&queueInfo();
   const n=state.continuation&&state.continuation.notice,ci=n&&n.threadId===state.selectedThreadId?n:null;
   const ii=state.interrupt||{};const statuses=[si&&'<div class="action-status '+esc(si.cls)+'" role="status"><b>Steer ngay:</b> '+esc(si.text)+'</div>',qi&&'<div class="action-status '+esc(qi.cls)+'" role="status"><b>G&#7917;i sau:</b> '+esc(qi.text)+'</div>',ii.notice&&'<div class="action-status '+(ii.notice.kind==='success'?'ok':'err')+'" role="status"><b>D&#7915;ng:</b> '+esc(ii.notice.text)+'</div>',ci&&'<div class="action-status '+(ci.kind==='success'?'ok':'err')+'" role="status">'+esc(ci.text)+'</div>',composerNotice&&'<div class="action-status err" role="alert">'+esc(composerNotice)+'</div>'].filter(Boolean).join('');
-  const buttons=running?'<button class="send steer" id="steerBtn" title="G&#7917;i v&#224;o l&#432;&#7907;t &#273;ang ch&#7841;y">Steer ngay</button><button class="send queue" id="queueBtn" title="X&#7871;p tin nh&#7855;n g&#7917;i sau l&#432;&#7907;t hi&#7879;n t&#7841;i">G&#7917;i sau</button><button class="send stop" id="stopBtn" title="D&#7915;ng l&#432;&#7907;t &#273;ang ch&#7841;y">D&#7915;ng</button>':'<button class="send continue" id="continueBtn" title="B&#7855;t &#273;&#7847;u l&#432;&#7907;t m&#7899;i trong cu&#7897;c tr&#242; chuy&#7879;n n&#224;y">Ti\u1ebfp t\u1ee5c chat</button>';
+  const buttons=running?'<button class="send steer" id="steerBtn" title="G&#7917;i v&#224;o l&#432;&#7907;t &#273;ang ch&#7841;y">Steer ngay</button><button class="send queue" id="queueBtn" title="X&#7871;p tin nh&#7855;n g&#7917;i sau l&#432;&#7907;t hi&#7879;n t&#7841;i">G&#7917;i sau</button><button class="send stop" id="stopBtn" title="D&#7915;ng l&#432;&#7907;t &#273;ang ch&#7841;y">D&#7915;ng</button><button class="send pause-goal" id="pauseGoalBtn" title="Pause goal · t&#7841;m d&#7915;ng goal b&#7857;ng c&#225;ch d&#7915;ng l&#432;&#7907;t hi&#7879;n t&#7841;i" aria-label="Pause goal">⏸ Pause goal</button>':'<button class="send continue" id="continueBtn" title="B&#7855;t &#273;&#7847;u l&#432;&#7907;t m&#7899;i trong cu&#7897;c tr&#242; chuy&#7879;n n&#224;y">Ti\u1ebfp t\u1ee5c chat</button>';
   return '<section class="card composer-card"><div class="card-title">'+(running?'Nhắn vào chat này':'Tiếp tục cuộc trò chuyện')+'</div><div class="composer"><textarea id="composerInput" placeholder="'+(running?'Nhập tin nhắn hoặc dán ảnh...':'Nhập yêu cầu tiếp theo hoặc dán ảnh...')+'" aria-label="Tin nhắn cho chat này"></textarea><div class="composer-actions">'+buttons+'</div></div><div class="composer-image-tools"><button class="iconbtn" type="button" id="addImageBtn" title="Thêm ảnh" aria-label="Thêm ảnh">▧ Ảnh</button><input id="imagePicker" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>'+imageMarkup(draftImages,true)+'</div><div class="composer-meta">'+statuses+'<button class="iconbtn" type="button" id="reprobe" title="Kiểm tra lại khả năng gửi" aria-label="Kiểm tra lại khả năng gửi">↻</button></div></section>';
 }
 function renderMain(){
@@ -824,6 +897,7 @@ function renderMain(){
   const running=d.stateKind==='running',at=Number(d.lastActivityMs)||0;
   let html='<div class="head"><div class="head-left"><div class="title">'+esc(d.title||'Codex chat')+'</div><div class="sub" title="'+esc(d.cwd||'')+'">'+esc(baseName(d.cwd)||d.cwd||'')+' · hoạt động '+timeHtml(at,'head-time')+'</div>'+runtimeMeta(d.runtime)+'</div><div class="state '+(running?'running':'stopped')+'">'+esc(d.state||'Unknown')+'</div></div>';
   html+='<div class="view-switch" role="tablist" aria-label="Cách xem lịch sử"><button type="button" id="summaryView" role="tab" aria-selected="'+String(viewMode==='summary')+'">Tổng quan</button><button type="button" id="chronologicalView" role="tab" aria-selected="'+String(viewMode==='chronological')+'">Theo thứ tự</button></div>';
+  if(viewMode==='chronological')html+='<div class="transcript-filters" role="group" aria-label="Bộ lọc Theo thứ tự"><span>Hiển thị:</span><button type="button" id="conversationFilter" data-active="'+String(chronologicalFilter==='conversation')+'">Đối đáp</button><button type="button" id="activityFilter" data-active="'+String(chronologicalFilter==='all')+'">Tất cả hoạt động</button></div>';
   html+=renderAuthSession()+renderGateway();
   if(viewMode==='chronological')html+=renderTranscript(d);
   else html+=renderCurrent(d)+renderWorkers(d)+renderHistory(d)+renderLatest(d);
@@ -834,8 +908,12 @@ function renderMain(){
   const setMode=mode=>{viewMode=mode;vscode.setState({...vscode.getState(),viewMode});renderMain()};
   document.getElementById('summaryView').onclick=()=>setMode('summary');
   document.getElementById('chronologicalView').onclick=()=>setMode('chronological');
+  const conversationFilter=document.getElementById('conversationFilter'),activityFilter=document.getElementById('activityFilter');
+  if(conversationFilter)conversationFilter.onclick=()=>{chronologicalFilter='conversation';vscode.setState({...vscode.getState(),chronologicalFilter});renderMain()};
+  if(activityFilter)activityFilter.onclick=()=>{chronologicalFilter='all';vscode.setState({...vscode.getState(),chronologicalFilter});renderMain()};
   bindGatewayUi();
   bindComposer(wasFocused,start,end);
+  bindLatestCopy();
   bindImageViewer();
   restoreUiState(ui);
 }
@@ -869,16 +947,37 @@ function setChatTab(nonRunning){
 document.getElementById('runningTab').onclick=()=>setChatTab(false);
 document.getElementById('nonRunningTab').onclick=()=>setChatTab(true);
 const pendingContinuation={};
+let copyNotice={field:'',kind:'',text:''};
+let deferredRender=false;
+function interactionBlocksRender(){
+  const active=document.activeElement;
+  if(main.contains(active)&&active.matches('textarea,input,select,[contenteditable="true"]'))return true;
+  const selection=window.getSelection&&window.getSelection();
+  return Boolean(selection&&!selection.isCollapsed&&main.contains(selection.anchorNode));
+}
+function requestRender(){
+  if(interactionBlocksRender()){deferredRender=true;renderChats();return;}
+  deferredRender=false;
+  render();
+}
+function flushDeferredRender(){
+  if(deferredRender&&!interactionBlocksRender()){deferredRender=false;render();}
+}
+document.addEventListener('selectionchange',()=>setTimeout(flushDeferredRender,0));
+document.addEventListener('focusout',()=>setTimeout(flushDeferredRender,0));
 window.addEventListener('message',e=>{
   const m=e.data;
   if(m.type==='state'){
+    const previousThreadId=state.selectedThreadId;
     state=m.data||state;
+    const selectionChanged=previousThreadId!==state.selectedThreadId;
     const gwNotice=state.gateway&&state.gateway.actionNotice;
     if(gwNotice&&gwNotice.at&&gwNotice.at!==lastGatewayNoticeAt){
       lastGatewayNoticeAt=gwNotice.at;
       if(gwNotice.kind==='success')gatewaySettingsDraft=null;
     }
     switchDraftThread(state.selectedThreadId||'');
+    let forceRender=false;
     const notices=[state.queue&&state.queue.notice,state.steer&&state.steer.notice,state.continuation&&state.continuation.notice].filter(Boolean);
     for(const n of notices){
       const pending=n.requestId&&pendingContinuation[n.requestId];
@@ -888,12 +987,15 @@ window.addEventListener('message',e=>{
         draft='';
         draftImages=[];
         delete drafts[currentDraftThreadId];
+        const composerInput=document.getElementById('composerInput');
+        if(composerInput){composerInput.value='';composerInput.dispatchEvent(new Event('input',{bubbles:true}))}
+        forceRender=true;
       }else if(n.kind==='success'&&pending.threadId!==currentDraftThreadId){
         const saved=drafts[pending.threadId];
         if(saved&&String(saved.text||'').trim()===pending.text&&JSON.stringify((saved.images||[]).map(i=>i.dataUrl))===JSON.stringify(pending.images))delete drafts[pending.threadId];
       }
     }
-    render();
+    if(forceRender||selectionChanged){deferredRender=false;render();}else requestRender();
   }else if(m.type==='codexCurrentChat'){
     state.codexCurrentThreadId=typeof m.threadId==='string'?m.threadId:'';
     renderChats();
@@ -903,7 +1005,10 @@ window.addEventListener('message',e=>{
       next.contentCapture.content=String(gatewayPayload.contentCapture.content||'')+String(next.contentCapture.content||'');
     }
     gatewayPayload=next;
-    renderMain();
+    if(interactionBlocksRender())deferredRender=true;else renderMain();
+  }else if(m.type==='chatCopyResult'){
+    copyNotice={field:String(m.field||''),kind:m.error?'error':'success',text:m.error?'Copy thất bại: '+String(m.error):'Đã copy.'};
+    if(interactionBlocksRender())deferredRender=true;else renderMain();
   }else if(m.type==='error')main.innerHTML='<div class="stopped">'+esc(m.message)+'</div>';
 });
 render();
