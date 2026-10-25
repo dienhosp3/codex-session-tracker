@@ -2,7 +2,7 @@
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
   "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
-  "version": "0.12.24",
+  "version": "0.12.25",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -267,6 +267,7 @@
     "traffic_monitor.html",
     "media/tracker.svg",
     "media/*.mp3",
+    "media/usage_voice/*.wav",
     "media/codex_current_chat_observer.js",
     "README.md",
     "LICENSE"

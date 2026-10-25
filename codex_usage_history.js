@@ -122,27 +122,29 @@ function createUsageHistoryStore(directory, options = {}) {
   };
 }
 
-function usageHistoryChart(historyValue, now = Date.now()) {
+function usageHistoryChart(historyValue, now = Date.now(), options = {}) {
   const currentTime = finiteTimestamp(now) || Date.now();
   const history = normalizeUsageHistory(historyValue);
   const recent = history.samples.filter(sample => sample.checkedAt >= currentTime - HISTORY_MAX_AGE_MS && sample.checkedAt <= currentTime);
   if (!recent.length) return { available: false, points: [], sampleCount: 0, rangeStart: 0, rangeEnd: 0, session: null };
   const latest = recent[recent.length - 1];
-  const sessionSamples = recent.filter(sample => sample.accountKey === latest.accountKey && sample.groupId === latest.groupId && sample.resetsAt === latest.resetsAt);
-  const durationMs = (latest.durationMinutes || 300) * 60000;
-  const cycleStart = latest.resetsAt ? latest.resetsAt - durationMs : latest.checkedAt - PRIMARY_WINDOW_MS;
-  const rangeStart = Math.max(currentTime - HISTORY_MAX_AGE_MS, cycleStart);
-  const rangeEnd = Math.min(currentTime, latest.resetsAt || currentTime);
-  const points = sessionSamples.filter(sample => sample.checkedAt >= rangeStart && sample.checkedAt <= rangeEnd)
+  const rangeMinutes = Number(options?.rangeMinutes);
+  const rangeMs = Number.isFinite(rangeMinutes) && rangeMinutes > 0
+    ? Math.min(HISTORY_MAX_AGE_MS, rangeMinutes * 60000)
+    : HISTORY_MAX_AGE_MS;
+  const accountSamples = recent.filter(sample => sample.accountKey === latest.accountKey && sample.groupId === latest.groupId);
+  const rangeStart = Math.max(currentTime - HISTORY_MAX_AGE_MS, currentTime - rangeMs);
+  const rangeEnd = currentTime;
+  const points = accountSamples.filter(sample => sample.checkedAt >= rangeStart && sample.checkedAt <= rangeEnd)
     .sort((a, b) => a.checkedAt - b.checkedAt)
-    .map(sample => ({ at: sample.checkedAt, usedPercent: sample.usedPercent, remainingPercent: sample.remainingPercent }));
+    .map(sample => ({ at: sample.checkedAt, usedPercent: sample.usedPercent, remainingPercent: sample.remainingPercent, resetsAt: sample.resetsAt }));
   return {
     available: points.length > 0,
     points,
     sampleCount: points.length,
     rangeStart,
     rangeEnd,
-    session: { accountKey: latest.accountKey, groupId: latest.groupId, resetsAt: latest.resetsAt, cycleStart, durationMinutes: latest.durationMinutes || 300 }
+    session: { accountKey: latest.accountKey, groupId: latest.groupId, resetsAt: latest.resetsAt, durationMinutes: latest.durationMinutes || 300 }
   };
 }
 

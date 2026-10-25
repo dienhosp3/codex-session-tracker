@@ -868,8 +868,14 @@ function updateRuntimeProfile(profile, item) {
   const payload = item.payload && typeof item.payload === 'object' ? item.payload : item;
   const at = messageTimestamp(item, payload);
   if (at) profile.updatedAt = Math.max(profile.updatedAt, at);
-  if (item.type === 'turn_context') {
-    const nextTurnId = String(payload.turn_id || '');
+  const payloadType = String(payload.type || '');
+  const isTurnContext = item.type === 'turn_context' || payloadType === 'turn_context';
+  const model = payload.model || payload.model_slug || payload.modelSlug || payload.resolved_model;
+  const reasoning = payload.effort || payload.reasoning_effort || payload.reasoningEffort;
+  if (model) profile.model = String(model);
+  if (reasoning) profile.reasoning = String(reasoning);
+  if (isTurnContext) {
+    const nextTurnId = String(payload.turn_id || payload.turnId || payload.id || '');
     if (nextTurnId && profile.turnId && nextTurnId !== profile.turnId) {
       profile.firstTokenAt = 0;
       profile.lastTokenAt = 0;
@@ -878,12 +884,10 @@ function updateRuntimeProfile(profile, item) {
       profile.timeToFirstTokenMs = 0;
     }
     if (nextTurnId) profile.turnId = nextTurnId;
-    if (payload.model) profile.model = String(payload.model);
-    if (payload.effort || payload.reasoning_effort) profile.reasoning = String(payload.effort || payload.reasoning_effort);
     if (at && !profile.turnStartedAt) profile.turnStartedAt = at;
   }
-  if (item.type === 'event_msg' && payload.type === 'task_started' || item.type === 'event_msg' && payload.type === 'turn_started') {
-    const nextTurnId = String(payload.turn_id || payload.id || '');
+  if (item.type === 'event_msg' && (payloadType === 'task_started' || payloadType === 'turn_started')) {
+    const nextTurnId = String(payload.turn_id || payload.turnId || payload.id || '');
     if (nextTurnId) profile.turnId = nextTurnId;
     if (at) profile.turnStartedAt = at;
   }
@@ -945,8 +949,9 @@ function runtimeProfileFromText(text) {
 }
 
 async function readSessionRuntimeProfile(file, knownStat = null) {
-  let stat = knownStat;
-  if (!stat || typeof stat.mtimeMs !== 'number') stat = await fsp.stat(file);
+  // The selected tree is deliberately rescanned less often than the rollout file.
+  // Never use its old stat to decide whether a model change is visible.
+  const stat = await fsp.stat(file);
   const cached = runtimeProfileCache.get(file);
   if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.value;
   const [prefix, tail] = await Promise.all([
@@ -1048,6 +1053,9 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
   const current = computeCurrentActivity(activities, status);
   const noisyTypes = new Set(['exec_command_output_delta', 'reasoning_content_delta', 'reasoning_raw_content_delta', 'agent_message_content_delta', 'reasoning']);
   const timeline = activities.filter(activity => !noisyTypes.has(activity.type) && (!activity.heartbeat || ['agent_message', 'agent_reasoning', 'message', 'user_message'].includes(activity.type))).slice(-timelineLimit);
+  const conversation = activities
+    .filter(activity => (activity.kind === 'user' || activity.kind === 'message') && (activity.text || activity.images && activity.images.length))
+    .slice(-20);
   let currentText = '';
   if (current && current.kind === 'message') currentText = streamingAssistantText || latestAssistantText || current.text || '';
   else if (current && current.kind === 'thinking') currentText = streamingReasoningText || latestReasoningText || current.text || '';
@@ -1056,6 +1064,7 @@ async function readRecentActivity(file, session, rootThreadId, options = {}) {
     status,
     current: { ...current, text: currentText },
     timeline,
+    conversation,
     latestUserText,
     latestUserTextAt,
     latestUserImages,
@@ -1557,6 +1566,7 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
     current,
     runtime,
     timeline: allTimeline.slice(0, clampInt(options.timelineLimit, 40, 10, 200)),
+    conversation: rootNode && Array.isArray(rootNode.conversation) ? rootNode.conversation.slice(-20) : [],
     latestAssistantText: latestAssistantNode ? latestAssistantNode.latestAssistantText : '',
     latestAssistantTextAt: latestAssistantNode ? latestAssistantNode.latestAssistantTextAt || 0 : 0,
     latestUserText: latestUserNode ? latestUserNode.latestUserText : '',

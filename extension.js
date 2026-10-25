@@ -12,7 +12,7 @@ const { createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus, ac
 const { normalizeUsageAlertSettings, evaluateUsageAlerts, usageAlertSummary } = require('./codex_usage_alerts');
 const { normalizeUsageHistory, recordUsageSample, createUsageHistoryStore, usageHistoryChart } = require('./codex_usage_history');
 const { normalizeUsageVoiceSettings, normalizeUsageVoiceState, evaluateUsageVoice, createUsageVoiceController } = require('./codex_usage_voice');
-const { normalizeContextCompactSettings, contextPercent, shouldAutoCompact } = require('./codex_context_compact');
+const { normalizeContextCompactSettings, normalizeContextCompactState, contextPercent, contextCompactDecision, markContextCompactStarted, markContextCompactSucceeded, markContextCompactFailed } = require('./codex_context_compact');
 const codexDelete = require('./codex_delete');
 const codexAuth = require('./codex_auth');
 const { createConversationNavigator } = require('./codex_navigation');
@@ -64,7 +64,7 @@ let usageVoiceState = normalizeUsageVoiceState();
 let usageVoice = null;
 let usageVoicePromise = Promise.resolve();
 let contextCompactSettings = normalizeContextCompactSettings();
-let contextCompactState = { schemaVersion: 1, currentKey: '' };
+let contextCompactState = normalizeContextCompactState();
 let contextCompactBusy = false;
 let contextCompactNotice = null;
 let usageHistoryState = { schemaVersion: 1, samples: [] };
@@ -196,8 +196,8 @@ async function activate(context) {
   usageVoiceSettings = normalizeUsageVoiceSettings(context.globalState.get(USAGE_VOICE_SETTINGS_KEY));
   usageVoiceState = normalizeUsageVoiceState(context.globalState.get(USAGE_VOICE_STATE_KEY));
   contextCompactSettings = normalizeContextCompactSettings(context.globalState.get(CONTEXT_COMPACT_SETTINGS_KEY));
-  contextCompactState = context.globalState.get(CONTEXT_COMPACT_STATE_KEY) || { schemaVersion: 1, currentKey: '' };
-  usageVoice = createUsageVoiceController();
+  contextCompactState = normalizeContextCompactState(context.globalState.get(CONTEXT_COMPACT_STATE_KEY));
+  usageVoice = createUsageVoiceController({ assetsDirectory: path.join(context.extensionPath, 'media', 'usage_voice') });
   usageHistoryStore = createUsageHistoryStore(context.globalStorageUri.fsPath);
   usageHistoryState = { samples: await usageHistoryStore.load().catch(error => { console.warn('[Codex Session Tracker] Usage history read: ' + friendlyError(error)); return []; }) };
   usageMonitor = createUsageMonitor({
@@ -433,7 +433,7 @@ function processUsageVoice(snapshot) {
   usageVoiceState = result.state;
   usageVoicePromise = usageVoicePromise.then(async () => {
     await contextRef?.globalState.update(USAGE_VOICE_STATE_KEY, usageVoiceState);
-    for (const event of result.events) await usageVoice?.speak(event.text);
+    for (const event of result.events) await usageVoice?.speak(event);
   }).catch(error => console.warn('[Codex Session Tracker] Usage voice: ' + friendlyError(error)));
   return usageVoicePromise;
 }
@@ -2120,8 +2120,12 @@ function contextCompactKey(snapshot) {
 async function compactSelectedChat(threadId, automatic = false) {
   if (contextCompactBusy || interruptBusy || steerBusy || queueBusy || continueBusy || !selected || selected.threadId !== threadId) return;
   if (selected.status?.kind !== 'running') return;
+  const key = contextCompactKey(latestSnapshot);
+  if (!key) return;
   contextCompactBusy = true;
   contextCompactNotice = null;
+  contextCompactState = markContextCompactStarted(automatic ? contextCompactState : { ...contextCompactState, attempts: 0 }, key);
+  await contextRef?.globalState.update(CONTEXT_COMPACT_STATE_KEY, contextCompactState);
   postViewState();
   try {
     await prepareOwnerBridge();
@@ -2140,6 +2144,8 @@ async function compactSelectedChat(threadId, automatic = false) {
       result = { interrupted, compacted };
     }
     const resumed = contextCompactSettings.resumeAfterCompact !== false;
+    contextCompactState = markContextCompactSucceeded(contextCompactState, key);
+    await contextRef?.globalState.update(CONTEXT_COMPACT_STATE_KEY, contextCompactState);
     contextCompactNotice = {
       kind: 'success',
       text: automatic
@@ -2148,11 +2154,9 @@ async function compactSelectedChat(threadId, automatic = false) {
       percent: contextPercent(runtime),
       at: Date.now()
     };
-    contextCompactState.currentKey = contextCompactKey(latestSnapshot);
-    await contextRef?.globalState.update(CONTEXT_COMPACT_STATE_KEY, contextCompactState);
     await refreshTrackedStatus(true);
   } catch (error) {
-    contextCompactState.currentKey = '';
+    contextCompactState = markContextCompactFailed(contextCompactState, key);
     await contextRef?.globalState.update(CONTEXT_COMPACT_STATE_KEY, contextCompactState).catch(() => {});
     contextCompactNotice = { kind: 'error', text: 'Không compact/resume được context: ' + friendlyError(error), at: Date.now() };
   } finally {
@@ -2165,10 +2169,8 @@ async function maybeAutoCompact(snapshot) {
   if (contextCompactBusy || interruptBusy || !contextCompactSettings.enabled || !selected || snapshot?.overallStatus?.kind !== 'running') return;
   const runtime = snapshot.runtime || {};
   const key = contextCompactKey(snapshot);
-  const decision = shouldAutoCompact(runtime, contextCompactSettings, { key, currentKey: contextCompactState.currentKey });
+  const decision = contextCompactDecision(runtime, contextCompactSettings, { ...contextCompactState, key });
   if (!decision.should) return;
-  contextCompactState.currentKey = key;
-  await contextRef?.globalState.update(CONTEXT_COMPACT_STATE_KEY, contextCompactState);
   await compactSelectedChat(selected.threadId, true);
 }
 
@@ -2257,7 +2259,7 @@ function postViewState() {
       usage: (() => {
         const state = usageMonitor?.snapshot() || { intervalMinutes: 5, groups: [] };
         const runtime = latestSnapshot?.runtime || null;
-        return { ...state, display: usageStatus(state), chart: usageHistoryChart(usageHistoryState), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) }, voice: usageVoiceSettings, context: { ...(runtime || {}), settings: contextCompactSettings, busy: contextCompactBusy, notice: contextCompactNotice, compactAvailable: Boolean(selected && selected.status?.kind === 'running' && runtime?.contextWindowTokens) } };
+        return { ...state, display: usageStatus(state), chart: usageHistoryChart(usageHistoryState), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) }, voice: usageVoiceSettings, context: { ...(runtime || {}), settings: contextCompactSettings, state: contextCompactState, busy: contextCompactBusy, notice: contextCompactNotice, compactAvailable: Boolean(selected && selected.status?.kind === 'running' && runtime?.contextWindowTokens) } };
       })(),
       selected: selected && latestSnapshot ? serializeSnapshot(latestSnapshot) : (selected ? serializeSelectedShell() : null),
       queue: {
@@ -2318,6 +2320,7 @@ function serializeSelectedShell() {
     latestAssistantTextAt: 0,
     runtime: null,
     timeline: [],
+    conversation: [],
     activeNodes: [],
     truncated: false
   };
@@ -2382,6 +2385,19 @@ function serializeSnapshot(snapshot) {
     latestAssistantText: snapshot.latestAssistantText || '',
     latestAssistantTextAt: Number(snapshot.latestAssistantTextAt) || 0,
     timeline,
+    conversation: (Array.isArray(snapshot.conversation) ? snapshot.conversation : [])
+      .slice(-20)
+      .map(item => ({
+        kind: String(item.kind || ''),
+        label: String(item.label || ''),
+        detail: String(item.detail || ''),
+        text: String(item.text || ''),
+        images: Array.isArray(item.images) ? item.images : [],
+        actor: String(item.actor || 'Main'),
+        threadId: String(item.threadId || ''),
+        at: Number.isFinite(item.at) ? item.at : 0,
+        terminal: Boolean(item.terminal)
+      })),
     completedSummary: snapshot.completedSummary ? {
       count: Number(snapshot.completedSummary.count) || 0,
       childCount: Number(snapshot.completedSummary.childCount) || 0,

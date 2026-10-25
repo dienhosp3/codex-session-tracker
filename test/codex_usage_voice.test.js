@@ -7,6 +7,7 @@ const {
   integerPercent,
   normalizeUsageVoiceSettings,
   speakUsageVoice,
+  usageVoiceAssetSequence,
   vietnameseNumber
 } = require('../codex_usage_voice');
 
@@ -68,11 +69,13 @@ test('disabled usage voice still advances its comparison baseline without speaki
   assert.equal(second.state.samples['account:test|codex|primary|2000000000000'].remainingPercent, 60);
 });
 
-test('usage voice delegates Vietnamese text to the Windows speech process', async () => {
+test('usage voice composes integer Vietnamese segments without Windows speech synthesis', async () => {
+  assert.deepEqual(usageVoiceAssetSequence(42), ['quota', 'nam_gio_con', 'bon', 'muoi_tens', 'hai', 'phan_tram']);
+  assert.deepEqual(usageVoiceAssetSequence(100), ['quota', 'nam_gio_con', 'mot', 'tram', 'phan_tram']);
   const calls = [];
   await speakUsageVoice({
     platform: 'win32',
-    text: 'quota năm giờ còn bốn mươi hai phần trăm.',
+    event: { remainingPercent: 42, largeChange: false },
     execFile(file, args, options, callback) {
       calls.push({ file, args, options });
       callback(null);
@@ -80,5 +83,8 @@ test('usage voice delegates Vietnamese text to the Windows speech process', asyn
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].file, 'powershell.exe');
-  assert.equal(calls[0].options.env.CODEX_TRACKER_USAGE_VOICE_TEXT, 'quota năm giờ còn bốn mươi hai phần trăm.');
+  assert.match(calls[0].args[3], /waveaudio/);
+  assert.doesNotMatch(calls[0].args[3], /SpeechSynthesizer|System\.Speech/);
+  assert.ok(calls[0].options.env.CODEX_TRACKER_USAGE_WAV);
+  assert.equal(calls[0].options.env.CODEX_TRACKER_USAGE_VOICE_TEXT, undefined);
 });

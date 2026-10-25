@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-25T22:59:47.389Z",
+  "label": "release-0.12.25-context-compact",
+  "repository": {
+    "revision": "585791f59b41b9fe517ec04d0fd95b8270879f99",
+    "shortRevision": "585791f59b41",
+    "dirty": true,
+    "trackerVersion": "0.12.25"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.51021.22027"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.164.0-alpha.11.1",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "",
+      "model": "gpt-6.1-sol"
+    }
+  }
+}

@@ -124,9 +124,9 @@ try:
             assert page.locator('#contextCompactThreshold').input_value() == '80'
             assert usage.evaluate('(node) => !!(document.querySelector(".auth-session-row").compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)')
             account_height = account.bounding_box()['height']
-            assert account_height <= 90, account_height
+            assert account_height <= 110, account_height
             usage_height = usage.bounding_box()['height']
-            assert usage_height <= 20, usage_height
+            assert usage_height <= 45, usage_height
             assert usage.locator('progress,input').count() == 0
             assert usage.locator('.usage-value').inner_text() == '5h 55% - 7d 93%'
             assert usage.locator('.usage-value').evaluate('(node) => node.scrollHeight <= node.clientHeight + 1')
@@ -135,18 +135,24 @@ try:
             assert usage.locator('.usage-percent-yellow').evaluate('(node) => getComputedStyle(node).color') != usage.locator('.usage-percent-green').evaluate('(node) => getComputedStyle(node).color')
             assert page.locator('#usageChartButton').get_attribute('aria-label') == 'Bật/tắt đồ thị quota theo thời điểm'
             page.locator('#usageChartButton').click()
-            assert page.locator('#usageChartDialog').is_visible()
-            assert 'Chưa có dữ liệu' in page.locator('#usageChartDialog').inner_text()
-            page.locator('#usageChartClose').click()
+            assert page.locator('#usageChartInline').is_visible()
+            assert 'Chưa có dữ liệu' in page.locator('#usageChartInline').inner_text()
+            page.locator('#usageChartButton').click()
+            assert page.locator('#usageChartInline').count() == 0
             chart_data = deepcopy(fixture)
             chart_data['usage']['chart'] = {'available': True, 'sampleCount': 2, 'rangeStart': 1800000000000, 'rangeEnd': 1800000300000, 'points': [
                 {'at': 1800000000000, 'usedPercent': 45}, {'at': 1800000300000, 'usedPercent': 52}
             ]}
             update(chart_data)
             page.locator('#usageChartButton').click()
-            assert page.locator('#usageChartDialog .usage-chart-plot').count() == 1
-            assert page.locator('#usageChartDialog .usage-chart-point').count() == 2
-            page.locator('#usageChartClose').click()
+            assert page.locator('#usageChartRange').is_visible()
+            assert page.locator('#usageChartPoints').is_visible()
+            assert page.locator('#usageChartPoints option[value="720"]').count() == 1
+            page.locator('#usageChartRange').select_option('180')
+            page.locator('#usageChartPoints').select_option('30')
+            assert page.locator('#usageChartInline .usage-chart-plot').count() == 1
+            assert page.locator('#usageChartInline .usage-chart-point').count() == 2
+            page.locator('#usageChartButton').click()
             assert 'Đặt lại' in usage.locator('.usage-value').get_attribute('title')
             assert '5 phút' in page.locator('#usageSettings').get_attribute('title')
             assert usage.locator('#usageAlertsSettings').count() == 1
@@ -270,14 +276,15 @@ try:
                 {'kind': 'user', 'label': 'Người dùng gửi', 'text': 'Yêu cầu Unicode'},
                 {'kind': 'command', 'label': 'Đã chạy lệnh', 'detail': 'node test'},
                 {'kind': 'message', 'label': 'Đã trả lời', 'text': 'Phản hồi Unicode'}
-            ], 'latestUserText': 'Yêu cầu Unicode', 'latestUserTextAt': 1800000000000, 'latestAssistantText': 'Phản hồi Unicode', 'latestAssistantTextAt': 1800000000000}
+            ], 'conversation': [{'kind': 'user' if i % 2 == 0 else 'message', 'text': ('User '+str(i)) if i % 2 == 0 else ('Codex '+str(i)), 'at': 1800000000000 + i} for i in range(12)], 'latestUserText': 'Yêu cầu Unicode', 'latestUserTextAt': 1800000000000, 'latestAssistantText': 'Phản hồi Unicode', 'latestAssistantTextAt': 1800000000000}
             update(selected)
             assert card.evaluate('(node) => node.open')
             page.locator('#chronologicalView').click()
             assert page.locator('#conversationFilter').is_visible()
             assert page.locator('.transcript-entry').count() == 3
             page.locator('#conversationFilter').click()
-            assert page.locator('.transcript-entry').count() == 2
+            assert page.locator('.transcript-entry').count() == 10
+            assert '10' in page.locator('#conversationFilter').inner_text()
             page.locator('#summaryView').click()
             assert page.locator('[data-copy-latest="request"]').is_visible()
             assert page.locator('[data-copy-latest="response"]').is_visible()

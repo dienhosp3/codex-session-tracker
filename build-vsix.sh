@@ -66,7 +66,9 @@ cp "$ROOT/gateway/hook-requirements.txt" "$STAGE/extension/gateway/"
 cp "$ROOT/dashboard.html" "$STAGE/extension/dashboard.html"
 cp "$ROOT/traffic_monitor.html" "$STAGE/extension/traffic_monitor.html"
 mkdir -p "$STAGE/extension/media"
+mkdir -p "$STAGE/extension/media/usage_voice"
 cp "$ROOT/media/tracker.svg" "$STAGE/extension/media/tracker.svg"
+cp "$ROOT/media/usage_voice"/*.wav "$STAGE/extension/media/usage_voice/"
 if [[ -f "$ROOT/media/error_429.mp3" ]]; then
   cp "$ROOT/media/error_429.mp3" "$STAGE/extension/media/error_429.mp3"
 fi

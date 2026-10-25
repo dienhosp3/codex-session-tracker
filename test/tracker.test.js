@@ -114,6 +114,21 @@ test('reads model reasoning effort and latest token speed for a session', async 
   assert.equal(activity.runtime.reasoning, 'high');
 });
 
+test('runtime profile notices a model change before the selected tree is rescanned', async t => {
+  const root = await tempRoot();
+  t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+  const file = await writeRollout(root, 'rollout-model-switch.jsonl', [
+    meta('thread-model-switch'),
+    { timestamp: '2026-09-30T07:00:02Z', type: 'turn_context', payload: { turn_id: 'turn-1', model: 'gpt-6.1-sol', effort: 'high' } }
+  ]);
+  const oldStat = await fs.promises.stat(file);
+  assert.equal((await tracker.readSessionRuntimeProfile(file, oldStat)).model, 'gpt-6.1-sol');
+  await fs.promises.appendFile(file, JSON.stringify({ timestamp: '2026-09-30T07:00:03Z', type: 'turn_context', payload: { turn_id: 'turn-2', model: 'gpt-6-astra', reasoning_effort: 'medium' } }) + '\n', 'utf8');
+  const updated = await tracker.readSessionRuntimeProfile(file, oldStat);
+  assert.equal(updated.model, 'gpt-6-astra');
+  assert.equal(updated.reasoning, 'medium');
+});
+
 test('task_complete makes the latest state completed', async t => {
   const root = await tempRoot();
   t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
@@ -726,7 +741,8 @@ test('dashboard UI renders timeline details, timestamps, and safe queue composer
   assert.match(html, /message-time/);
   assert.match(html, /transcript-entry activity.*transcript-heading/s);
   assert.doesNotMatch(html, /transcript-entry activity.*data-state-key="flow:/s);
-  assert.match(html, /event-time\.age-now.*display:none/);
+  assert.match(html, /timeLabel/);
+  assert.doesNotMatch(html, /event-time\.age-now.*display:none/);
 });
 
 test('steer request uses the official active-turn precondition and text input shape', () => {

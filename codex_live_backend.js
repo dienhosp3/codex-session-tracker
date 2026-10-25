@@ -54,6 +54,42 @@ function createLiveBackend(connection, options = {}) {
       catch (error) { settle(id, failure(error.message, mutating ? 'unknown' : 'not_sent')); }
     });
   }
+  const wait = delayMs => new Promise(resolve => setTimeout(resolve, Math.max(0, Number(delayMs) || 0)));
+  async function readThread(threadId, includeTurns = true) {
+    const result = await request('thread/read', { threadId, includeTurns });
+    if (result?.thread?.id !== threadId) throw failure('App-server returned a different chat while tracking compaction.', 'unknown');
+    return result.thread;
+  }
+  async function waitForTurnSettled(threadId, expectedTurnId, options = {}) {
+    const deadline = Date.now() + Math.max(1000, Number(options.timeoutMs) || 120000);
+    while (Date.now() < deadline) {
+      const thread = await readThread(threadId, true);
+      const turn = (thread.turns || []).find(item => item.id === expectedTurnId);
+      if (turn && ['completed', 'interrupted', 'failed'].includes(turn.status)) return turn;
+      if (thread.status?.type !== 'active' && !turn) return null;
+      await wait(250);
+    }
+    throw failure('Timed out waiting for the active turn to stop before compaction.', 'unknown', 'ETIMEDOUT');
+  }
+  async function waitForCompaction(threadId, options = {}) {
+    const deadline = Date.now() + Math.max(1000, Number(options.timeoutMs) || 120000);
+    const ignoredTurnIds = new Set(Array.isArray(options.ignoreTurnIds) ? options.ignoreTurnIds.map(String) : []);
+    while (Date.now() < deadline) {
+      const thread = await readThread(threadId, true);
+      const turns = Array.isArray(thread.turns) ? thread.turns : [];
+      const candidates = turns.filter(turn => !ignoredTurnIds.has(String(turn.id)) && Array.isArray(turn.items) && turn.items.some(item => item?.type === 'contextCompaction'));
+      const latest = candidates.at(-1);
+      if (latest) {
+        if (latest.status === 'completed') return { threadId, turnId: latest.id, status: latest.status };
+        if (latest.status === 'failed' || latest.status === 'interrupted') {
+          const detail = latest.error?.message || latest.error || `Compaction ${latest.status}.`;
+          throw failure(String(detail), 'rejected', 'COMPACTION_' + String(latest.status).toUpperCase());
+        }
+      }
+      await wait(250);
+    }
+    throw failure('Timed out waiting for Codex compaction to finish.', 'unknown', 'ETIMEDOUT');
+  }
   async function isLoaded(threadId) {
     let cursor;
     let found = false;
@@ -115,16 +151,30 @@ function createLiveBackend(connection, options = {}) {
     const result = await request('thread/compact/start', { threadId }, true);
     return { ...(result || {}), threadId, transport: 'codex-existing-app-server', ownerPid: connection.proc?.pid };
   }
+  async function compactAndWait(params) {
+    const threadId = params.conversationId || params.threadId;
+    if (!threadId) throw failure('Invalid compact input.', 'not_sent');
+    const before = await readThread(threadId, true);
+    const existingCompactions = (before.turns || [])
+      .filter(turn => Array.isArray(turn.items) && turn.items.some(item => item?.type === 'contextCompaction'))
+    const running = existingCompactions.find(turn => turn.status === 'inProgress');
+    if (running) return waitForCompaction(threadId, params);
+    const ignoreTurnIds = existingCompactions.map(turn => turn.id);
+    const accepted = await compact(params);
+    const completed = await waitForCompaction(threadId, { ...params, ignoreTurnIds });
+    return { ...accepted, ...completed };
+  }
   async function compactAndResume(params) {
     const threadId = params.conversationId || params.threadId;
     const turnId = params.turnId || await activeTurn(threadId);
     const interrupted = await interrupt({ conversationId: threadId, turnId });
-    const compacted = await compact(params);
+    const stopped = await waitForTurnSettled(threadId, turnId, params);
+    const compacted = await compactAndWait(params);
     const resumed = await continueConversation({
       conversationId: threadId,
       input: [{ type: 'text', text: String(params.resumeMessage || 'Tiếp tục tác vụ đang làm dở sau khi compact context.'), text_elements: [] }]
     });
-    return { ...resumed, interrupted, compacted, transport: 'codex-existing-app-server', ownerPid: connection.proc?.pid };
+    return { ...resumed, interrupted, stopped, compacted, transport: 'codex-existing-app-server', ownerPid: connection.proc?.pid };
   }
   async function continueConversation(params, onReady = () => {}) {
     const threadId = params.conversationId;
@@ -164,7 +214,7 @@ function createLiveBackend(connection, options = {}) {
   }
   const readAccount = () => request('account/read', { refreshToken: false });
   const readRateLimits = () => request('account/rateLimits/read', {});
-  return { available, isLoaded, activeTurn, steer, interrupt, compact, compactAndResume, continueConversation, readAccount, readRateLimits, dispose };
+  return { available, isLoaded, activeTurn, steer, interrupt, compact, compactAndWait, compactAndResume, continueConversation, readAccount, readRateLimits, dispose };
 }
 
 const BRIDGE_KEY = Symbol.for('codexSessionTracker.ownerBridge.v2');
@@ -178,7 +228,7 @@ function installOwnerBridge(connections, streams, options = {}) {
     const client = stream?.ipcClient;
     const handlers = client?.requestHandlers;
     if (!(handlers instanceof Map) || typeof stream.ownsThread !== 'function') continue;
-    if (client[BRIDGE_KEY]?.revision === 8) {
+    if (client[BRIDGE_KEY]?.revision === 9) {
       installedBridges.add(client[BRIDGE_KEY]);
       results.push(client[BRIDGE_KEY].info);
       continue;
@@ -230,7 +280,7 @@ function installOwnerBridge(connections, streams, options = {}) {
     handlers.set('thread-owner-discovery', newDiscovery);
     handlers.set('thread-follower-steer-turn', newSteer);
     if (newStart) handlers.set('thread-follower-start-turn', newStart);
-    client[BRIDGE_KEY] = { revision: 8, info, available: backend.available, readAccount: backend.readAccount, readRateLimits: backend.readRateLimits, interrupt: backend.interrupt, compact: backend.compact, compactAndResume: backend.compactAndResume, ownsThread: id => stream.ownsThread('local', id), continueConversation: continueHere, dispose() {
+    client[BRIDGE_KEY] = { revision: 9, info, available: backend.available, readAccount: backend.readAccount, readRateLimits: backend.readRateLimits, interrupt: backend.interrupt, compact: backend.compact, compactAndWait: backend.compactAndWait, compactAndResume: backend.compactAndResume, ownsThread: id => stream.ownsThread('local', id), continueConversation: continueHere, dispose() {
       if (handlers.get('thread-owner-discovery') === newDiscovery) handlers.set('thread-owner-discovery', discovery);
       if (handlers.get('thread-follower-steer-turn') === newSteer) handlers.set('thread-follower-steer-turn', steer);
       if (newStart && handlers.get('thread-follower-start-turn') === newStart) handlers.set('thread-follower-start-turn', start);
@@ -298,7 +348,7 @@ async function compactAndResumeInLocalBackend(params) {
   return choices[0].compactAndResume(params);
 }
 async function compactInLocalBackend(params) {
-  const candidates = [...installedBridges].filter(bridge => bridge.available() && typeof bridge.compact === 'function');
+  const candidates = [...installedBridges].filter(bridge => bridge.available() && typeof (bridge.compactAndWait || bridge.compact) === 'function');
   const owned = candidates.filter(bridge => bridge.ownsThread(params.conversationId || params.threadId));
   const choices = owned.length ? owned : candidates;
   if (choices.length !== 1) {
@@ -306,6 +356,6 @@ async function compactInLocalBackend(params) {
     error.delivery = 'not_sent';
     throw error;
   }
-  return choices[0].compact(params);
+  return typeof choices[0].compactAndWait === 'function' ? choices[0].compactAndWait(params) : choices[0].compact(params);
 }
 module.exports = { createLiveBackend, installOwnerBridge, installedBridgeInfo, disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, interruptInLocalBackend, compactInLocalBackend, compactAndResumeInLocalBackend, BRIDGE_KEY };

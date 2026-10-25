@@ -112,16 +112,30 @@ test('compact and resume stops the active turn, compacts, then starts one new tu
   const f = fixture();
   let threadStatus = 'active';
   let turnStatus = 'inProgress';
+  let compactionStatus = '';
+  let compactionReads = 0;
   f.connection.sendRequest = (provider, id, method, input) => {
     f.requests.push({ method, params: input });
     if (method === 'turn/interrupt') {
       threadStatus = 'idle';
       turnStatus = 'interrupted';
     }
+    if (method === 'thread/compact/start') {
+      compactionStatus = 'inProgress';
+      compactionReads = 0;
+    }
     let result = { turn: { id: 'new-turn' } };
     if (method === 'thread/loaded/list') result = { data: ['target'], nextCursor: null };
-    else if (method === 'thread/read') result = { thread: { id: 'target', status: { type: threadStatus } } };
-    else if (method === 'thread/turns/list') result = { data: [{ id: turnStatus === 'interrupted' ? 'live-turn' : 'new-turn', status: turnStatus }] };
+    else if (method === 'thread/read') {
+      const turns = [{ id: 'live-turn', status: turnStatus, items: [] }];
+      if (compactionStatus) {
+        compactionReads += 1;
+        if (compactionReads > 1) compactionStatus = 'completed';
+        turns.push({ id: 'compact-turn', status: compactionStatus, items: [{ type: 'contextCompaction', id: 'compact-item' }] });
+      }
+      result = { thread: { id: 'target', status: { type: threadStatus }, turns } };
+    }
+    else if (method === 'thread/turns/list') result = { data: [{ id: compactionStatus ? 'compact-turn' : 'live-turn', status: compactionStatus || turnStatus }] };
     queueMicrotask(() => f.providers.get(provider).onResult({ id, result }));
   };
   const backend = createLiveBackend(f.connection);
@@ -130,13 +144,14 @@ test('compact and resume stops the active turn, compacts, then starts one new tu
       conversationId: 'target', turnId: 'live-turn', resumeMessage: 'Tiếp tục sau compact.'
     });
     assert.equal(result.turnId, 'new-turn');
-    assert.equal(result.previousTurnId, 'live-turn');
+    assert.equal(result.previousTurnId, 'compact-turn');
     assert.deepEqual(f.requests.map(request => request.method), [
-      'turn/interrupt', 'thread/compact/start', 'thread/read', 'thread/turns/list',
-      'thread/loaded/list', 'thread/read', 'thread/turns/list', 'turn/start'
+      'turn/interrupt', 'thread/read', 'thread/read', 'thread/compact/start', 'thread/read', 'thread/read',
+      'thread/read', 'thread/turns/list', 'thread/loaded/list', 'thread/read', 'thread/turns/list', 'turn/start'
     ]);
     assert.deepEqual(f.requests[0].params, { threadId: 'target', turnId: 'live-turn' });
-    assert.deepEqual(f.requests[1].params, { threadId: 'target' });
+    assert.deepEqual(f.requests[1].params, { threadId: 'target', includeTurns: true });
+    assert.deepEqual(f.requests[3].params, { threadId: 'target' });
     assert.deepEqual(f.requests.at(-1).params, {
       threadId: 'target', input: [{ type: 'text', text: 'Tiếp tục sau compact.', text_elements: [] }], clientUserMessageId: undefined
     });
