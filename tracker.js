@@ -853,6 +853,9 @@ function emptyRuntimeProfile() {
     lastTokenAt: 0,
     outputTokens: 0,
     totalTokens: 0,
+    contextUsedTokens: 0,
+    contextWindowTokens: 0,
+    contextPercent: 0,
     timeToFirstTokenMs: 0,
     updatedAt: 0,
     currentSpeedTokensPerSecond: 0,
@@ -887,6 +890,15 @@ function updateRuntimeProfile(profile, item) {
   if (item.type === 'event_msg' && payload.type === 'task_complete' && Number.isFinite(Number(payload.time_to_first_token_ms))) {
     profile.timeToFirstTokenMs = Math.max(0, Math.round(Number(payload.time_to_first_token_ms)));
   }
+  if (item.type === 'event_msg' && payload.type === 'token_count') {
+    const info = payload.info && typeof payload.info === 'object' ? payload.info : {};
+    const lastUsage = info.last_token_usage && typeof info.last_token_usage === 'object' ? info.last_token_usage : {};
+    const totalUsage = info.total_token_usage && typeof info.total_token_usage === 'object' ? info.total_token_usage : {};
+    const usedTokens = Number(lastUsage.input_tokens ?? totalUsage.input_tokens);
+    const windowTokens = Number(info.model_context_window ?? info.context_window);
+    if (Number.isFinite(usedTokens) && usedTokens >= 0) profile.contextUsedTokens = Math.round(usedTokens);
+    if (Number.isFinite(windowTokens) && windowTokens > 0) profile.contextWindowTokens = Math.round(windowTokens);
+  }
   if (item.type !== 'token_usage_record') return;
   const usage = payload.usage && typeof payload.usage === 'object'
     ? payload.usage
@@ -902,6 +914,7 @@ function updateRuntimeProfile(profile, item) {
   }
   if (roundedOutput !== null) profile.outputTokens = roundedOutput;
   if (Number.isFinite(totalTokens) && totalTokens >= 0) profile.totalTokens = Math.round(totalTokens);
+  if (Number.isFinite(Number(usage.input_tokens)) && Number(usage.input_tokens) >= 0) profile.contextUsedTokens = Math.round(Number(usage.input_tokens));
   if (at) {
     if (!profile.firstTokenAt) profile.firstTokenAt = at;
     profile.lastTokenAt = at;
@@ -915,6 +928,9 @@ function finalizeRuntimeProfile(profile) {
     ? profile.currentSpeedTokensPerSecond
     : elapsedSeconds > 0 && profile.outputTokens >= 0
     ? Math.round((profile.outputTokens / elapsedSeconds) * 100) / 100
+    : 0;
+  profile.contextPercent = profile.contextWindowTokens > 0
+    ? Math.round((profile.contextUsedTokens / profile.contextWindowTokens) * 10000) / 100
     : 0;
   return profile;
 }

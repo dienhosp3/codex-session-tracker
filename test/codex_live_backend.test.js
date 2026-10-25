@@ -97,6 +97,52 @@ test('interrupt sends turn/interrupt to the existing live app-server turn', asyn
   } finally { backend.dispose(); }
 });
 
+test('compact sends thread/compact/start for the selected thread', async () => {
+  const f = fixture(), backend = createLiveBackend(f.connection);
+  try {
+    const result = await backend.compact({ conversationId: 'target' });
+    assert.equal(result.threadId, 'target');
+    assert.equal(result.transport, 'codex-existing-app-server');
+    assert.deepEqual(f.requests.map(r => r.method), ['thread/compact/start']);
+    assert.deepEqual(f.requests[0].params, { threadId: 'target' });
+  } finally { backend.dispose(); }
+});
+
+test('compact and resume stops the active turn, compacts, then starts one new turn', async () => {
+  const f = fixture();
+  let threadStatus = 'active';
+  let turnStatus = 'inProgress';
+  f.connection.sendRequest = (provider, id, method, input) => {
+    f.requests.push({ method, params: input });
+    if (method === 'turn/interrupt') {
+      threadStatus = 'idle';
+      turnStatus = 'interrupted';
+    }
+    let result = { turn: { id: 'new-turn' } };
+    if (method === 'thread/loaded/list') result = { data: ['target'], nextCursor: null };
+    else if (method === 'thread/read') result = { thread: { id: 'target', status: { type: threadStatus } } };
+    else if (method === 'thread/turns/list') result = { data: [{ id: turnStatus === 'interrupted' ? 'live-turn' : 'new-turn', status: turnStatus }] };
+    queueMicrotask(() => f.providers.get(provider).onResult({ id, result }));
+  };
+  const backend = createLiveBackend(f.connection);
+  try {
+    const result = await backend.compactAndResume({
+      conversationId: 'target', turnId: 'live-turn', resumeMessage: 'Tiếp tục sau compact.'
+    });
+    assert.equal(result.turnId, 'new-turn');
+    assert.equal(result.previousTurnId, 'live-turn');
+    assert.deepEqual(f.requests.map(request => request.method), [
+      'turn/interrupt', 'thread/compact/start', 'thread/read', 'thread/turns/list',
+      'thread/loaded/list', 'thread/read', 'thread/turns/list', 'turn/start'
+    ]);
+    assert.deepEqual(f.requests[0].params, { threadId: 'target', turnId: 'live-turn' });
+    assert.deepEqual(f.requests[1].params, { threadId: 'target' });
+    assert.deepEqual(f.requests.at(-1).params, {
+      threadId: 'target', input: [{ type: 'text', text: 'Tiếp tục sau compact.', text_elements: [] }], clientUserMessageId: undefined
+    });
+  } finally { backend.dispose(); }
+});
+
 for (const [name, options] of [['unloaded', { loaded: false }], ['idle', { idle: true }], ['completed', { completed: true }]]) {
   test(name + ' thread never receives steer or gets resumed', async () => {
     const f = fixture(options), backend = createLiveBackend(f.connection);

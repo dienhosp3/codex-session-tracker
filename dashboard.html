@@ -113,6 +113,8 @@
 .usage-alert-actions button.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
 .usage-alert-actions button:hover{background:var(--vscode-button-hoverBackground)}
 .usage-alert-error{min-height:16px;color:var(--vscode-errorForeground);font-size:11px}
+.usage-context{color:var(--vscode-charts-blue,#75beff);font-size:11px;font-weight:650;white-space:nowrap}
+.usage-context-button{color:var(--vscode-charts-blue,#75beff);font-weight:700}
 .gateway-summary{display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;list-style:none}
 .gateway-summary::-webkit-details-marker{display:none}
 .gateway-summary::before{content:'▸';flex:0 0 auto;color:var(--vscode-descriptionForeground)}
@@ -124,10 +126,11 @@
 .gateway-disclosure[open]>.gateway-summary{margin-bottom:8px}
 .gateway-summary:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:3px}
 .gateway-summary .proxy-restart{display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:20px;padding:1px;border:1px solid #a78b35;border-radius:4px;background:rgba(255,215,94,.14);color:#ffd75e;cursor:pointer}
-.gateway-summary .proxy-restart:hover:not(:disabled){background:rgba(255,215,94,.28);border-color:#ffd75e}
-.gateway-summary .proxy-restart:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}
+.gateway-summary .proxy-restart:hover:not(:disabled){background:rgba(255,215,94,.22);border-color:#ffd75e}
+.gateway-summary .proxy-restart:focus{outline:none;box-shadow:none}
+.gateway-summary .proxy-restart:focus-visible{outline:1px solid #ffd75e;outline-offset:2px}
 .gateway-summary .proxy-restart:disabled{opacity:.55;cursor:wait}
-.proxy-restart svg{width:15px;height:15px;pointer-events:none}
+.proxy-restart svg{width:15px;height:15px;pointer-events:none;animation:none}
 .local-proxy-row{display:flex;align-items:center;gap:6px;min-width:0;margin-bottom:8px}
 .local-proxy-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--vscode-descriptionForeground)}
 .local-proxy-row .iconbtn{flex:0 0 auto;padding:1px 5px}
@@ -135,6 +138,18 @@
 .runtime-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px;color:var(--vscode-descriptionForeground);font-size:10px;min-width:0}
 .runtime-meta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .runtime-meta b{color:var(--vscode-foreground);font-weight:600}
+.gateway-summary-attention{min-width:0;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:650;color:var(--vscode-editorWarning-foreground)}
+.gateway-summary-attention.gateway-bad{color:var(--vscode-errorForeground)}
+.card-title{font-size:11px}
+.sub{font-size:11px}
+.event-time.age-now,.worker-time.age-now,.message-time.age-now,.head-time.age-now{display:none}
+.transcript-entry{font-size:13px}
+.transcript-entry .transcript-heading{font-size:13px}
+.transcript-entry pre{font-size:12px}
+.transcript-inline-detail{margin-top:4px;color:var(--vscode-descriptionForeground);overflow:hidden;overflow-wrap:anywhere;white-space:pre-wrap;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4}
+.gateway-content{font-size:13px;line-height:1.5}
+.gateway-content .gateway-meta{font-size:12px;line-height:1.45}
+.gateway-content .gateway-notice{font-size:13px;font-weight:650;line-height:1.45}
 .send.stop{background:var(--vscode-testing-iconFailed,var(--vscode-errorForeground));color:var(--vscode-button-foreground)}
 .send.stop:hover:not(:disabled){background:var(--vscode-errorForeground)}
 </style>
@@ -334,7 +349,9 @@ function renderTranscript(d){
     if(isMessage)return '<article class="transcript-entry '+(kind==='user'?'from-user':'from-assistant')+'"><div class="transcript-heading"><b>'+esc(label)+actor+'</b>'+timeHtml(item.at)+'</div>'+(body?'<div class="message-card '+(kind==='user'?'user':'assistant')+'">'+esc(body)+'</div>':(detail?'<div class="message-card">'+esc(detail)+'</div>':''))+images+'</article>';
     const children=Array.isArray(item.children)?item.children:[];
     const extra=children.length?'<div class="child-list">'+children.map(child=>'<div class="child"><span class="timeline-icon patch"></span><span class="child-detail">'+esc(child.label||'Tệp')+' · '+esc(child.detail||'')+'</span>'+timeHtml(child.at||item.at)+'</div>').join('')+'</div>':'';
-    return '<article class="transcript-entry activity"><details data-state-key="flow:'+esc(item.id||((item.threadId||'')+':'+(item.at||0)+':'+kind))+'"><summary class="transcript-heading"><b><span class="timeline-icon '+esc(kind)+'"></span>'+esc(label)+actor+'</b>'+timeHtml(item.at)+'</summary>'+(detail?'<pre>'+esc(detail)+'</pre>':'')+(body?'<pre>'+esc(body)+'</pre>':'')+extra+images+'</details></article>';
+    const detailHtml=detail?'<div class="transcript-inline-detail" title="'+esc(detail)+'">'+esc(short(detail,260))+'</div>':'';
+    const bodyHtml=body?'<div class="transcript-inline-detail" title="'+esc(body)+'">'+esc(short(body,260))+'</div>':'';
+    return '<article class="transcript-entry activity"><div class="transcript-heading"><b><span class="timeline-icon '+esc(kind)+'"></span>'+esc(label)+actor+'</b>'+timeHtml(item.at)+'</div>'+detailHtml+bodyHtml+extra+images+'</article>';
   });
   const current=d.current&&d.stateKind==='running'?'<div class="transcript-entry transcript-current"><div class="transcript-heading"><b>'+esc(d.current.label||'Đang xử lý')+'</b>'+timeHtml(d.current.at||d.lastActivityMs)+'</div>'+(d.current.detail?'<div class="sub">'+esc(d.current.detail)+'</div>':'')+'</div>':'';
   return '<div class="transcript">'+rows.join('')+current+'</div>'+(d.truncated?'<div class="truncated-note">Nhật ký cũ hơn không có trong phần dữ liệu đang đọc.</div>':'');
@@ -470,10 +487,13 @@ function renderGateway(){
   const compactStatus = g.running ? 'Đang chạy' : (g.enabled ? 'Lỗi' : 'Đã tắt');
   const compactClass = g.enabled && !g.running ? ' gateway-bad' : '';
   const localProxy=state.localProxy||{};
+  const attentionText=localProxy.notice?.text || (g.enabled&&!g.running ? String(g.error||'Gateway không chạy') : '');
+  const attentionClass=(localProxy.notice?.kind==='error'||(g.enabled&&!g.running))?' gateway-bad':'';
   const proxyTitle=proxyRestartTitle(localProxy);
   let html = '<details class="card gateway-disclosure" data-state-key="gateway-status">' +
     '<summary id="gatewaySummary" class="gateway-summary"><span class="card-title gateway-summary-label">Trạng thái giao tiếp</span>' +
     '<span class="gateway-summary-status' + compactClass + '">' + compactStatus + '</span>' +
+    (attentionText?'<span class="gateway-summary-attention'+attentionClass+'" title="'+esc(attentionText)+'">'+esc(short(attentionText,100))+'</span>':'') +
     '<button id="restartLocalProxy" class="proxy-restart" type="button" aria-label="Khởi động lại proxy" title="'+esc(proxyTitle)+'" '+(localProxy.busy?'disabled aria-busy="true"':'')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 12M4 12l2.3 6A7 7 0 0 0 17.9 17"/></svg></button></summary>' +
     '<div class="gateway-content"><div class="local-proxy-row"><span class="local-proxy-path" title="'+esc(localProxy.executablePath||'Chưa chọn file proxy .exe')+'">'+esc(localProxy.executablePath||'Proxy: Chưa chọn .exe')+'</span><button id="configureLocalProxy" class="iconbtn" type="button" title="Chọn file proxy .exe" aria-label="Chọn file proxy .exe" '+(localProxy.busy?'disabled':'')+'>…</button></div>' +
     (localProxy.notice?.text?'<div class="gateway-notice '+(localProxy.notice.kind==='success'?'ok':'err')+'">'+esc(localProxy.notice.text)+'</div>':'') +
@@ -561,6 +581,7 @@ function bindGatewayUi(){
 
 function renderUsage(){
   const usage=state.usage||{},display=usage.display||{};
+  const context=usage.context||{};
   const chart=usage.chart||{};
   const value=display.valueText||'Chưa có dữ liệu';
   const windows=Array.isArray(display.windows)?display.windows:[];
@@ -571,8 +592,12 @@ function renderUsage(){
   const alertLevels=Array.isArray(alertSummary.thresholds)&&alertSummary.thresholds.length?alertSummary.thresholds.join('%, ')+'% đã dùng':'chưa đặt mốc';
   const alertTitle='Cấu hình cảnh báo quota ('+alertState+'). Mốc: '+alertLevels+'. Cú pháp mốc %: 50,70,85,95; tốc độ %/giờ: 10,20,30. Bấm để chỉnh.';
   const settings=interval?'Tự kiểm tra mỗi '+interval+' phút. Bấm để đổi.':'Kiểm tra thủ công. Bấm để đổi chu kỳ.';
+  const contextValue=Number(context.contextPercent);
+  const contextHtml=Number.isFinite(contextValue)&&contextValue>=0?'<span class="usage-context" title="Context đang dùng">Context '+esc(String(Math.round(contextValue)))+'%</span>':'';
+  const contextAction= context.settings&&context.settings.resumeAfterCompact===false ? 'Dừng và compact context' : 'Dừng, compact context và tiếp tục';
+  const contextButton=context.compactAvailable?'<button class="iconbtn usage-context-button" id="contextCompactButton" type="button" title="'+esc(contextAction)+'" aria-label="'+esc(contextAction)+'" '+(context.busy?'disabled':'')+'>⟳</button>':'';
   return '<div class="usage-head usage-card"><span class="card-title">Usage</span>'+
-    '<span class="usage-value" title="'+esc(display.tooltip||usage.error||'Hạn mức Codex còn lại')+'">'+valueHtml+'</span>'+
+    '<span class="usage-value" title="'+esc(display.tooltip||usage.error||'Hạn mức Codex còn lại')+'">'+valueHtml+'</span>'+contextHtml+contextButton+
     '<button class="iconbtn" id="checkUsage" type="button" title="Kiểm tra Usage ngay" aria-label="Kiểm tra Usage ngay" '+(usage.busy?'disabled':'')+'>'+(usage.busy?'…':'↻')+'</button>'+
     '<button class="iconbtn" id="usageSettings" type="button" title="'+esc(settings)+'" aria-label="Đổi chu kỳ kiểm tra Usage">⚙</button>'+
     '<button class="iconbtn usage-alerts" id="usageAlertsSettings" type="button" title="'+esc(alertTitle)+'" aria-label="Cấu hình cảnh báo quota">⚠</button></div>';
@@ -598,6 +623,8 @@ function bindUsageUi(){
   if(chartButton)chartButton.onclick=()=>{if(chartDialog?.showModal)chartDialog.showModal()};
   const chartClose=document.getElementById('usageChartClose');
   if(chartClose)chartClose.onclick=()=>chartDialog?.close();
+  const contextButton=document.getElementById('contextCompactButton');
+  if(contextButton)contextButton.onclick=()=>vscode.postMessage({command:'compactContext',threadId:state.selectedThreadId});
 }
 
 function usageAlertListValue(items,key){
@@ -607,6 +634,8 @@ function usageAlertListValue(items,key){
 function renderUsageAlertDialog(){
   const settings=state.usage&&state.usage.alerts&&state.usage.alerts.settings||{};
   const voice=state.usage&&state.usage.voice||{};
+  const context=state.usage&&state.usage.context||{};
+  const contextSettings=context.settings||{};
   const primary=settings.primary||{},secondary=settings.secondary||{};
   const enabled=settings.enabled!==false;
   const primaryEnabled=primary.enabled!==false;
@@ -615,6 +644,9 @@ function renderUsageAlertDialog(){
   const voiceOnChange=voice.speakOnChange!==false;
   const voiceOnLargeChange=voice.speakOnLargeChange!==false;
   const voiceLargeChange=Number.isInteger(Number(voice.largeChangePercent))?Math.max(1,Math.min(100,Number(voice.largeChangePercent))):10;
+  const contextEnabled=contextSettings.enabled===true;
+  const contextResume=contextSettings.resumeAfterCompact!==false;
+  const contextThreshold=Number.isInteger(Number(contextSettings.thresholdPercent))?Math.max(1,Math.min(99,Number(contextSettings.thresholdPercent))):80;
   const interval=state.usage&&state.usage.intervalMinutes!==undefined?state.usage.intervalMinutes:5;
   return '<dialog id="usageAlertDialog" class="usage-alert-dialog" aria-labelledby="usageAlertDialogTitle">'+
     '<form class="usage-alert-form" method="dialog">'+
@@ -636,6 +668,10 @@ function renderUsageAlertDialog(){
     '<label class="usage-alert-check"><input id="usageVoiceOnChange" type="checkbox" '+(voiceOnChange?'checked':'')+'> Đọc khi phần trăm thay đổi</label>'+
     '<label class="usage-alert-check"><input id="usageVoiceOnLargeChange" type="checkbox" '+(voiceOnLargeChange?'checked':'')+'> Đọc khi thay đổi lớn</label>'+
     '<div class="usage-alert-field"><label for="usageVoiceLargeChange">Thay đổi từ bao nhiêu điểm % là lớn</label><input id="usageVoiceLargeChange" type="number" min="1" max="100" step="1" value="'+esc(voiceLargeChange)+'"><span class="usage-alert-help">Số nguyên từ 1 đến 100. Giá trị đọc luôn là số nguyên từ 0 đến 100.</span></div></section>'+
+    '<section class="usage-alert-section"><div class="usage-alert-section-title">Tự compact context</div>'+
+    '<label class="usage-alert-check"><input id="contextCompactEnabled" type="checkbox" '+(contextEnabled?'checked':'')+'> Tự dừng, compact và tiếp tục khi context vượt ngưỡng</label>'+
+    '<label class="usage-alert-check"><input id="contextCompactResume" type="checkbox" '+(contextResume?'checked':'')+'> Tự resume task sau khi compact</label>'+
+    '<div class="usage-alert-field"><label for="contextCompactThreshold">Ngưỡng context (%)</label><input id="contextCompactThreshold" type="number" min="1" max="99" step="1" value="'+esc(contextThreshold)+'"><span class="usage-alert-help">Số nguyên từ 1 đến 99. Mặc định 80%.</span></div></section>'+
     '<div id="usageAlertDialogError" class="usage-alert-error" role="alert"></div>'+
     '<div class="usage-alert-actions"><button id="usageAlertCancel" type="button">Hủy</button><button id="usageAlertSave" class="primary" type="button">Lưu cấu hình</button></div>'+
     '</form></dialog>';
@@ -654,6 +690,8 @@ function syncUsageAlertDialog(dialog){
   if(!dialog||dialog.open)return;
   const settings=state.usage&&state.usage.alerts&&state.usage.alerts.settings||{};
   const voice=state.usage&&state.usage.voice||{};
+  const context=state.usage&&state.usage.context||{};
+  const contextSettings=context.settings||{};
   const primary=settings.primary||{},secondary=settings.secondary||{};
   const setValue=(id,value)=>{const field=document.getElementById(id);if(field)field.value=String(value??'')};
   const setChecked=(id,value)=>{const field=document.getElementById(id);if(field)field.checked=Boolean(value)};
@@ -669,6 +707,9 @@ function syncUsageAlertDialog(dialog){
   setChecked('usageVoiceOnChange',voice.speakOnChange!==false);
   setChecked('usageVoiceOnLargeChange',voice.speakOnLargeChange!==false);
   setValue('usageVoiceLargeChange',voice.largeChangePercent||10);
+  setChecked('contextCompactEnabled',contextSettings.enabled===true);
+  setChecked('contextCompactResume',contextSettings.resumeAfterCompact!==false);
+  setValue('contextCompactThreshold',contextSettings.thresholdPercent||80);
   const error=document.getElementById('usageAlertDialogError');
   if(error)error.textContent='';
 }
@@ -695,6 +736,13 @@ function parseUsageVoiceLargeChange(){
   return Number.isInteger(percent)&&percent>=1&&percent<=100?percent:null;
 }
 
+function parseContextCompactThreshold(){
+  const value=String(document.getElementById('contextCompactThreshold')?.value||'').trim();
+  if(!/^\d+$/.test(value))return null;
+  const percent=Number(value);
+  return Number.isInteger(percent)&&percent>=1&&percent<=99?percent:null;
+}
+
 function saveUsageAlertDialog(dialog){
   const error=document.getElementById('usageAlertDialogError');
   const interval=parseUsageAlertDialogInterval();
@@ -703,8 +751,9 @@ function saveUsageAlertDialog(dialog){
   const secondaryThresholds=parseUsageAlertDialogList('usageAlertSecondaryThresholds','percent',true);
   const secondaryRates=parseUsageAlertDialogList('usageAlertSecondaryRates','rate',true);
   const voiceLargeChange=parseUsageVoiceLargeChange();
-  if(interval===null||!primaryThresholds||!primaryRates||!secondaryThresholds||!secondaryRates||voiceLargeChange===null){
-    if(error)error.textContent=interval===null?'Chu kỳ phải là số nguyên từ 0 đến 1440 phút.':voiceLargeChange===null?'Mức thay đổi lớn phải là số nguyên từ 1 đến 100.':'Kiểm tra lại cú pháp: dùng các số cách nhau bằng dấu phẩy, ví dụ 50,70,85,95 hoặc 10,20,30.';
+  const contextThreshold=parseContextCompactThreshold();
+  if(interval===null||!primaryThresholds||!primaryRates||!secondaryThresholds||!secondaryRates||voiceLargeChange===null||contextThreshold===null){
+    if(error)error.textContent=interval===null?'Chu kỳ phải là số nguyên từ 0 đến 1440 phút.':voiceLargeChange===null?'Mức thay đổi lớn phải là số nguyên từ 1 đến 100.':contextThreshold===null?'Ngưỡng context phải là số nguyên từ 1 đến 99.':'Kiểm tra lại cú pháp: dùng các số cách nhau bằng dấu phẩy, ví dụ 50,70,85,95 hoặc 10,20,30.';
     return;
   }
   const toText=values=>values.join(',');
@@ -726,6 +775,11 @@ function saveUsageAlertDialog(dialog){
       speakOnChange:Boolean(document.getElementById('usageVoiceOnChange')?.checked),
       speakOnLargeChange:Boolean(document.getElementById('usageVoiceOnLargeChange')?.checked),
       largeChangePercent:voiceLargeChange
+    },
+    context:{
+      enabled:Boolean(document.getElementById('contextCompactEnabled')?.checked),
+      resumeAfterCompact:Boolean(document.getElementById('contextCompactResume')?.checked),
+      thresholdPercent:contextThreshold
     }
   }});
   dialog?.close();

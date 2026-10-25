@@ -96,7 +96,8 @@ test('reads model reasoning effort and latest token speed for a session', async 
   const file = await writeRollout(root, 'rollout-runtime.jsonl', [
     meta('thread-runtime'),
     { timestamp: '2026-09-30T07:00:02Z', type: 'turn_context', payload: { turn_id: 'turn-runtime', model: 'gpt-6.1-sol', effort: 'high' } },
-    { timestamp: '2026-09-30T07:00:03Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-runtime', started_at_ms: Date.parse('2026-09-30T07:00:02Z') } },
+    { timestamp: '2026-09-30T07:00:03Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-runtime', started_at_ms: Date.parse('2026-09-30T07:00:02Z'), model_context_window: 100 } },
+    { timestamp: '2026-09-30T07:00:04Z', type: 'event_msg', payload: { type: 'token_count', info: { model_context_window: 100, last_token_usage: { input_tokens: 60 } } } },
     { timestamp: '2026-09-30T07:00:12Z', type: 'token_usage_record', payload: { usage: { output_tokens: 10, total_tokens: 100 } } },
     { timestamp: '2026-09-30T07:00:17Z', type: 'token_usage_record', payload: { usage: { output_tokens: 30, total_tokens: 140 } } }
   ]);
@@ -105,6 +106,9 @@ test('reads model reasoning effort and latest token speed for a session', async 
   assert.equal(profile.reasoning, 'high');
   assert.equal(profile.outputTokens, 30);
   assert.equal(profile.speedTokensPerSecond, 4);
+  assert.equal(profile.contextUsedTokens, 60);
+  assert.equal(profile.contextWindowTokens, 100);
+  assert.equal(profile.contextPercent, 60);
   const activity = await tracker.readRecentActivity(file, await tracker.readSessionSummary(file), 'thread-runtime');
   assert.equal(activity.runtime.model, 'gpt-6.1-sol');
   assert.equal(activity.runtime.reasoning, 'high');
@@ -720,6 +724,9 @@ test('dashboard UI renders timeline details, timestamps, and safe queue composer
   assert.match(html, /latestUserTextAt/);
   assert.match(html, /latestAssistantTextAt/);
   assert.match(html, /message-time/);
+  assert.match(html, /transcript-entry activity.*transcript-heading/s);
+  assert.doesNotMatch(html, /transcript-entry activity.*data-state-key="flow:/s);
+  assert.match(html, /event-time\.age-now.*display:none/);
 });
 
 test('steer request uses the official active-turn precondition and text input shape', () => {

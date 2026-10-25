@@ -114,11 +114,14 @@ try:
             assert 'Phiên đăng nhập Codex' not in account.inner_text()
             assert page.locator('.usage-alert-dialog').count() == 1
             assert page.locator('.usage-alert-dialog').evaluate('(node) => !node.closest("#main")')
-            assert page.locator('.usage-alert-dialog .usage-alert-section').count() == 4
+            assert page.locator('.usage-alert-dialog .usage-alert-section').count() == 5
             assert page.locator('#usageVoiceEnabled').is_checked() is False
             assert page.locator('#usageVoiceOnChange').is_checked()
             assert page.locator('#usageVoiceOnLargeChange').is_checked()
             assert page.locator('#usageVoiceLargeChange').input_value() == '10'
+            assert page.locator('#contextCompactEnabled').is_checked() is False
+            assert page.locator('#contextCompactResume').is_checked()
+            assert page.locator('#contextCompactThreshold').input_value() == '80'
             assert usage.evaluate('(node) => !!(document.querySelector(".auth-session-row").compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)')
             account_height = account.bounding_box()['height']
             assert account_height <= 90, account_height
@@ -204,6 +207,7 @@ try:
             update(proxy_state)
             assert not restart.is_disabled()
             assert 'C:\\A & B <proxy>\\proxy.exe' in restart.get_attribute('title')
+            assert page.locator('.gateway-summary-attention').inner_text() == '<fixture stop denied>'
             summary.click()
             assert page.locator('.local-proxy-path').inner_text() == proxy_state['localProxy']['executablePath']
             assert '<fixture stop denied>' in page.locator('.gateway-content').inner_text()
@@ -231,8 +235,13 @@ try:
 
             running_selected = deepcopy(fixture)
             running_selected['selectedThreadId'] = 'fixture-thread'
-            running_selected['selected'] = {'title': 'Running fixture', 'stateKind': 'running', 'state': 'Running', 'timeline': [], 'runtime': {'model': 'gpt-6.1-sol', 'reasoning': 'high', 'speedTokensPerSecond': 4.2}}
+            running_selected['selected'] = {'title': 'Running fixture', 'stateKind': 'running', 'state': 'Running', 'timeline': [], 'runtime': {'model': 'gpt-6.1-sol', 'reasoning': 'high', 'speedTokensPerSecond': 4.2, 'contextUsedTokens': 620, 'contextWindowTokens': 1000, 'contextPercent': 62}}
+            running_selected['usage']['context'] = {'contextUsedTokens': 620, 'contextWindowTokens': 1000, 'contextPercent': 62, 'compactAvailable': True, 'settings': {'resumeAfterCompact': True}}
             update(running_selected)
+            assert page.locator('.usage-context').inner_text() == 'Context 62%'
+            assert page.locator('#contextCompactButton').get_attribute('aria-label') == 'Dừng, compact context và tiếp tục'
+            page.locator('#contextCompactButton').click()
+            assert page.evaluate("window.__trackerMessages.at(-1).command") == 'compactContext'
             assert page.locator('#stopBtn').is_visible()
             assert page.locator('#stopBtn').inner_text() == 'Dừng'
             page.locator('#stopBtn').click()
@@ -303,6 +312,7 @@ try:
             failed['gateway'].update({'running': False, 'error': '<fixture error>'})
             update(failed)
             assert page.locator('.gateway-summary-status').inner_text() == 'Lỗi'
+            assert page.locator('.gateway-summary-attention').inner_text() == '<fixture error>'
             assert not card.evaluate('(node) => node.open')
             summary.click()
             assert '<fixture error>' in page.locator('.gateway-content').inner_text()

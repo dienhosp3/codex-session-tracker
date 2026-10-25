@@ -7,11 +7,12 @@ const tracker = require('./tracker');
 const codexQueue = require('./codex_queue');
 const codexSteer = require('./codex_steer');
 const { ensureOwnerBridge } = require('./codex_owner_bridge');
-const { disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, interruptInLocalBackend } = require('./codex_live_backend');
+const { disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, interruptInLocalBackend, compactInLocalBackend, compactAndResumeInLocalBackend } = require('./codex_live_backend');
 const { createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus, accountKeyFromResult } = require('./codex_usage');
 const { normalizeUsageAlertSettings, evaluateUsageAlerts, usageAlertSummary } = require('./codex_usage_alerts');
 const { normalizeUsageHistory, recordUsageSample, createUsageHistoryStore, usageHistoryChart } = require('./codex_usage_history');
 const { normalizeUsageVoiceSettings, normalizeUsageVoiceState, evaluateUsageVoice, createUsageVoiceController } = require('./codex_usage_voice');
+const { normalizeContextCompactSettings, contextPercent, shouldAutoCompact } = require('./codex_context_compact');
 const codexDelete = require('./codex_delete');
 const codexAuth = require('./codex_auth');
 const { createConversationNavigator } = require('./codex_navigation');
@@ -34,6 +35,8 @@ const USAGE_ALERT_SETTINGS_KEY = 'codexSessionTracker.usageAlertSettings.v1';
 const USAGE_ALERT_STATE_KEY = 'codexSessionTracker.usageAlertState.v1';
 const USAGE_VOICE_SETTINGS_KEY = 'codexSessionTracker.usageVoiceSettings.v1';
 const USAGE_VOICE_STATE_KEY = 'codexSessionTracker.usageVoiceState.v1';
+const CONTEXT_COMPACT_SETTINGS_KEY = 'codexSessionTracker.contextCompactSettings.v1';
+const CONTEXT_COMPACT_STATE_KEY = 'codexSessionTracker.contextCompactState.v1';
 const LOCAL_PROXY_KEY = 'codexSessionTracker.localProxyExecutable.v1';
 let localProxy = null;
 let localProxyPicker = null;
@@ -60,6 +63,10 @@ let usageVoiceSettings = normalizeUsageVoiceSettings();
 let usageVoiceState = normalizeUsageVoiceState();
 let usageVoice = null;
 let usageVoicePromise = Promise.resolve();
+let contextCompactSettings = normalizeContextCompactSettings();
+let contextCompactState = { schemaVersion: 1, currentKey: '' };
+let contextCompactBusy = false;
+let contextCompactNotice = null;
 let usageHistoryState = { schemaVersion: 1, samples: [] };
 let usageHistoryPromise = Promise.resolve();
 let usageHistoryStore = null;
@@ -188,6 +195,8 @@ async function activate(context) {
   usageAlertState = context.globalState.get(USAGE_ALERT_STATE_KEY) || { schemaVersion: 1, initialized: false, windows: {} };
   usageVoiceSettings = normalizeUsageVoiceSettings(context.globalState.get(USAGE_VOICE_SETTINGS_KEY));
   usageVoiceState = normalizeUsageVoiceState(context.globalState.get(USAGE_VOICE_STATE_KEY));
+  contextCompactSettings = normalizeContextCompactSettings(context.globalState.get(CONTEXT_COMPACT_SETTINGS_KEY));
+  contextCompactState = context.globalState.get(CONTEXT_COMPACT_STATE_KEY) || { schemaVersion: 1, currentKey: '' };
   usageVoice = createUsageVoiceController();
   usageHistoryStore = createUsageHistoryStore(context.globalStorageUri.fsPath);
   usageHistoryState = { samples: await usageHistoryStore.load().catch(error => { console.warn('[Codex Session Tracker] Usage history read: ' + friendlyError(error)); return []; }) };
@@ -484,12 +493,19 @@ async function saveUsageAlertSettings(input) {
   const minutes = Number(String(intervalValue).trim());
   const enabled = input.enabled !== false;
   const voiceInput = input.voice && typeof input.voice === 'object' ? input.voice : {};
+  const contextInput = input.context && typeof input.context === 'object' ? input.context : {};
   usageVoiceSettings = normalizeUsageVoiceSettings({
     ...usageVoiceSettings,
     ...(Object.prototype.hasOwnProperty.call(voiceInput, 'enabled') ? { enabled: voiceInput.enabled === true } : {}),
     ...(Object.prototype.hasOwnProperty.call(voiceInput, 'speakOnChange') ? { speakOnChange: voiceInput.speakOnChange !== false } : {}),
     ...(Object.prototype.hasOwnProperty.call(voiceInput, 'speakOnLargeChange') ? { speakOnLargeChange: voiceInput.speakOnLargeChange !== false } : {}),
     ...(Object.prototype.hasOwnProperty.call(voiceInput, 'largeChangePercent') ? { largeChangePercent: voiceInput.largeChangePercent } : {})
+  });
+  contextCompactSettings = normalizeContextCompactSettings({
+    ...contextCompactSettings,
+    ...(Object.prototype.hasOwnProperty.call(contextInput, 'enabled') ? { enabled: contextInput.enabled === true } : {}),
+    ...(Object.prototype.hasOwnProperty.call(contextInput, 'resumeAfterCompact') ? { resumeAfterCompact: contextInput.resumeAfterCompact !== false } : {}),
+    ...(Object.prototype.hasOwnProperty.call(contextInput, 'thresholdPercent') ? { thresholdPercent: contextInput.thresholdPercent } : {})
   });
   usageAlertSettings = normalizeUsageAlertSettings({
     ...current,
@@ -511,6 +527,7 @@ async function saveUsageAlertSettings(input) {
     await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
     await contextRef.globalState.update(USAGE_INTERVAL_KEY, minutes);
     await contextRef.globalState.update(USAGE_VOICE_SETTINGS_KEY, usageVoiceSettings);
+    await contextRef.globalState.update(CONTEXT_COMPACT_SETTINGS_KEY, contextCompactSettings);
     usageMonitor?.setInterval(minutes);
   } catch (error) {
     vscode.window.showErrorMessage(error.message);
@@ -634,6 +651,7 @@ class TrackerViewProvider {
       if (message.command === 'queueMessage') await sendComposerRequest('queue', message, () => sendQueuedMessage(message.text, message.images));
       if (message.command === 'steerMessage') await sendComposerRequest('steer', message, () => sendSteeredMessage(message.text, message.images));
       if (message.command === 'interruptChat') await interruptSelectedChat(message.threadId);
+      if (message.command === 'compactContext') await compactSelectedChat(message.threadId);
       if (message.command === 'continueMessage') await sendContinuedMessage(message.text, message.images, message.threadId, message.requestId);
       if (message.command === 'setShowNonRunning') await setShowNonRunning(Boolean(message.enabled));
       if (message.command === 'deleteChat' && message.threadId) await deleteChat(String(message.threadId));
@@ -1739,6 +1757,7 @@ async function refreshTrackedStatus(forceRescan) {
     });
     if (!isCurrent()) return;
     latestSnapshot = snapshot;
+    maybeAutoCompact(snapshot).catch(error => console.warn('[Codex Session Tracker] Context compact: ' + friendlyError(error)));
     selected.status = snapshot.overallStatus;
     if (gateway) await gateway.refreshLocalPersistence(selected.threadId, selected.file).catch(() => {});
     if (!isCurrent()) return;
@@ -2086,6 +2105,66 @@ async function interruptSelectedChat(threadId) {
   }
 }
 
+function contextCompactKey(snapshot) {
+  const runtime = snapshot?.runtime || {};
+  return [selected?.threadId || '', snapshot?.overallStatus?.turnId || runtime.turnId || '', runtime.contextWindowTokens || 0].join(':');
+}
+
+async function compactSelectedChat(threadId, automatic = false) {
+  if (contextCompactBusy || interruptBusy || steerBusy || queueBusy || continueBusy || !selected || selected.threadId !== threadId) return;
+  if (selected.status?.kind !== 'running') return;
+  contextCompactBusy = true;
+  contextCompactNotice = null;
+  postViewState();
+  try {
+    await prepareOwnerBridge();
+    const runtime = latestSnapshot?.runtime || {};
+    const params = {
+      threadId,
+      conversationId: threadId,
+      turnId: selected.status?.turnId || latestSnapshot?.overallStatus?.turnId || '',
+      resumeMessage: 'Tiếp tục tác vụ đang làm dở sau khi compact context.'
+    };
+    let result;
+    if (contextCompactSettings.resumeAfterCompact) result = await compactAndResumeInLocalBackend(params);
+    else {
+      const interrupted = await interruptInLocalBackend(params);
+      const compacted = await compactInLocalBackend(params);
+      result = { interrupted, compacted };
+    }
+    const resumed = contextCompactSettings.resumeAfterCompact !== false;
+    contextCompactNotice = {
+      kind: 'success',
+      text: automatic
+        ? (resumed ? 'Context đã vượt ngưỡng; đã dừng, compact và tiếp tục tác vụ.' : 'Context đã vượt ngưỡng; đã dừng và compact context.')
+        : (resumed ? 'Đã dừng, compact context và tiếp tục tác vụ.' : 'Đã dừng và compact context.'),
+      percent: contextPercent(runtime),
+      at: Date.now()
+    };
+    contextCompactState.currentKey = contextCompactKey(latestSnapshot);
+    await contextRef?.globalState.update(CONTEXT_COMPACT_STATE_KEY, contextCompactState);
+    await refreshTrackedStatus(true);
+  } catch (error) {
+    contextCompactState.currentKey = '';
+    await contextRef?.globalState.update(CONTEXT_COMPACT_STATE_KEY, contextCompactState).catch(() => {});
+    contextCompactNotice = { kind: 'error', text: 'Không compact/resume được context: ' + friendlyError(error), at: Date.now() };
+  } finally {
+    contextCompactBusy = false;
+    postViewState();
+  }
+}
+
+async function maybeAutoCompact(snapshot) {
+  if (contextCompactBusy || interruptBusy || !contextCompactSettings.enabled || !selected || snapshot?.overallStatus?.kind !== 'running') return;
+  const runtime = snapshot.runtime || {};
+  const key = contextCompactKey(snapshot);
+  const decision = shouldAutoCompact(runtime, contextCompactSettings, { key, currentKey: contextCompactState.currentKey });
+  if (!decision.should) return;
+  contextCompactState.currentKey = key;
+  await contextRef?.globalState.update(CONTEXT_COMPACT_STATE_KEY, contextCompactState);
+  await compactSelectedChat(selected.threadId, true);
+}
+
 async function continueThread(target) {
   await prepareOwnerBridge();
   const activeGateway = gateway || await startGateway();
@@ -2170,7 +2249,8 @@ function postViewState() {
       codexCurrentThreadId,
       usage: (() => {
         const state = usageMonitor?.snapshot() || { intervalMinutes: 5, groups: [] };
-        return { ...state, display: usageStatus(state), chart: usageHistoryChart(usageHistoryState), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) }, voice: usageVoiceSettings };
+        const runtime = latestSnapshot?.runtime || null;
+        return { ...state, display: usageStatus(state), chart: usageHistoryChart(usageHistoryState), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) }, voice: usageVoiceSettings, context: { ...(runtime || {}), settings: contextCompactSettings, busy: contextCompactBusy, notice: contextCompactNotice, compactAvailable: Boolean(selected && selected.status?.kind === 'running' && runtime?.contextWindowTokens) } };
       })(),
       selected: selected && latestSnapshot ? serializeSnapshot(latestSnapshot) : (selected ? serializeSelectedShell() : null),
       queue: {

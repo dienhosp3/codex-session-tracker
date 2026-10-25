@@ -109,6 +109,23 @@ function createLiveBackend(connection, options = {}) {
     const result = await request('turn/interrupt', { threadId, turnId }, true);
     return { ...(result || {}), turnId, transport: 'codex-existing-app-server', ownerPid: connection.proc?.pid };
   }
+  async function compact(params) {
+    const threadId = params.conversationId || params.threadId;
+    if (!threadId) throw failure('Invalid compact input.', 'not_sent');
+    const result = await request('thread/compact/start', { threadId }, true);
+    return { ...(result || {}), threadId, transport: 'codex-existing-app-server', ownerPid: connection.proc?.pid };
+  }
+  async function compactAndResume(params) {
+    const threadId = params.conversationId || params.threadId;
+    const turnId = params.turnId || await activeTurn(threadId);
+    const interrupted = await interrupt({ conversationId: threadId, turnId });
+    const compacted = await compact(params);
+    const resumed = await continueConversation({
+      conversationId: threadId,
+      input: [{ type: 'text', text: String(params.resumeMessage || 'Tiếp tục tác vụ đang làm dở sau khi compact context.'), text_elements: [] }]
+    });
+    return { ...resumed, interrupted, compacted, transport: 'codex-existing-app-server', ownerPid: connection.proc?.pid };
+  }
   async function continueConversation(params, onReady = () => {}) {
     const threadId = params.conversationId;
     if (!threadId || !Array.isArray(params.input) || !params.input.length) throw failure('Invalid continuation input.', 'not_sent');
@@ -147,7 +164,7 @@ function createLiveBackend(connection, options = {}) {
   }
   const readAccount = () => request('account/read', { refreshToken: false });
   const readRateLimits = () => request('account/rateLimits/read', {});
-  return { available, isLoaded, activeTurn, steer, interrupt, continueConversation, readAccount, readRateLimits, dispose };
+  return { available, isLoaded, activeTurn, steer, interrupt, compact, compactAndResume, continueConversation, readAccount, readRateLimits, dispose };
 }
 
 const BRIDGE_KEY = Symbol.for('codexSessionTracker.ownerBridge.v2');
@@ -161,7 +178,7 @@ function installOwnerBridge(connections, streams, options = {}) {
     const client = stream?.ipcClient;
     const handlers = client?.requestHandlers;
     if (!(handlers instanceof Map) || typeof stream.ownsThread !== 'function') continue;
-    if (client[BRIDGE_KEY]?.revision === 7) {
+    if (client[BRIDGE_KEY]?.revision === 8) {
       installedBridges.add(client[BRIDGE_KEY]);
       results.push(client[BRIDGE_KEY].info);
       continue;
@@ -213,7 +230,7 @@ function installOwnerBridge(connections, streams, options = {}) {
     handlers.set('thread-owner-discovery', newDiscovery);
     handlers.set('thread-follower-steer-turn', newSteer);
     if (newStart) handlers.set('thread-follower-start-turn', newStart);
-    client[BRIDGE_KEY] = { revision: 7, info, available: backend.available, readAccount: backend.readAccount, readRateLimits: backend.readRateLimits, interrupt: backend.interrupt, ownsThread: id => stream.ownsThread('local', id), continueConversation: continueHere, dispose() {
+    client[BRIDGE_KEY] = { revision: 8, info, available: backend.available, readAccount: backend.readAccount, readRateLimits: backend.readRateLimits, interrupt: backend.interrupt, compact: backend.compact, compactAndResume: backend.compactAndResume, ownsThread: id => stream.ownsThread('local', id), continueConversation: continueHere, dispose() {
       if (handlers.get('thread-owner-discovery') === newDiscovery) handlers.set('thread-owner-discovery', discovery);
       if (handlers.get('thread-follower-steer-turn') === newSteer) handlers.set('thread-follower-steer-turn', steer);
       if (newStart && handlers.get('thread-follower-start-turn') === newStart) handlers.set('thread-follower-start-turn', start);
@@ -269,4 +286,26 @@ async function interruptInLocalBackend(params) {
   }
   return choices[0].interrupt(params);
 }
-module.exports = { createLiveBackend, installOwnerBridge, installedBridgeInfo, disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, interruptInLocalBackend, BRIDGE_KEY };
+async function compactAndResumeInLocalBackend(params) {
+  const candidates = [...installedBridges].filter(bridge => bridge.available() && typeof bridge.compactAndResume === 'function');
+  const owned = candidates.filter(bridge => bridge.ownsThread(params.conversationId || params.threadId));
+  const choices = owned.length ? owned : candidates;
+  if (choices.length !== 1) {
+    const error = new Error('Chưa có kết nối Codex local duy nhất để compact và tiếp tục chat.');
+    error.delivery = 'not_sent';
+    throw error;
+  }
+  return choices[0].compactAndResume(params);
+}
+async function compactInLocalBackend(params) {
+  const candidates = [...installedBridges].filter(bridge => bridge.available() && typeof bridge.compact === 'function');
+  const owned = candidates.filter(bridge => bridge.ownsThread(params.conversationId || params.threadId));
+  const choices = owned.length ? owned : candidates;
+  if (choices.length !== 1) {
+    const error = new Error('Chưa có kết nối Codex local duy nhất để compact context.');
+    error.delivery = 'not_sent';
+    throw error;
+  }
+  return choices[0].compact(params);
+}
+module.exports = { createLiveBackend, installOwnerBridge, installedBridgeInfo, disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, interruptInLocalBackend, compactInLocalBackend, compactAndResumeInLocalBackend, BRIDGE_KEY };

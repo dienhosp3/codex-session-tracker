@@ -48,6 +48,7 @@ cp "$ROOT/codex_error_alerts.js" "$STAGE/extension/codex_error_alerts.js"
 cp "$ROOT/codex_error_sound.js" "$STAGE/extension/codex_error_sound.js"
 cp "$ROOT/codex_usage_history.js" "$STAGE/extension/codex_usage_history.js"
 cp "$ROOT/codex_usage_voice.js" "$STAGE/extension/codex_usage_voice.js"
+cp "$ROOT/codex_context_compact.js" "$STAGE/extension/codex_context_compact.js"
 cp "$ROOT/runtime_versions.js" "$STAGE/extension/runtime_versions.js"
 if [[ ! -f "$ROOT/runtime/bin/windows-x86_64/codex.exe" || ! -f "$ROOT/runtime/manifest.json" ]]; then
   echo "Build the client runtime with scripts/build-runtime.ps1 first." >&2

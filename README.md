@@ -1,4 +1,15 @@
-# Codex Session Tracker 0.12.22
+# Codex Session Tracker 0.12.23
+
+## Context usage and compact/resume
+
+The Usage row shows the selected chat's current context percentage beside the
+quota percentages whenever Codex reports both the input token count and model
+context window. The selected running chat also has a compact action that sends
+the stop, compact and optional resume sequence through the existing Codex
+app-server owner. The **Tự compact context** section in **Cấu hình cảnh báo
+quota** can enable the automatic sequence and set an integer threshold from 1
+through 99 percent. Automatic compaction runs once for each active turn and
+does not start a competing Codex process.
 
 ## Vietnamese quota voice alerts
 
@@ -628,13 +639,13 @@ Build on Windows with Git Bash:
 Expected artifact:
 
 ```text
-codex-session-tracker-0.12.21.vsix
+codex-session-tracker-0.12.23.vsix
 ```
 
 Install:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.12.21.vsix --force
+code --install-extension .\codex-session-tracker-0.12.23.vsix --force
 ```
 
 Then run **Developer: Reload Window** once.
