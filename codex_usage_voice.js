@@ -35,7 +35,10 @@ public static class CodexUsageVoiceWav {
 '@
 [CodexUsageVoiceWav]::Play($env:CODEX_TRACKER_USAGE_WAV)
 `;
-const USAGE_VOICE_ASSETS = Object.freeze({ quota:'quota.wav', nam_gio_con:'nam_gio_con.wav', thay_doi_manh:'thay_doi_manh.wav', khong:'khong.wav', mot:'mot.wav', hai:'hai.wav', ba:'ba.wav', bon:'bon.wav', nam:'nam.wav', sau:'sau.wav', bay:'bay.wav', tam:'tam.wav', chin:'chin.wav', muoi:'muoi.wav', muoi_tens:'muoi_tens.wav', tram:'tram.wav', lam:'lam.wav', mot_short:'mot_short.wav', tu:'tu.wav', phan_tram:'phan_tram.wav' });
+const USAGE_VOICE_ASSETS = Object.freeze(Object.fromEntries([
+  ['large_prefix', 'large_prefix.wav'],
+  ...Array.from({ length: 101 }, (_, value) => [`percent_${value}`, `percent_${value}.wav`])
+]));
 
 function integerPercent(value) {
   const number = Number(value);
@@ -117,17 +120,10 @@ function usageVoiceText(event) {
 function usageVoiceAssetSequence(value, largeChange = false) {
   const number = integerPercent(value);
   if (number === null) return [];
-  const digits = ['khong','mot','hai','ba','bon','nam','sau','bay','tam','chin'];
-  const parts = largeChange ? ['thay_doi_manh','quota','nam_gio_con'] : ['quota','nam_gio_con'];
-  if (number < 10) parts.push(digits[number]);
-  else if (number === 100) parts.push('mot','tram');
-  else {
-    const tens = Math.floor(number / 10), unit = number % 10;
-    if (tens === 1) { parts.push('muoi'); if (unit === 5) parts.push('lam'); else if (unit) parts.push(digits[unit]); }
-    else { parts.push(digits[tens], 'muoi_tens'); if (unit === 1) parts.push('mot_short'); else if (unit === 4) parts.push('tu'); else if (unit === 5) parts.push('lam'); else if (unit) parts.push(digits[unit]); }
-  }
-  parts.push('phan_tram');
-  return parts;
+  // Each percentage is a complete Vietnamese sentence.  Speaking isolated
+  // digit clips made the TTS engine reinterpret words such as "ba" and
+  // "bảy" as letter names, and concatenating them produced unnatural pauses.
+  return largeChange ? ['large_prefix', `percent_${number}`] : [`percent_${number}`];
 }
 function readWav(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') throw new Error('Usage voice asset is not a RIFF WAV file.');

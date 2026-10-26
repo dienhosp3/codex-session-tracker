@@ -1,4 +1,4 @@
-# Codex Session Tracker 0.12.25
+# Codex Session Tracker 0.12.26
 
 ## Context usage and compact/resume
 
@@ -23,9 +23,11 @@ The Usage alert dialog can optionally read the primary quota percentage in
 Vietnamese when two consecutive checks differ. The value is rounded and
 clamped to an integer from 0 through 100. Normal changes and large changes
 can be enabled independently; the large-change threshold is configurable from
-1 through 100 percentage points. Windows speech synthesis is not used. Tracker joins bundled Vietnamese PCM
-WAV segments for number words and percentage text, then plays the composed
-audio locally. The feature is disabled by default and does not change the existing MP3
+1 through 100 percentage points. Windows speech synthesis is not used. Tracker
+plays bundled full-sentence Vietnamese PCM WAV files for each integer percentage
+locally. Full sentence context prevents words such as “ba” and “bảy” from being
+misread as letter names. The feature is disabled by default and does not change
+the existing MP3
 error, model-capacity or user-input sound choices.
 
 ## Retry-limit error alerts, MP3 sound and history (0.12.15)
@@ -645,13 +647,13 @@ Build on Windows with Git Bash:
 Expected artifact:
 
 ```text
-codex-session-tracker-0.12.25.vsix
+codex-session-tracker-0.12.26.vsix
 ```
 
 Install:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.12.25.vsix --force
+code --install-extension .\codex-session-tracker-0.12.26.vsix --force
 ```
 
 Then run **Developer: Reload Window** once.

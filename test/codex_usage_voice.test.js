@@ -69,9 +69,11 @@ test('disabled usage voice still advances its comparison baseline without speaki
   assert.equal(second.state.samples['account:test|codex|primary|2000000000000'].remainingPercent, 60);
 });
 
-test('usage voice composes integer Vietnamese segments without Windows speech synthesis', async () => {
-  assert.deepEqual(usageVoiceAssetSequence(42), ['quota', 'nam_gio_con', 'bon', 'muoi_tens', 'hai', 'phan_tram']);
-  assert.deepEqual(usageVoiceAssetSequence(100), ['quota', 'nam_gio_con', 'mot', 'tram', 'phan_tram']);
+test('usage voice selects complete integer Vietnamese clips without Windows speech synthesis', async () => {
+  assert.deepEqual(usageVoiceAssetSequence(42), ['percent_42']);
+  assert.deepEqual(usageVoiceAssetSequence(100), ['percent_100']);
+  assert.deepEqual(usageVoiceAssetSequence(7), ['percent_7']);
+  assert.deepEqual(usageVoiceAssetSequence(42, true), ['large_prefix', 'percent_42']);
   const calls = [];
   await speakUsageVoice({
     platform: 'win32',
