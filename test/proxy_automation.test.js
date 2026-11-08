@@ -162,10 +162,62 @@ test('prepared recovery never sends when restart was not armed', async () => {
   assert.equal(f.controller.snapshot().pendingCount, 0);
 });
 
+for (const activityOffset of [0, -10000]) test('recovery retires a completed original turn without sending, activity offset ' + activityOffset, async () => {
+  const f = recovery();
+  await f.capture(['a']);
+  f.advance(6000);
+  const roots = [{ threadId: 'a', turnId: 'turn-a', stateKind: 'completed', lastActivity: f.now() + activityOffset }];
+  assert.equal(await f.controller.consider(f.observation(roots)), false);
+  assert.equal(f.sends.length, 0);
+  assert.equal(f.controller.snapshot().pendingCount, 0);
+  assert.equal(f.plans.at(-1).tasks[0].state, 'completed');
+  f.advance(10000);
+  const restored = createProxyRecovery({ plan: f.plans.at(-1), now: f.now,
+    send: async input => { f.sends.push(input); return { turnId: 'unexpected-turn' }; } });
+  await restored.consider(f.observation(roots));
+  assert.equal(f.sends.length, 0);
+  assert.equal(restored.snapshot().pendingCount, 0);
+});
+
+test('restored recovery skips completed chats while recovering interrupted chats in the same scan', async () => {
+  const f = recovery();
+  await f.capture(['finished', 'failed', 'interrupted']);
+  f.advance(6000);
+  const restored = createProxyRecovery({ plan: f.plans.at(-1), now: f.now,
+    save: async plan => f.plans.push(plan),
+    send: async input => { f.sends.push(input); return { turnId: 'new-' + input.threadId }; } });
+  const roots = ['completed', 'error', 'aborted'].map((stateKind, index) => ({
+    threadId: ['finished', 'failed', 'interrupted'][index],
+    turnId: 'turn-' + ['finished', 'failed', 'interrupted'][index],
+    stateKind, lastActivity: f.now()
+  }));
+  assert.equal(await restored.consider(f.observation(roots)), true);
+  assert.deepEqual(f.sends.map(input => input.threadId), ['failed', 'interrupted']);
+  assert.deepEqual(f.plans.at(-1).tasks.map(task => task.state), ['completed', 'done', 'done']);
+  assert.equal(restored.snapshot().pendingCount, 0);
+});
+
+test('a completed turn cancels a pending retry after definite non delivery', async () => {
+  let attempts = 0;
+  const f = recovery({ send: async () => {
+    attempts += 1;
+    throw Object.assign(new Error('not connected'), { delivery: 'not_sent' });
+  } });
+  await f.capture(['a']);
+  f.advance(6000);
+  await f.controller.consider(f.observation([{ threadId: 'a', turnId: 'turn-a', stateKind: 'error', lastActivity: f.now() }]));
+  assert.equal(attempts, 1);
+  f.advance(10000);
+  assert.equal(await f.controller.consider(f.observation([{ threadId: 'a', turnId: 'turn-a', stateKind: 'completed', lastActivity: f.now() }])), false);
+  assert.equal(attempts, 1);
+  assert.equal(f.controller.snapshot().pendingCount, 0);
+  assert.equal(f.plans.at(-1).tasks[0].state, 'completed');
+});
+
 test('recovery waits for restart grace, ignores incomplete scans and skips a newer turn', async () => {
   const f = recovery();
   await f.capture(['a']);
-  const roots = [{ threadId: 'a', turnId: 'turn-a', stateKind: 'completed', lastActivity: f.now() }];
+  const roots = [{ threadId: 'a', turnId: 'turn-a', stateKind: 'error', lastActivity: f.now() }];
   await f.controller.consider(f.observation(roots));
   assert.equal(f.sends.length, 0);
   f.advance(6000);

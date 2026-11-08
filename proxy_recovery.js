@@ -66,7 +66,14 @@ function createProxyRecovery(options = {}) {
             await save();
             continue;
           }
-          if (!['completed', 'error', 'aborted'].includes(current.stateKind)) continue;
+          // A successful turn is finished, not interrupted by the proxy restart.
+          // Retire it durably so saved recovery plans cannot reopen it later.
+          if (current.stateKind === 'completed') {
+            task.state = 'completed';
+            await save();
+            continue;
+          }
+          if (!['error', 'aborted'].includes(current.stateKind)) continue;
           if (!Number.isFinite(current.lastActivity) || current.lastActivity < task.capturedAt - 2000) continue;
           task.state = 'sending';
           task.attempts += 1;

@@ -100,6 +100,13 @@
 .usage-chart-controls label{display:grid;gap:4px;color:var(--vscode-descriptionForeground);font-size:11px}
 .usage-chart-controls select{min-width:0;padding:5px 7px;border:1px solid var(--vscode-input-border);border-radius:4px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);font:inherit}
 .usage-chart-plot{width:100%;height:auto;display:block;border:1px solid var(--vscode-panel-border);border-radius:5px;background:var(--vscode-editor-background)}
+.usage-chart-frame{position:relative;min-width:0}
+.usage-chart-hover{pointer-events:none}
+.usage-chart-guide{stroke:var(--vscode-charts-blue,#75beff);stroke-width:1;stroke-dasharray:4 4;opacity:.65}
+.usage-chart-highlight{fill:var(--vscode-charts-blue,#75beff);stroke:var(--vscode-editor-background);stroke-width:2}
+.usage-chart-tooltip{position:absolute;z-index:2;display:grid;gap:3px;width:max-content;max-width:calc(100% - 16px);box-sizing:border-box;padding:7px 9px;border:1px solid var(--vscode-editorHoverWidget-border,var(--vscode-panel-border));border-radius:5px;background:var(--vscode-editorHoverWidget-background,var(--vscode-editor-background));color:var(--vscode-editorHoverWidget-foreground,var(--vscode-foreground));font-size:11px;line-height:1.4;box-shadow:0 2px 8px rgba(0,0,0,.25);pointer-events:none}
+.usage-chart-tooltip[hidden]{display:none}
+.usage-chart-tooltip time{color:var(--vscode-descriptionForeground);font-size:10px}
 .usage-chart-empty{padding:28px 12px;text-align:center;color:var(--vscode-descriptionForeground);border:1px dashed var(--vscode-panel-border);border-radius:5px}
 .usage-chart-axis{stroke:var(--vscode-panel-border);stroke-width:1}
 .usage-chart-line{fill:none;stroke:var(--vscode-charts-blue,#75beff);stroke-width:2}
@@ -635,6 +642,7 @@ function bindGatewayUi(){
 
 const USAGE_CHART_RANGES=[{value:60,label:'1 giờ'},{value:180,label:'3 giờ'},{value:360,label:'6 giờ'},{value:720,label:'12 giờ'},{value:1440,label:'24 giờ'},{value:0,label:'Tất cả dữ liệu lưu (24 giờ)'}];
 const USAGE_CHART_POINT_OPTIONS=[{value:30,label:'Tối đa 30 mốc'},{value:60,label:'Tối đa 60 mốc'},{value:99,label:'Tối đa 99 mốc'},{value:150,label:'Tối đa 150 mốc'},{value:300,label:'Tối đa 300 mốc'},{value:720,label:'Tất cả mốc'}];
+let usageChartPointer=null;
 usageChartSettings=normalizeUsageChartSettings(savedUi.usageChartSettings);
 function normalizeUsageChartSettings(value){
   const source=value&&typeof value==='object'?value:{};
@@ -666,10 +674,55 @@ function usageChartPlot(chart,settings){
   const y=percent=>top+(100-Math.max(0,Math.min(100,Number(percent)||0)))/100*(height-top-bottom);
   const grid=[0,50,100].map(percent=>'<line class="usage-chart-axis" x1="'+left+'" y1="'+y(percent)+'" x2="'+(width-right)+'" y2="'+y(percent)+'"></line><text class="usage-chart-label" x="4" y="'+(y(percent)+4)+'">'+percent+'%</text>').join('');
   const polyline=points.map(point=>x(point.at).toFixed(2)+','+y(point.usedPercent).toFixed(2)).join(' ');
-  const markers=points.map(point=>'<circle class="usage-chart-point" cx="'+x(point.at).toFixed(2)+'" cy="'+y(point.usedPercent).toFixed(2)+'" r="3"><title>'+esc(absTime(point.at))+' · đã dùng '+Math.round(point.usedPercent)+'%</title></circle>').join('');
+  const markers=points.map(point=>'<circle class="usage-chart-point" data-at="'+Number(point.at)+'" data-used="'+Number(point.usedPercent)+'" cx="'+x(point.at).toFixed(2)+'" cy="'+y(point.usedPercent).toFixed(2)+'" r="3"></circle>').join('');
   const first=points[0],last=points.at(-1);
   const labels='<text class="usage-chart-label" x="'+left+'" y="'+(height-12)+'">'+esc(absTime(first.at))+'</text><text class="usage-chart-label" text-anchor="end" x="'+(width-right)+'" y="'+(height-12)+'">'+esc(absTime(last.at))+'</text>';
-  return '<svg class="usage-chart-plot" viewBox="0 0 '+width+' '+height+'" role="img" aria-label="Đồ thị phần trăm quota đã dùng theo thời điểm">'+grid+'<polyline class="usage-chart-line" points="'+polyline+'"></polyline>'+markers+labels+'</svg>';
+  const hover='<g class="usage-chart-hover" visibility="hidden" aria-hidden="true"><line class="usage-chart-guide" y1="'+top+'" y2="'+(height-bottom)+'"></line><circle class="usage-chart-highlight" r="6"></circle></g>';
+  return '<div class="usage-chart-frame"><svg class="usage-chart-plot" viewBox="0 0 '+width+' '+height+'" data-left="'+left+'" data-right="'+(width-right)+'" data-top="'+top+'" data-bottom="'+(height-bottom)+'" role="img" aria-label="Đồ thị phần trăm quota đã dùng theo thời điểm. Rê chuột để xem từng mốc.">'+grid+'<polyline class="usage-chart-line" points="'+polyline+'"></polyline>'+markers+labels+hover+'</svg><div class="usage-chart-tooltip" role="tooltip" hidden><time></time><strong></strong></div></div>';
+}
+function bindUsageChartHover(container){
+  const frame=container?.querySelector('.usage-chart-frame'),svg=frame?.querySelector('svg');
+  if(!svg)return;
+  const tooltip=frame.querySelector('.usage-chart-tooltip'),hover=svg.querySelector('.usage-chart-hover');
+  const guide=hover.querySelector('line'),highlight=hover.querySelector('circle');
+  const points=Array.from(svg.querySelectorAll('.usage-chart-point'),node=>({
+    x:Number(node.getAttribute('cx')),y:Number(node.getAttribute('cy')),at:Number(node.dataset.at),used:Number(node.dataset.used)
+  }));
+  const clear=()=>{hover.setAttribute('visibility','hidden');tooltip.hidden=true;usageChartPointer=null;};
+  const show=event=>{
+    const matrix=svg.getScreenCTM();
+    if(!matrix)return clear();
+    const pointer=svg.createSVGPoint();pointer.x=event.clientX;pointer.y=event.clientY;
+    const local=pointer.matrixTransform(matrix.inverse());
+    // Include the marker radius so edge samples remain reachable after SVG scaling.
+    if(local.x<Number(svg.dataset.left)-6||local.x>Number(svg.dataset.right)+6||local.y<Number(svg.dataset.top)-6||local.y>Number(svg.dataset.bottom)+6)return clear();
+    const point=points.reduce((best,item)=>{
+      const dx=Math.abs(item.x-local.x),bestDx=Math.abs(best.x-local.x);
+      return dx<bestDx||(dx===bestDx&&Math.abs(item.y-local.y)<Math.abs(best.y-local.y))?item:best;
+    });
+    usageChartPointer={clientX:event.clientX,clientY:event.clientY,owner:container.id};
+    guide.setAttribute('x1',point.x);guide.setAttribute('x2',point.x);
+    highlight.setAttribute('cx',point.x);highlight.setAttribute('cy',point.y);
+    hover.setAttribute('visibility','visible');
+    const time=tooltip.querySelector('time');
+    time.textContent=absTime(point.at);time.dateTime=new Date(point.at).toISOString();
+    tooltip.querySelector('strong').textContent='Đã dùng '+point.used.toLocaleString('vi-VN',{maximumFractionDigits:2})+'%';
+    tooltip.hidden=false;
+    pointer.x=point.x;pointer.y=point.y;
+    const anchor=pointer.matrixTransform(matrix),bounds=frame.getBoundingClientRect();
+    const px=anchor.x-bounds.left,py=anchor.y-bounds.top,tw=tooltip.offsetWidth,th=tooltip.offsetHeight;
+    const left=px+tw+12>frame.clientWidth-8?px-tw-12:px+12,top=py-th-12<8?py+12:py-th-12;
+    tooltip.style.left=Math.max(8,Math.min(frame.clientWidth-tw-8,left))+'px';
+    tooltip.style.top=Math.max(8,Math.min(frame.clientHeight-th-8,top))+'px';
+  };
+  svg.onpointerenter=svg.onpointermove=show;
+  svg.onpointerleave=svg.onpointercancel=clear;
+  // Polling replaces the SVG; restore hover after scroll and layout are restored.
+  if(usageChartPointer?.owner===container.id)requestAnimationFrame(()=>{
+    if(!svg.isConnected||usageChartPointer?.owner!==container.id)return;
+    if(svg.contains(document.elementFromPoint(usageChartPointer.clientX,usageChartPointer.clientY)))show(usageChartPointer);
+    else clear();
+  });
 }
 function usageChartSummary(chart,settings){
   const view=usageChartView(chart,settings),duration=view.points.length>1?Math.round((view.points.at(-1).at-view.points[0].at)/60000):0;
@@ -710,6 +763,7 @@ function refreshUsageChartDialog(){
 }
 function bindUsageChartDialog(dialog){
   if(!dialog)return;
+  bindUsageChartHover(dialog);
   const range=dialog.querySelector('#usageChartRange'),points=dialog.querySelector('#usageChartPoints');
   const update=()=>{
     usageChartSettings=normalizeUsageChartSettings({rangeMinutes:Number(range?.value),maxPoints:Number(points?.value)});
@@ -723,6 +777,7 @@ function bindUsageChartDialog(dialog){
 }
 function bindUsageChartInline(){
   if(!usageChartVisible)return;
+  bindUsageChartHover(document.getElementById('usageChartInline'));
   const range=document.getElementById('usageChartRange'),points=document.getElementById('usageChartPoints');
   const update=()=>{
     usageChartSettings=normalizeUsageChartSettings({rangeMinutes:Number(range?.value),maxPoints:Number(points?.value)});

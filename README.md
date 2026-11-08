@@ -1,4 +1,11 @@
-# Codex Session Tracker 0.12.26
+# Codex Session Tracker 0.12.27
+
+## Quota chart hover and completed task recovery
+
+Hover over the quota graph to highlight the nearest sample and show its time
+and used percentage. The tooltip stays inside the chart on narrow panels and
+remains visible during background refreshes. Proxy restart recovery now retires
+successfully completed tasks without sending an automatic continuation message.
 
 ## Context usage and compact/resume
 
@@ -111,7 +118,9 @@ restart attempt records a persistent cooldown of the configured interval.
 Before either manual or automatic restart, Tracker saves the original running
 chat IDs and turn IDs in extension state. For up to ten minutes after restart,
 it checks those chats and sends exactly **Tiếp tục công việc (nếu còn)** only
-to an original chat that stopped after the snapshot. A chat still running, or
+to an original chat that failed or was aborted after the snapshot. A successfully
+completed turn is removed from pending recovery without sending a message,
+including when a saved recovery plan is loaded again. A chat still running, or
 one that has moved to another turn, is left alone. Definite non-delivery may
 retry after ten seconds, at most six attempts with the same message UUID;
 unknown delivery is retained without an automatic resend. Restart recovery
@@ -647,13 +656,13 @@ Build on Windows with Git Bash:
 Expected artifact:
 
 ```text
-codex-session-tracker-0.12.26.vsix
+codex-session-tracker-0.12.27.vsix
 ```
 
 Install:
 
 ```powershell
-code --install-extension .\codex-session-tracker-0.12.26.vsix --force
+code --install-extension .\codex-session-tracker-0.12.27.vsix --force
 ```
 
 Then run **Developer: Reload Window** once.

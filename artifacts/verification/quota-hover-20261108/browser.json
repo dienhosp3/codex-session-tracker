@@ -1,0 +1,45 @@
+{
+  "passed": true,
+  "viewports": [
+    {
+      "width": 1000,
+      "labels": [
+        "Đã dùng 0%",
+        "Đã dùng 56,25%",
+        "Đã dùng 100%"
+      ],
+      "pollingRetained": true,
+      "tooltipContained": true,
+      "rangeAndDownsampling": true,
+      "singleAndEmpty": true,
+      "pointerLeave": true
+    },
+    {
+      "width": 520,
+      "labels": [
+        "Đã dùng 0%",
+        "Đã dùng 56,25%",
+        "Đã dùng 100%"
+      ],
+      "pollingRetained": true,
+      "tooltipContained": true,
+      "rangeAndDownsampling": true,
+      "singleAndEmpty": true,
+      "pointerLeave": true
+    },
+    {
+      "width": 320,
+      "labels": [
+        "Đã dùng 0%",
+        "Đã dùng 56,25%",
+        "Đã dùng 100%"
+      ],
+      "pollingRetained": true,
+      "tooltipContained": true,
+      "rangeAndDownsampling": true,
+      "singleAndEmpty": true,
+      "pointerLeave": true
+    }
+  ],
+  "errors": []
+}
