@@ -49,6 +49,26 @@ cp "$ROOT/codex_error_sound.js" "$STAGE/extension/codex_error_sound.js"
 cp "$ROOT/codex_usage_history.js" "$STAGE/extension/codex_usage_history.js"
 cp "$ROOT/codex_usage_voice.js" "$STAGE/extension/codex_usage_voice.js"
 cp "$ROOT/codex_context_compact.js" "$STAGE/extension/codex_context_compact.js"
+cp "$ROOT/codex_context_watch.js" "$STAGE/extension/codex_context_watch.js"
+cp "$ROOT/codex_context_reader.js" "$STAGE/extension/codex_context_reader.js"
+cp "$ROOT/codex_chat_context_store.js" "$STAGE/extension/codex_chat_context_store.js"
+cp "$ROOT/codex_new_chat.js" "$STAGE/extension/codex_new_chat.js"
+cp "$ROOT/codex_new_chat_form.js" "$STAGE/extension/codex_new_chat_form.js"
+cp "$ROOT/codex_sound_settings.js" "$STAGE/extension/codex_sound_settings.js"
+cp "$ROOT/codex_completion_sounds.js" "$STAGE/extension/codex_completion_sounds.js"
+cp "$ROOT/codex_plan_state.js" "$STAGE/extension/codex_plan_state.js"
+cp "$ROOT/codex_compaction_events.js" "$STAGE/extension/codex_compaction_events.js"
+cp "$ROOT/codex_auto_allow.js" "$STAGE/extension/codex_auto_allow.js"
+cp "$ROOT/codex_chat_identity.js" "$STAGE/extension/codex_chat_identity.js"
+cp "$ROOT/codex_new_chat_context.js" "$STAGE/extension/codex_new_chat_context.js"
+cp "$ROOT/codex_context_handoff.js" "$STAGE/extension/codex_context_handoff.js"
+cp "$ROOT/codex_handoff_modes.js" "$STAGE/extension/codex_handoff_modes.js"
+cp "$ROOT/codex_speed.js" "$STAGE/extension/codex_speed.js"
+cp "$ROOT/codex_handoff_form.js" "$STAGE/extension/codex_handoff_form.js"
+cp "$ROOT/codex_chat_options.js" "$STAGE/extension/codex_chat_options.js"
+cp "$ROOT/codex_thread_permissions.js" "$STAGE/extension/codex_thread_permissions.js"
+cp "$ROOT/codex_attention.js" "$STAGE/extension/codex_attention.js"
+cp "$ROOT/codex_attention_voice.js" "$STAGE/extension/codex_attention_voice.js"
 cp "$ROOT/runtime_versions.js" "$STAGE/extension/runtime_versions.js"
 if [[ ! -f "$ROOT/runtime/bin/windows-x86_64/codex.exe" || ! -f "$ROOT/runtime/manifest.json" ]]; then
   echo "Build the client runtime with scripts/build-runtime.ps1 first." >&2
@@ -66,9 +86,17 @@ cp "$ROOT/gateway/hook-requirements.txt" "$STAGE/extension/gateway/"
 cp "$ROOT/dashboard.html" "$STAGE/extension/dashboard.html"
 cp "$ROOT/traffic_monitor.html" "$STAGE/extension/traffic_monitor.html"
 mkdir -p "$STAGE/extension/media"
+cp "$ROOT/media/new_chat_dialog.html" "$ROOT/media/new_chat_dialog.js" "$STAGE/extension/media/"
+cp "$ROOT/media/handoff_dialog.html" "$ROOT/media/handoff_dialog.js" "$STAGE/extension/media/"
+cp "$ROOT/media/chat_options.html" "$ROOT/media/chat_options.js" "$STAGE/extension/media/"
+cp "$ROOT/media/proxy_options.html" "$ROOT/media/proxy_options.js" "$STAGE/extension/media/"
+cp "$ROOT/media/sound_settings.css" "$ROOT/media/sound_settings.js" "$STAGE/extension/media/"
+cp "$ROOT/media/chat_list_layout.js" "$STAGE/extension/media/"
 mkdir -p "$STAGE/extension/media/usage_voice"
 cp "$ROOT/media/tracker.svg" "$STAGE/extension/media/tracker.svg"
 cp "$ROOT/media/usage_voice"/*.wav "$STAGE/extension/media/usage_voice/"
+mkdir -p "$STAGE/extension/media/attention_voice"
+cp "$ROOT/media/attention_voice"/*.wav "$ROOT/media/attention_voice/phrases.json" "$STAGE/extension/media/attention_voice/"
 if [[ -f "$ROOT/media/error_429.mp3" ]]; then
   cp "$ROOT/media/error_429.mp3" "$STAGE/extension/media/error_429.mp3"
 fi
@@ -118,7 +146,8 @@ cat > "$STAGE/[Content_Types].xml" <<'XML'
 <?xml version="1.0" encoding="utf-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="json" ContentType="application/json" />
-  <Default Extension="js" ContentType="application/javascript" />
+  <Default Extension="css" ContentType="text/css"/>
+<Default Extension="js" ContentType="application/javascript" />
   <Default Extension="md" ContentType="text/markdown" />
   <Default Extension="html" ContentType="text/html" />
   <Default Extension="svg" ContentType="image/svg+xml" />

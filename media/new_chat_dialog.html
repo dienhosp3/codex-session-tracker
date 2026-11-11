@@ -1,0 +1,61 @@
+<style>
+.nc-dialog{width:min(620px,calc(100vw - 24px));max-width:none;max-height:calc(100vh - 24px);padding:0;border:1px solid var(--vscode-panel-border,#454545);border-radius:12px;color:var(--vscode-foreground,#ddd);background:var(--vscode-editor-background,#202020);box-shadow:0 20px 70px #0008;font:13px/1.5 var(--vscode-font-family,Arial);overflow:hidden}
+.nc-dialog::backdrop{background:#0009;backdrop-filter:blur(2px)}
+.nc-dialog [hidden]{display:none!important}
+.nc-auto{border:1px solid var(--vscode-panel-border,#555);border-radius:6px;padding:10px;display:grid;gap:7px}.nc-auto-title{display:flex;gap:7px;align-items:center;font-weight:600}.nc-auto-title input{accent-color:#20caff}.nc-auto-fields{display:grid;grid-template-columns:minmax(0,1fr) 68px;gap:8px;align-items:end}.nc-auto-fields label{font-size:11px}.nc-auto-fields input{width:100%;min-width:0;padding:9px 8px;background:var(--vscode-input-background,#303030);color:var(--vscode-input-foreground,#eee);border:1px solid var(--vscode-input-border,#555);border-radius:6px;font:inherit}.nc-auto small{font-size:11px;color:var(--vscode-descriptionForeground,#aaa)}
+.nc-dialog form{display:flex;flex-direction:column;max-height:calc(100vh - 26px);margin:0}
+.nc-header{display:flex;align-items:flex-start;gap:12px;padding:20px 22px 15px;border-bottom:1px solid var(--vscode-panel-border,#454545)}
+.nc-heading{flex:1;min-width:0}.nc-heading h2{font-size:19px;font-weight:650;line-height:1.3;margin:0 0 5px}.nc-heading p{margin:0;color:var(--vscode-descriptionForeground,#aaa);font-size:12px}
+.nc-close{font-size:22px;line-height:1;width:30px;height:30px;padding:3px;flex:none}
+.nc-body{display:grid;gap:14px;padding:16px 22px;overflow:auto;min-height:0}
+.nc-field{display:grid;gap:7px;min-width:0}.nc-field>label,.nc-label{font-weight:600}.nc-folder-row{display:flex;gap:8px;min-width:0}
+.nc-dialog select,.nc-dialog textarea{min-width:0;width:100%;padding:9px 10px;border:1px solid var(--vscode-input-border,#555);border-radius:6px;background:var(--vscode-input-background,#303030);color:var(--vscode-input-foreground,#eee);font:inherit;outline:none}
+.nc-dialog select{flex:1;text-overflow:ellipsis}.nc-dialog textarea{resize:vertical;min-height:130px;max-height:40vh;line-height:1.6}
+.nc-dialog :is(select,textarea,button,input):focus-visible{outline:2px solid var(--vscode-focusBorder,#3794ff);outline-offset:2px}
+.nc-path{font-size:11px;color:var(--vscode-descriptionForeground,#aaa);overflow-wrap:anywhere;min-height:16px}
+.nc-context-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.nc-model{font-size:11px;font-weight:400;color:var(--vscode-descriptionForeground,#aaa);overflow-wrap:anywhere;text-align:right}
+.nc-presets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;border:0;margin:0;padding:0;min-width:0}
+.nc-choice{position:relative;display:grid;grid-template-columns:17px minmax(0,1fr);gap:4px 8px;padding:11px 12px;border:1px solid var(--vscode-panel-border,#555);border-radius:7px;cursor:pointer;background:var(--vscode-input-background,#303030)}
+.nc-choice:has(input:checked){border-color:#39d8ff;box-shadow:inset 0 0 0 2px #39d8ff;background:#064c78;color:#fff}
+.nc-choice:has(input:checked) small{color:#d5f4ff}.nc-choice:has(input:checked) input{accent-color:#39d8ff}
+.nc-selected-mark{display:none;position:absolute;right:7px;top:7px;width:18px;height:18px;border-radius:50%;background:#39d8ff;color:#03324f;font-size:12px;font-weight:900;place-items:center}.nc-choice:has(input:checked) .nc-selected-mark{display:grid}.nc-choice-title{padding-right:16px}
+.nc-choice:has(input:disabled){opacity:.6;cursor:default}.nc-choice input{margin:3px 0 0;accent-color:var(--vscode-focusBorder,#3794ff)}.nc-choice-title{font-weight:650;font-size:14px;min-width:0}.nc-choice small{grid-column:2;font-size:11px;color:var(--vscode-descriptionForeground,#aaa);overflow-wrap:anywhere}
+.nc-note{font-size:11px;color:var(--vscode-descriptionForeground,#aaa);min-height:17px}.nc-status{border-radius:5px;padding:8px 10px;background:var(--vscode-inputValidation-infoBackground,#243345);font-size:12px;overflow-wrap:anywhere}.nc-status.error{color:var(--vscode-errorForeground,#f48771);background:var(--vscode-inputValidation-errorBackground,#412b2b)}.nc-status[hidden]{display:none}
+.nc-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:13px 22px;border-top:1px solid var(--vscode-panel-border,#454545);flex:none}.nc-hint{margin-right:auto;font-size:11px;color:var(--vscode-descriptionForeground,#aaa)}
+.nc-button{padding:8px 13px;border:1px solid var(--vscode-button-border,transparent);border-radius:5px;background:var(--vscode-button-secondaryBackground,#3a3d41);color:var(--vscode-button-secondaryForeground,#fff);font:inherit;font-weight:500;cursor:pointer;white-space:nowrap}.nc-button:hover{filter:brightness(1.12)}.nc-button.primary{background:#0878c9;color:#fff;border-color:#64c8ff;font-weight:700}.nc-button:disabled{opacity:.5;cursor:default}.nc-recover{margin-top:8px}
+@media(max-width:420px){.nc-header{padding:16px 14px 12px}.nc-body{padding:14px;gap:15px}.nc-footer{padding:12px 14px;flex-wrap:wrap}.nc-hint{width:100%}.nc-choice{padding:9px 8px;gap:3px 5px}.nc-choice-title{font-size:13px}.nc-folder-row{gap:6px}.nc-button{padding:8px 10px}.nc-dialog textarea{min-height:125px}}
+@media(prefers-reduced-motion:no-preference){.nc-dialog[open]{animation:nc-in .13s ease-out}@keyframes nc-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}}
+</style>
+<dialog id="newChatDialog" class="nc-dialog" aria-labelledby="ncTitle" aria-describedby="ncSubtitle">
+  <form id="ncForm">
+    <header class="nc-header">
+      <div class="nc-heading"><h2 id="ncTitle">Tạo chat mới</h2><p id="ncSubtitle">Model · Context · Yêu cầu</p></div>
+      <button id="ncClose" class="iconbtn nc-close" type="button" aria-label="Đóng hộp thoại">×</button>
+    </header>
+    <div class="nc-body">
+      <div class="nc-field">
+        <label for="ncWorkspace">Thư mục làm việc</label>
+        <div class="nc-folder-row"><select id="ncWorkspace" aria-describedby="ncPath"><option value="">Chọn thư mục…</option></select><button id="ncBrowse" class="nc-button" type="button">Duyệt…</button></div>
+        <div id="ncPath" class="nc-path"></div>
+      </div>
+      <div class="nc-field"><label for="ncModelSelect">Model</label><select id="ncModelSelect"><option value="">Đang tải…</option></select></div>
+      <div class="nc-field"><label for="ncSpeed">Tốc độ</label><select id="ncSpeed" class="speed-picker"><option value="default">Standard</option><option value="priority">Fast</option><option value="ultrafast">⚡ Ultrafast</option></select><div id="ncSpeedStatus" class="nc-note" role="status"></div></div>
+      <div class="nc-field">
+        <div class="nc-context-head"><span id="ncContextLabel" class="nc-label">Context</span></div>
+        <fieldset id="ncPresets" class="nc-presets" aria-labelledby="ncContextLabel"></fieldset>
+        <div id="ncPreference" class="nc-note" role="status">Tự nhớ lựa chọn.</div>
+      </div>
+      <div id="ncPromptField" class="nc-field">
+        <label for="ncPrompt">Yêu cầu</label>
+        <textarea id="ncPrompt" rows="5" placeholder="Nhập yêu cầu…" spellcheck="false"></textarea>
+      </div>
+      <div class="nc-auto">
+        <label class="nc-auto-title"><input id="ncAutoEnabled" type="checkbox"> Auto resume</label>
+        <div class="nc-auto-fields"><label>Áp dụng<select id="ncAutoScope"><option value="all">Mọi chat mới</option><option value="tracker">Chat mới từ Tracker</option><option value="successor">Chat chuyển tiếp</option></select></label><label>Ngưỡng %<input id="ncAutoThreshold" type="number" min="1" max="99" step="1" value="80"></label></div>
+        <small id="ncAutoHint">Codex, Tracker, chuyển tiếp. Chat cũ giữ nguyên.</small><small id="ncAutoStatus" role="status"></small>
+      </div>
+      <div><div id="ncStatus" class="nc-status" role="status" aria-live="polite" hidden></div><button id="ncRetry" class="nc-button nc-recover" type="button" hidden>Thử tải lại</button><button id="ncOpenCreated" class="nc-button nc-recover" type="button" hidden>Mở chat đã tạo</button><button id="ncStartOver" class="nc-button nc-recover" type="button" hidden>Tạo tác vụ khác</button></div>
+    </div>
+    <footer class="nc-footer"><span id="ncShortcut" class="nc-hint">Ctrl+Enter: tạo chat</span><button id="ncCancel" class="nc-button" type="button">Hủy</button><button id="ncSubmit" class="nc-button primary" type="submit">Tạo chat</button></footer>
+  </form>
+</dialog>

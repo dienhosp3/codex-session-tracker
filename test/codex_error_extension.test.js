@@ -11,7 +11,7 @@ const { createRequire } = require('node:module');
 const alerts = require('../codex_error_alerts');
 const soundModule = require('../codex_error_sound');
 
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'codex-error-extension-test-'));
   const sessions = path.join(directory, 'sessions');
   await fsp.mkdir(sessions);
@@ -24,8 +24,15 @@ async function fixture(t) {
   const shown = [];
   const errors = [];
   const previews = [];
+  const attentionSounds = [];
+  const spokenReminders = [];
+  const spokenInitials = [];
+  const spokenCompletions = [];
+  let attentionTime = 0;
+  let liveThreads = [];
   let selectedFile;
   const vscode = {
+    extensions: { getExtension: () => undefined, all: [] },
     Uri: { file: fsPath => ({ fsPath }) },
     workspace: {
       getConfiguration: () => ({ get: (name, fallback) => name === 'codexHome' ? directory : fallback }),
@@ -42,7 +49,7 @@ async function fixture(t) {
     extensionUri: { fsPath: path.join(__dirname, '..') },
     globalStorageUri: { fsPath: path.join(directory, 'storage') },
     globalState: {
-      get: (_key, fallback) => fallback,
+      get: (key, fallback) => saved.findLast(item => item.key === key)?.value ?? fallback,
       update: async (key, value) => saved.push({ key, value: structuredClone(value) })
     },
     subscriptions: []
@@ -56,24 +63,144 @@ async function fixture(t) {
     } : name === './codex_error_sound' ? {
       ...soundModule,
       createErrorSoundController: options => soundModule.createErrorSoundController({ ...options, play: async settings => previews.push(settings.file) })
-    } : localRequire(name),
+    } : name === './codex_live_backend' ? { ...localRequire(name), readAttentionInLocalBackend: async () => liveThreads }
+      : name === './codex_attention' ? { ...localRequire(name),
+        createAttentionMonitor: settings => localRequire(name).createAttentionMonitor({ ...settings, now: () => attentionTime,
+          notify: options.useActualAttentionDispatch ? settings.notify : async event => attentionSounds.push(event.threadId) }) }
+      : name === './codex_attention_voice' ? { ...localRequire(name), speakAttentionReminder: async event => spokenReminders.push(event),
+        speakAttentionInitial: async event => spokenInitials.push(event), speakCompletion: async type => spokenCompletions.push(type) }
+      : localRequire(name),
     process, module: { exports: {} }, console, setInterval, clearInterval, setTimeout, clearTimeout,
     fixtureContext: extensionContext
   });
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   const run = expression => vm.runInContext(expression, context);
   t.after(async () => {
-    run('errorMonitor?.dispose()');
+    run('attentionMonitor?.dispose();errorMonitor?.dispose();completionSounds?.dispose();planState.clear()');
+    for (const item of extensionContext.subscriptions) item.dispose?.();
     assert.equal(path.dirname(directory), path.resolve(os.tmpdir()));
     await fsp.rm(directory, { recursive: true, force: true });
   });
-  return { directory, rollout, sounds, saved, opened, shown, errors, previews, run, extensionContext, selectFile: value => { selectedFile = value; } };
+  return { directory, rollout, sounds, saved, opened, shown, errors, previews, run, extensionContext, attentionSounds,
+    spokenReminders, spokenInitials, spokenCompletions, setAttentionTime: value => { attentionTime = value; },
+    setThreads: value => { liveThreads = value; }, selectFile: value => { selectedFile = value; } };
 }
+
+test('extension saves a series for the requested chat and echoes the request without starting a chat', async t => {
+  const f = await fixture(t);
+  f.run(`
+    const seriesMessages = [], seriesSaves = [];
+    contextWatch = createContextWatch({ save: async value => seriesSaves.push(value), read: async () => ({ percent: null }) });
+    activeChats = [{ threadId: 'target', title: 'Original target' }, { threadId: 'focused', title: 'Focused chat' }];
+    selected = { threadId: 'focused' };
+    trackerView = { webview: { postMessage: message => seriesMessages.push(message) } };
+    postViewState = () => {};
+  `);
+  t.after(() => f.run('contextWatch.dispose()'));
+  await f.run(`setContextSeries({threadId:'target',requestId:'save-1',series:{code:'duan',nextNumber:'25'}})`);
+  const result = JSON.parse(f.run('JSON.stringify(seriesMessages.at(-1))'));
+  assert.equal(result.type, 'contextSeriesSaved'); assert.equal(result.threadId, 'target'); assert.equal(result.requestId, 'save-1');
+  assert.deepEqual(result.series, { code: 'duan', nextNumber: '0025' });
+  assert.equal(result.data.entries.target.enabled, false); assert.equal(result.data.entries.target.title, 'Original target');
+  assert.equal(result.data.entries.focused, undefined);
+  await f.run(`setContextSeries({threadId:'target',requestId:'save-2',series:{code:'BAD-ID',nextNumber:'25'}})`);
+  assert.match(f.run('seriesMessages.at(-1).error'), /ID/);
+  assert.equal(f.run('seriesSaves.length'), 1);
+  await f.run(`setContextSeries({threadId:'target',requestId:'save-3',series:null})`);
+  assert.equal(f.run('seriesMessages.at(-1).series'), null);
+});
+
+test('extension speaks the approved initial phrase and retains cumulative 5/10/15-minute reminders', async t => {
+  const f = await fixture(t, { useActualAttentionDispatch: true });
+  f.run('contextRef=fixtureContext;startErrorMonitoring(fixtureContext)');
+  await f.run('attentionMonitor.poll()');
+  f.setThreads([{ id: 'pending', status: { type: 'active', activeFlags: ['waitingOnApproval'] } }]);
+  await f.run('attentionMonitor.poll()');
+  assert.deepEqual(Array.from(f.spokenInitials[0].newFlags), ['waitingOnApproval']);
+  assert.equal(f.previews.length, 0);
+  for (const minute of [5, 10, 15]) {
+    f.setAttentionTime(minute * 60000); await f.run('attentionMonitor.poll()');
+  }
+  assert.deepEqual(f.spokenReminders.map(e => e.waits[0].elapsedMinutes), [5, 10, 15]);
+  assert.equal(f.spokenInitials.length, 1);
+  f.setThreads([]); await f.run('attentionMonitor.poll()');
+  f.setAttentionTime(20 * 60000); await f.run('attentionMonitor.poll()');
+  assert.equal(f.spokenReminders.length, 3);
+});
+
+test('default preview plays both approved phrases; explicit custom MP3 still overrides initial alerts only', async t => {
+  const f = await fixture(t, { useActualAttentionDispatch: true });
+  f.run('contextRef=fixtureContext;startErrorMonitoring(fixtureContext)');
+  await f.run('previewUserInputSound()');
+  assert.deepEqual(Array.from(f.spokenInitials[0].flags), ['waitingOnApproval', 'waitingOnUserInput']);
+  const custom = path.join(f.directory, 'custom.mp3'); await fsp.writeFile(custom, 'fixture');
+  f.selectFile(custom); await f.run('configureUserInputSound()');
+  f.setThreads([{ id: 'pending', status: { type: 'active', activeFlags: ['waitingOnUserInput'] } }]);
+  await f.run('attentionMonitor.poll()');
+  assert.equal(f.previews.at(-1), custom); assert.equal(f.spokenInitials.length, 1);
+  f.setAttentionTime(5 * 60000); await f.run('attentionMonitor.poll()');
+  assert.equal(f.spokenReminders.length, 1);
+});
+
+test('sound settings gate initial prompts and terminal speech without muting unrelated enabled categories', async t => {
+  const f = await fixture(t, { useActualAttentionDispatch: true });
+  f.run('contextRef=fixtureContext;startErrorMonitoring(fixtureContext)');
+  await f.run('soundSettings.update({types:{approval_initial:false,chat_failed:false}})');
+  f.setThreads([{ id: 'pending', status: { type: 'active', activeFlags: ['waitingOnApproval', 'waitingOnUserInput'] } }]);
+  await f.run('attentionMonitor.poll()');
+  assert.equal(f.spokenInitials.length, 1); assert.deepEqual(Array.from(f.spokenInitials[0].newFlags), ['waitingOnUserInput']);
+  await f.run("playSoundType('chat_completed')"); await f.run("playSoundType('chat_failed')");
+  assert.deepEqual(f.spokenCompletions, ['chat_completed']);
+  await f.run('soundSettings.update({enabled:false})');
+  await f.run("playSoundType('chat_completed')"); assert.equal(f.spokenCompletions.length, 1);
+  await f.run("playSoundType('chat_failed',undefined,true)"); assert.equal(f.spokenCompletions.at(-1), 'chat_failed');
+});
+
+test('quota speech uses the central switches while preserving sampling and the large-change threshold', async t => {
+  const f = await fixture(t);
+  f.run('contextRef=fixtureContext;startErrorMonitoring(fixtureContext);globalThis.quotaSpoken=[];usageVoice={speak:async event=>quotaSpoken.push(event)};usageVoiceSettings=normalizeUsageVoiceSettings({largeChangePercent:8})');
+  await f.run('soundSettings.update({types:{quota_change:true,quota_large_change:false}})');
+  const sample = (at, used) => f.run(`processUsageVoice({checkedAt:${at},groups:[{id:'codex',accountKey:'fixture',windows:[{key:'primary',usedPercent:${used},resetsAt:999999}]}]})`);
+  await sample(1000, 60); await sample(2000, 65); await sample(3000, 75);
+  assert.equal(f.run('quotaSpoken.length'), 2); assert.equal(f.run('quotaSpoken[1].largeChange'), false);
+  await f.run('soundSettings.update({types:{quota_change:false,quota_large_change:true}})');
+  await sample(4000, 77); assert.equal(f.run('quotaSpoken.length'), 2);
+  await sample(5000, 86); assert.equal(f.run('quotaSpoken.length'), 3); assert.equal(f.run('quotaSpoken[2].largeChange'), true);
+  await f.run('soundSettings.update({enabled:false})'); await sample(6000, 96); assert.equal(f.run('quotaSpoken.length'), 3);
+});
+
+test('live waiting states reach the Tracker webview and clear without repeating the beep', async t => {
+  const f = await fixture(t);
+  f.run('contextRef=fixtureContext;globalThis.viewMessages=[];trackerView={webview:{postMessage:m=>viewMessages.push(m)}};startErrorMonitoring(fixtureContext)');
+  await f.run('attentionMonitor.poll()');
+  f.setThreads([{ id: 'pending', name: 'Pending chat', status: { type: 'active', activeFlags: ['waitingOnApproval'] } }]);
+  await f.run('attentionMonitor.poll()');
+  f.run('postViewState()');
+  assert.equal(f.run('viewMessages.filter(m=>m.type==="state").at(-1).data.attention.pending.flags[0]'), 'waitingOnApproval');
+  await f.run('attentionMonitor.poll()');
+  assert.deepEqual(f.attentionSounds, ['pending']);
+  f.setThreads([]); await f.run('attentionMonitor.poll()');
+  assert.equal(f.run('Object.keys(viewMessages.filter(m=>m.type==="state").at(-1).data.attention).length'), 0);
+});
+
+test('completed plan remains actionable while native thread is idle and clears after the UI decision', async t => {
+  const f = await fixture(t, { useActualAttentionDispatch: true });
+  f.run('contextRef=fixtureContext;startErrorMonitoring(fixtureContext)');
+  await f.run('attentionMonitor.poll()');
+  f.setThreads([{ id: 'plan-chat', name: 'Planning task', status: { type: 'idle' } }]);
+  f.run("planState.started('plan-chat','plan-turn');planState.ready('plan-chat','plan-turn')");
+  await f.run('attentionMonitor.poll()'); await f.run('attentionMonitor.poll()');
+  assert.equal(f.spokenInitials.length, 1);
+  assert.deepEqual(Array.from(f.spokenInitials[0].newFlags), ['waitingOnPlanImplementation']);
+  assert.equal(f.run("attentionMonitor.snapshot()['plan-chat'].planTurnId"), 'plan-turn');
+  f.run("planState.resolved('plan-chat','plan-turn')"); await f.run('attentionMonitor.poll()');
+  assert.equal(f.run('Object.keys(attentionMonitor.snapshot()).length'), 0);
+});
 
 test('extension monitors hidden panels and opens the saved conversation error history', async t => {
   const f = await fixture(t);
   await f.run('contextRef=fixtureContext;startErrorMonitoring(fixtureContext);errorMonitor.poll(config().sessionsDir)');
-  assert.equal(f.extensionContext.subscriptions.length, 1);
+  assert.equal(f.extensionContext.subscriptions.length, 6);
   await fsp.appendFile(f.rollout, JSON.stringify({
     timestamp: new Date(Date.now() + 1000).toISOString(), type: 'event_msg',
     payload: { type: 'task_complete', turn_id: 'failed-turn', error: {

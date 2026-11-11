@@ -13,6 +13,7 @@ function fixture() {
   const listeners = new Set();
   const disposed = new Set();
   const messages = [];
+  const plans = [];
   let assigned = '';
   let writes = 0;
   const webview = {
@@ -40,7 +41,7 @@ function fixture() {
     extensionRoot: '/native',
     extensionUri: { toString: () => '/tracker' },
     moduleLoader: loader,
-    onChange: value => messages.push(value)
+    onChange: value => messages.push(value), onPlanPrompt: value => plans.push(value)
   });
   function initialize(view = webview) {
     const scopedApi = loader._load('vscode', { filename: path.resolve('/native/out/extension.js') });
@@ -50,10 +51,10 @@ function fixture() {
       return { dispose: () => disposed.delete(callback) };
     });
   }
-  function send(route, focused = true, token = webview.html.match(/data-tracker-token="([a-f0-9]+)"/)[1]) {
-    for (const listener of listeners) listener({ type: MESSAGE_TYPE, token, route, focused });
+  function send(route, focused = true, token = webview.html.match(/data-tracker-token="([a-f0-9]+)"/)[1], extra = {}) {
+    for (const listener of listeners) listener({ type: MESSAGE_TYPE, token, route, focused, ...extra });
   }
-  return { tracker, webview, provider, loader, api, originalLoad, initialize, send, messages, nativeMessages, listeners, disposed, writes: () => writes };
+  return { tracker, webview, provider, loader, api, originalLoad, initialize, send, messages, plans, nativeMessages, listeners, disposed, writes: () => writes };
 }
 
 test('only exact local chat routes identify the current conversation', () => {
@@ -157,6 +158,20 @@ test('disposing a view clears the active ID and removes the observer listener', 
   for (const callback of [...f.disposed]) callback();
   assert.deepEqual(f.messages, ['a', '']);
   f.tracker.dispose();
+});
+
+test('authenticated plan prompt reports update on the same route and resolve only the matching observed turn', () => {
+  const f = fixture(); f.initialize();
+  f.send('/local/a', true, undefined, { planTurnId: 'plan-one' });
+  f.send('/local/a', true, undefined, { planTurnId: 'plan-one' });
+  f.send('/local/a', true, 'invalid', { resolvedPlanTurnId: 'plan-one' });
+  assert.equal(f.plans.length, 1);
+  f.send('/local/b', true, undefined, { resolvedPlanTurnId: 'plan-one' });
+  assert.equal(f.plans.length, 1, 'navigating away is not dismissing the decision');
+  f.send('/local/a', true, undefined, { planTurnId: 'plan-one' });
+  f.send('/local/a', true, undefined, { resolvedPlanTurnId: 'plan-one' });
+  assert.deepEqual(f.plans.at(-1), { threadId: 'a', turnId: 'plan-one', visible: false });
+  assert.equal(f.nativeMessages.length, 0); f.tracker.dispose();
 });
 
 test('renderer observes the committed router context and preserves the original Codex API', () => {

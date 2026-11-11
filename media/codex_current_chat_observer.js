@@ -6,6 +6,7 @@
   if (!token || typeof acquire !== 'function') return;
   let api = null;
   let lastRoute = null;
+  let lastPlanTurnId = '';
   let timer = null;
   let focused = document.hasFocus();
 
@@ -23,30 +24,42 @@
     return fiber?.stateNode?.current || null;
   }
 
-  function readRoute() {
+  function readUiState() {
     const root = currentReactTree();
     if (!root) return null;
     const pending = [root];
+    const plans = [];
+    let route = '';
     let inspected = 0;
     while (pending.length && inspected < 50000) {
       const fiber = pending.pop();
       inspected += 1;
-      const value = fiber.memoizedProps?.value;
-      if (value && ['POP', 'PUSH', 'REPLACE'].includes(value.navigationType) && typeof value.location?.pathname === 'string') {
-        return value.location.pathname;
-      }
       if (fiber.sibling) pending.push(fiber.sibling);
+      if (fiber.tag === 22 && fiber.memoizedProps?.mode === 'hidden') continue;
+      const value = fiber.memoizedProps?.value;
+      if (!route && value && ['POP', 'PUSH', 'REPLACE'].includes(value.navigationType) && typeof value.location?.pathname === 'string') {
+        route = value.location.pathname;
+      }
+      const props = fiber.memoizedProps, request = props?.pendingRequest;
+      if (request?.type === 'implementPlan' && (!props.hostId || props.hostId === 'local') &&
+          /^[A-Za-z0-9_-]{1,200}$/.test(props.conversationId || '') && /^[A-Za-z0-9_-]{1,200}$/.test(request.turnId || '')) {
+        plans.push({ threadId: props.conversationId, turnId: request.turnId });
+      }
       if (fiber.child) pending.push(fiber.child);
     }
-    return '';
+    const threadId = /^\/local\/([A-Za-z0-9_-]{1,200})\/?(?:[?#].*)?$/.exec(route)?.[1];
+    return { route, planTurnId: plans.find(plan => plan.threadId === threadId)?.turnId || '' };
   }
 
   function report(force = false) {
     if (!api) return;
-    const route = readRoute();
-    if (route === null || (!force && route === lastRoute)) return;
+    const ui = readUiState();
+    if (ui === null || (!force && ui.route === lastRoute && ui.planTurnId === lastPlanTurnId)) return;
+    const { route, planTurnId } = ui;
+    const resolvedPlanTurnId = route === lastRoute && lastPlanTurnId && !planTurnId ? lastPlanTurnId : '';
     lastRoute = route;
-    api.postMessage({ type: 'codex-session-tracker.current-chat', token, route, focused });
+    lastPlanTurnId = planTurnId;
+    api.postMessage({ type: 'codex-session-tracker.current-chat', token, route, focused, planTurnId, resolvedPlanTurnId });
   }
 
   function schedule() {

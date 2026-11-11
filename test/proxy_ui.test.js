@@ -26,6 +26,7 @@ function view(localProxy) {
   const end = html.indexOf('\nfunction ', render + 1);
   assert.ok(start >= 0 && render > start && end > render);
   vm.runInContext(html.slice(start, end), context);
+  vm.runInContext(html.match(/const saveIcon=.*;/)[0], context);
   return {
     title: vm.runInContext('proxyRestartTitle(fixture)', context),
     markup: () => vm.runInContext('renderGateway()', context)

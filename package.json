@@ -2,7 +2,7 @@
   "name": "codex-session-tracker",
   "displayName": "Codex Session Tracker",
   "description": "Codex activity tracker with a Windows VS Code gateway, managed reversible routing, full request/response capture, and lifecycle-accurate steer diagnostics.",
-  "version": "0.12.27",
+  "version": "0.12.51",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -111,6 +111,18 @@
       {
         "command": "codexSessionTracker.deactivateSession",
         "title": "Codex Tracker: Deactivate (Xoá phiên hiện tại)"
+      },
+      {
+        "command": "codexSessionTracker.newChat",
+        "title": "Codex Tracker: Tạo chat mới với context riêng"
+      },
+      {
+        "command": "codexSessionTracker.transferChat",
+        "title": "Codex Tracker: Chuyển chat đang chọn sang chat mới"
+      },
+      {
+        "command": "codexSessionTracker.configureNewChat",
+        "title": "Codex Tracker: Cài đặt context khi tạo chat mới"
       }
     ],
     "configuration": {
@@ -261,6 +273,22 @@
     "codex_usage_history.js",
     "codex_usage_voice.js",
     "codex_context_compact.js",
+    "codex_context_watch.js",
+    "codex_chat_options.js",
+    "media/chat_options.html",
+    "media/chat_options.js",
+    "codex_context_reader.js",
+    "codex_context_handoff.js",
+    "codex_handoff_modes.js",
+    "codex_speed.js",
+    "media/proxy_options.html",
+    "media/proxy_options.js",
+    "codex_handoff_form.js",
+    "media/handoff_dialog.html",
+    "media/handoff_dialog.js",
+    "codex_thread_permissions.js",
+    "codex_attention.js",
+    "codex_attention_voice.js",
     "runtime_versions.js",
     "gateway",
     "dashboard.html",
@@ -268,8 +296,25 @@
     "media/tracker.svg",
     "media/*.mp3",
     "media/usage_voice/*.wav",
+    "media/attention_voice/*.wav",
+    "media/attention_voice/phrases.json",
     "media/codex_current_chat_observer.js",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "codex_new_chat.js",
+    "codex_chat_context_store.js",
+    "codex_new_chat_form.js",
+    "media/new_chat_dialog.html",
+    "media/new_chat_dialog.js",
+    "codex_sound_settings.js",
+    "codex_completion_sounds.js",
+    "media/sound_settings.js",
+    "media/sound_settings.css",
+    "media/chat_list_layout.js",
+    "codex_new_chat_context.js",
+    "codex_plan_state.js",
+    "codex_compaction_events.js",
+    "codex_auto_allow.js",
+    "codex_chat_identity.js"
   ]
 }

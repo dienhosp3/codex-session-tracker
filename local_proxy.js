@@ -139,11 +139,17 @@ function createLocalProxyController(options = {}) {
 
   return {
     snapshot,
-    setExecutable(value) {
+    setExecutable(value, configure) {
       if (pending) return Promise.resolve(false);
       return run(async () => {
         const canonical = await validate(value);
         await options.save?.(canonical);
+        try { await configure?.(); }
+        catch (error) {
+          try { await options.save?.(executablePath); }
+          catch (rollback) { throw new Error(error.message + ' Không khôi phục được đường dẫn cũ: ' + rollback.message); }
+          throw error;
+        }
         executablePath = canonical;
         notice = { kind: 'success', text: 'Đã lưu đường dẫn proxy.' };
         return true;

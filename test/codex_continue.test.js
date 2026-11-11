@@ -163,7 +163,7 @@ test('legacy bridge revision is replaced before recovery uses the previous turn 
   const old=stream.ipcClient[key];old.revision=5;
   installOwnerBridge([f.connection],[stream]);
   assert.notEqual(stream.ipcClient[key],old);
-   assert.equal(stream.ipcClient[key].revision,9);
+   assert.equal(stream.ipcClient[key].revision,24);
   await assert.rejects(continueInLocalBackend({...input,expectedPreviousTurnId:'stale-turn'}),e=>e.delivery==='not_sent');
   assert.equal(f.calls.some(c=>c.method==='turn/start'),false);
  }finally{disposeOwnerBridges();}

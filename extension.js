@@ -13,6 +13,44 @@ const { normalizeUsageAlertSettings, evaluateUsageAlerts, usageAlertSummary } = 
 const { normalizeUsageHistory, recordUsageSample, createUsageHistoryStore, usageHistoryChart } = require('./codex_usage_history');
 const { normalizeUsageVoiceSettings, normalizeUsageVoiceState, evaluateUsageVoice, createUsageVoiceController } = require('./codex_usage_voice');
 const { normalizeContextCompactSettings, normalizeContextCompactState, contextPercent, contextCompactDecision, markContextCompactStarted, markContextCompactSucceeded, markContextCompactFailed } = require('./codex_context_compact');
+const { createContextWatch } = require('./codex_context_watch');
+const { subscribeCompactionStarted } = require('./codex_compaction_events');
+const { createContextReader } = require('./codex_context_reader');
+const { runContextHandoff, parseSeries, THREAD_ID } = require('./codex_context_handoff');
+const { contextHandoffBackend, readAttentionInLocalBackend } = require('./codex_live_backend');
+const { newChatBackend } = require('./codex_live_backend');
+const { PRESETS, normalizeContextPreset, readModelContext, contextChoice, contextConfig, formatContextK } = require('./codex_new_chat');
+const { configureChatContextStore, currentChatContextStore } = require('./codex_chat_context_store');
+const NEW_CHAT_SETTINGS_KEY = 'codexSessionTracker.newChatContext.v1';
+const NEW_CHAT_MODEL_KEY = 'codexSessionTracker.newChatModel.v1';
+const NEW_CHAT_SPEED_KEY = 'codexSessionTracker.newChatSpeed.v1';
+const { normalizeSpeed, requireSpeed } = require('./codex_speed');
+let newChatBusy = false;
+const { createNewChatForm } = require('./codex_new_chat_form');
+const { createHandoffForm } = require('./codex_handoff_form');
+let handoffForm = null, pendingHandoffDialog = null;
+let newChatForm = null, newChatDialogReady = false, pendingNewChatDialog = null;
+const { createAttentionMonitor } = require('./codex_attention');
+const { speakAttentionReminder, speakAttentionInitial } = require('./codex_attention_voice');
+const { speakCompletion } = require('./codex_attention_voice');
+const { SOUND_TYPES, createSoundSettings, filterAttentionSound } = require('./codex_sound_settings');
+const { createCompletionSounds } = require('./codex_completion_sounds');
+const { soundsForChat } = require('./codex_chat_options');
+const { validateChatOptions } = require('./codex_chat_options');
+const { normalizeDisplayLabel, normalizeIdentity, identityFromTitle, identityPlan, prepareIdentityEdit } = require('./codex_chat_identity');
+const { configureAutoAllowStore, currentAutoAllowStore } = require('./codex_auto_allow');
+const { chatPermissionsBackend } = require('./codex_live_backend');
+const chatOptionsSaving = new Set();
+const { planState, mergePlanAttention, PLAN_READY_TEXT } = require('./codex_plan_state');
+const { subscribeTurnLifecycle } = require('./codex_live_backend');
+const { subscribeNewChats } = require('./codex_live_backend');
+const { subscribeGoalUpdates } = require('./codex_live_backend');
+const { createNewChatContextRule } = require('./codex_new_chat_context');
+const NEW_CHAT_CONTEXT_RULE_KEY = 'codexSessionTracker.newChatContextRule.v1';
+let newChatContextRule = null;
+const SOUND_SETTINGS_KEY = 'codexSessionTracker.soundSettings.v1';
+const COMPLETION_SOUNDS_KEY = 'codexSessionTracker.completionSounds.v1';
+let soundSettings = null, completionSounds = null, soundNotice = '';
 const codexDelete = require('./codex_delete');
 const codexAuth = require('./codex_auth');
 const { createConversationNavigator } = require('./codex_navigation');
@@ -40,6 +78,7 @@ const CONTEXT_COMPACT_STATE_KEY = 'codexSessionTracker.contextCompactState.v1';
 const LOCAL_PROXY_KEY = 'codexSessionTracker.localProxyExecutable.v1';
 let localProxy = null;
 let localProxyPicker = null;
+let pendingProxyDialog = false, proxyOptionsSaving = false;
 let proxyWatchdog = null;
 let proxyRecovery = null;
 const PROXY_WATCHDOG_KEY = 'codexSessionTracker.proxyWatchdog.v1';
@@ -67,6 +106,10 @@ let contextCompactSettings = normalizeContextCompactSettings();
 let contextCompactState = normalizeContextCompactState();
 let contextCompactBusy = false;
 let contextCompactNotice = null;
+let contextWatch = null;
+let attentionMonitor = null;
+let attentionEntries = {};
+const CONTEXT_WATCH_KEY = 'codexSessionTracker.contextWatch.v1';
 let usageHistoryState = { schemaVersion: 1, samples: [] };
 let usageHistoryPromise = Promise.resolve();
 let usageHistoryStore = null;
@@ -144,6 +187,8 @@ let gatewayProxyEnvApplied = false;
 
 async function activate(context) {
   contextRef = context;
+  configureChatContextStore(path.join(context.globalStorageUri.fsPath, 'chat-contexts'));
+  configureAutoAllowStore(path.join(context.globalStorageUri.fsPath, 'chat-permissions'));
   startErrorMonitoring(context);
   localProxy = createLocalProxyController({
     executablePath: context.globalState.get(LOCAL_PROXY_KEY, ''),
@@ -163,6 +208,7 @@ async function activate(context) {
     plan: context.globalState.get(PROXY_RECOVERY_KEY),
     save: plan => context.globalState.update(PROXY_RECOVERY_KEY, plan),
     async send(task) {
+      if (contextWatch?.blocks(task.threadId)) throw Object.assign(new Error('Chat đã dừng để chuyển tiếp context.'), { delivery: 'not_sent' });
       if (continueBusy || steerBusy || queueBusy) {
         throw Object.assign(new Error('Tracker đang gửi tin khác.'), { delivery: 'not_sent' });
       }
@@ -176,7 +222,7 @@ async function activate(context) {
   proxyWatchdog = createProxyWatchdog({
     settings: context.globalState.get(PROXY_WATCHDOG_KEY),
     lastAttemptAt: context.globalState.get(PROXY_ATTEMPT_KEY, 0),
-    proxySnapshot: () => localProxy.snapshot(),
+    proxySnapshot: () => ({ ...localProxy.snapshot(), busy: localProxy.snapshot().busy || proxyOptionsSaving }),
     saveSettings: settings => context.globalState.update(PROXY_WATCHDOG_KEY, settings),
     saveAttempt: at => context.globalState.update(PROXY_ATTEMPT_KEY, at),
     restart: () => localProxy.restart('auto'),
@@ -187,6 +233,10 @@ async function activate(context) {
     onChange(threadId) {
       codexCurrentThreadId = threadId;
       trackerView?.webview.postMessage({ type: 'codexCurrentChat', threadId });
+    },
+    onPlanPrompt(event) {
+      if (event.visible) planState.ready(event.threadId, event.turnId);
+      else planState.resolved(event.threadId, event.turnId);
     }
   });
   context.subscriptions.push(currentChatTracker);
@@ -197,6 +247,7 @@ async function activate(context) {
   usageVoiceState = normalizeUsageVoiceState(context.globalState.get(USAGE_VOICE_STATE_KEY));
   contextCompactSettings = normalizeContextCompactSettings(context.globalState.get(CONTEXT_COMPACT_SETTINGS_KEY));
   contextCompactState = normalizeContextCompactState(context.globalState.get(CONTEXT_COMPACT_STATE_KEY));
+  startContextWatching(context);
   usageVoice = createUsageVoiceController({ assetsDirectory: path.join(context.extensionPath, 'media', 'usage_voice') });
   usageHistoryStore = createUsageHistoryStore(context.globalStorageUri.fsPath);
   usageHistoryState = { samples: await usageHistoryStore.load().catch(error => { console.warn('[Codex Session Tracker] Usage history read: ' + friendlyError(error)); return []; }) };
@@ -256,11 +307,17 @@ async function activate(context) {
   statusBar.name = 'Codex Session Tracker';
   statusBar.command = 'codexSessionTracker.openTracker';
   context.subscriptions.push(statusBar);
+  if (vscode.window.onDidChangeWindowState) context.subscriptions.push(vscode.window.onDidChangeWindowState(event => {
+    if (event.focused && trackerView?.visible) refreshAll(true);
+  }));
 
   context.subscriptions.push(
     vscode.commands.registerCommand('codexSessionTracker.openTracker', openTracker),
     vscode.commands.registerCommand('codexSessionTracker.openDashboard', openTracker),
     vscode.commands.registerCommand('codexSessionTracker.selectChat', openTracker),
+    vscode.commands.registerCommand('codexSessionTracker.newChat', () => openNewChatDialog()),
+    vscode.commands.registerCommand('codexSessionTracker.transferChat', () => openHandoffDialog(selected?.threadId)),
+    vscode.commands.registerCommand('codexSessionTracker.configureNewChat', () => configureNewChatContext()),
     vscode.commands.registerCommand('codexSessionTracker.refresh', () => refreshAll(true)),
     vscode.commands.registerCommand('codexSessionTracker.checkUsage', () => usageMonitor?.refresh()),
     vscode.commands.registerCommand('codexSessionTracker.configureUsageInterval', configureUsageInterval),
@@ -296,7 +353,410 @@ async function activate(context) {
   refreshTrackedStatus(true);
 }
 
+function newChatDefault() {
+  try { return normalizeContextPreset(contextRef?.globalState.get(NEW_CHAT_SETTINGS_KEY, 'default')); }
+  catch { return 'default'; }
+}
+
+async function creationMetadata(cwd, model) {
+  const extension = vscode.extensions.getExtension('openai.chatgpt');
+  if (extension && !extension.isActive) await extension.activate();
+  await prepareOwnerBridge();
+  const backend = newChatBackend();
+  const creation = await backend.readCreationConfig(cwd);
+  const metadata = await readModelContext(config().codexHome, model || creation.model, creation.catalogFile);
+  return { backend, metadata, creation };
+}
+
+function newChatModelDefault() {
+  const value = contextRef?.globalState.get(NEW_CHAT_MODEL_KEY, '');
+  return typeof value === 'string' ? value : '';
+}
+
+function newChatSpeedDefault() {
+  try { return normalizeSpeed(contextRef?.globalState.get(NEW_CHAT_SPEED_KEY, 'default')); }
+  catch { return 'default'; }
+}
+
+async function newChatMetadata(cwd, requestedModel) {
+  const { backend, creation } = await creationMetadata(cwd);
+  const models = await backend.listModels();
+  // Keep a custom provider's configured model available even outside the catalog.
+  if (creation.model && !models.some(item => item.id === creation.model)) models.unshift({ id: creation.model, label: creation.model });
+  if (requestedModel !== undefined && (typeof requestedModel !== 'string' || !models.some(item => item.id === requestedModel))) {
+    throw new Error('Model không còn có sẵn.');
+  }
+  const preferred = requestedModel || newChatModelDefault();
+  const model = models.some(item => item.id === preferred) ? preferred : creation.model || models.find(item => item.isDefault)?.id || models[0]?.id;
+  if (!model) throw new Error('Chưa có model.');
+  return { backend, models, metadata: await readModelContext(config().codexHome, model, creation.catalogFile) };
+}
+
+async function pickContext(metadata, current, title) {
+  const items = PRESETS.map(preset => {
+    const choice = contextChoice(preset, metadata);
+    return { preset, label: preset === 'default' ? 'Theo model (' + formatContextK(choice.requestedTokens) + ')' : preset.toUpperCase(),
+      description: preset === current ? 'Đang chọn' : '',
+      detail: !choice.available ? 'Chưa rõ' : 'Dùng ' + formatContextK(choice.effectiveTokens) +
+        (choice.limited ? ' · trần ' + formatContextK(choice.appliedTokens) : '') };
+  });
+  const picked = await new Promise(resolve => {
+    const picker = vscode.window.createQuickPick();
+    picker.title = title;
+    picker.placeholder = metadata.model;
+    picker.matchOnDetail = true;
+    picker.items = items;
+    // A label alone does not preselect the saved item in a native QuickPick.
+    picker.activeItems = [items.find(item => item.preset === current) || items[0]];
+    let settled = false;
+    const listeners = [];
+    const finish = item => {
+      if (settled) return;
+      settled = true;
+      for (const listener of listeners) listener.dispose();
+      picker.dispose();
+      resolve(item);
+    };
+    listeners.push(picker.onDidAccept(() => finish(picker.selectedItems[0] || picker.activeItems[0])));
+    listeners.push(picker.onDidHide(() => finish(undefined)));
+    picker.show();
+  });
+  if (!picked) return;
+  contextConfig(picked.preset, metadata);
+  return picked.preset;
+}
+
+async function configureNewChatContext(threadId) {
+  if (!threadId) return openNewChatDialog(true);
+  try {
+    const entry = threadId && contextWatch?.snapshot().entries[threadId];
+    const session = threadId && (activeChats.concat(nonRunningChats).find(chat => chat.threadId === threadId)
+      || (selected?.threadId === threadId ? selected : null) || entry);
+    if (threadId && !session) throw new Error('Không tìm thấy chat để cấu hình.');
+    const cwd = session?.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const model = session?.runtime?.model || contextWatch?.snapshot().readings?.[threadId]?.model;
+    const { metadata } = await creationMetadata(cwd, model);
+    const preset = await pickContext(metadata, entry?.contextPreset || newChatDefault(), threadId ? 'Context cho chat kế tiếp trong chuỗi' : 'Context mặc định khi tạo chat mới');
+    if (!preset) return;
+    if (threadId) await contextWatch.setContextPreset(threadId, preset, session);
+    else await contextRef.globalState.update(NEW_CHAT_SETTINGS_KEY, preset);
+    postViewState();
+  } catch (error) { vscode.window.showErrorMessage('Context chat mới: ' + friendlyError(error)); }
+}
+
+function getNewChatForm() {
+  if (!newChatForm) newChatForm = createNewChatForm({
+    post: message => trackerView?.webview.postMessage(message),
+    folders: () => (vscode.workspace.workspaceFolders || []).map(folder => ({ name: folder.name, cwd: folder.uri.fsPath })),
+    defaultPreset: newChatDefault,
+    defaultSpeed: newChatSpeedDefault,
+    autoContext: () => getNewChatContextRule().snapshot(),
+    async savePreset(preset) { await contextRef.globalState.update(NEW_CHAT_SETTINGS_KEY, preset); postViewState(); },
+    async saveModel(model) { await contextRef.globalState.update(NEW_CHAT_MODEL_KEY, model); postViewState(); },
+    async saveSpeed(serviceTier) { await contextRef.globalState.update(NEW_CHAT_SPEED_KEY, serviceTier); postViewState(); },
+    metadata: newChatMetadata,
+    async browse(cwd) {
+      const picked = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
+        ...(cwd ? { defaultUri: vscode.Uri.file(cwd) } : {}), openLabel: 'Chọn thư mục làm việc' });
+      return picked?.[0]?.fsPath;
+    },
+    busy: value => { newChatBusy = value; postViewState(); },
+    async created(thread, preset, cwd, serviceTier) {
+      await getNewChatContextRule().apply({ threadId: thread.id, cwd, file: thread.path, title: 'Chat mới' }, 'tracker');
+      await contextWatch.setContextPreset(thread.id, preset, { cwd, file: thread.path, title: 'Chat mới' });
+      await contextWatch.setEntry(thread.id, { ...contextWatch.snapshot().entries[thread.id], serviceTier });
+      await openCodexConversation(thread.id);
+      await refreshActiveChats(true);
+    },
+    open: openCodexConversation
+  });
+  return newChatForm;
+}
+
+function getNewChatContextRule() {
+  if (!newChatContextRule) newChatContextRule = createNewChatContextRule({
+    value: contextRef?.globalState.get(NEW_CHAT_CONTEXT_RULE_KEY), defaultThreshold: contextWatch?.snapshot().thresholdPercent ?? 80,
+    save: value => contextRef.globalState.update(NEW_CHAT_CONTEXT_RULE_KEY, value), watch: () => contextWatch, onChange: postViewState
+  });
+  return newChatContextRule;
+}
+
+async function saveNewChatContextRule(message) {
+  try {
+    const autoContext = await getNewChatContextRule().update(message.settings || {});
+    trackerView?.webview.postMessage({ type: 'newChatAutoContextSaved', requestId: message.requestId, autoContext });
+  } catch (error) { trackerView?.webview.postMessage({ type: 'newChatAutoContextSaved', requestId: message.requestId, error: friendlyError(error) }); }
+}
+
+async function applyNativeNewChatContext(event) {
+  if (event.origin !== 'native' || !getNewChatContextRule().snapshot().enabled) return;
+  const thread = await event.readThread();
+  const meta = thread.path ? await tracker.readSessionMeta(thread.path).catch(() => null) : null;
+  if (!meta || meta.parentThreadId || meta.source === 'subagent') return;
+  await getNewChatContextRule().apply({ threadId: thread.id, cwd: thread.cwd || meta.cwd, file: thread.path, title: thread.name || 'Chat mới' }, 'native');
+}
+
+function showPendingNewChatDialog() {
+  if (trackerView && newChatDialogReady && pendingProxyDialog) { trackerView.webview.postMessage({type:'openProxyOptions'}); pendingProxyDialog=false; }
+  if (trackerView && newChatDialogReady && pendingHandoffDialog) {
+    trackerView.webview.postMessage({ type: 'openHandoffDialog', threadId: pendingHandoffDialog });
+    pendingHandoffDialog = null;
+  }
+  if (!trackerView || !newChatDialogReady || !pendingNewChatDialog) return;
+  trackerView.webview.postMessage({ type: 'openNewChatDialog', ...pendingNewChatDialog });
+  pendingNewChatDialog = null;
+}
+
+async function openNewChatDialog(settingsOnly = false) {
+  pendingNewChatDialog = { settingsOnly };
+  await openTracker();
+  showPendingNewChatDialog();
+}
+
+async function openHandoffDialog(threadId) {
+  if (!threadId) { vscode.window.showErrorMessage('Chọn chat gốc trong Tracker.'); return; }
+  pendingHandoffDialog = threadId;
+  await openTracker();
+  showPendingNewChatDialog();
+}
+
+function getHandoffForm() {
+  if (!handoffForm) handoffForm = createHandoffForm({
+    post: message => trackerView?.webview.postMessage(message), watch: () => contextWatch,
+    defaultPreset: newChatDefault, changed: postViewState,
+    async describe(threadId, requestedModel) {
+      const session = activeChats.concat(nonRunningChats).find(chat => chat.threadId === threadId)
+        || (selected?.threadId === threadId ? selected : null) || contextWatch?.snapshot().entries[threadId];
+      if (!session) throw new Error('Không tìm thấy chat gốc.');
+      await prepareOwnerBridge();
+      const backend = contextHandoffBackend(threadId);
+      const latest = await tracker.findLatestRolloutForThread(config().sessionsDir, threadId, { scanLimit: config().treeScanLimit });
+      const runtime = latest ? await tracker.readSessionRuntimeProfile(latest.file, latest) : session.runtime;
+      const creation = await backend.readCreationConfig(latest?.cwd || session.cwd);
+      const models = await backend.listModels();
+      for (const model of [runtime?.model, creation.model]) {
+        if (model && !models.some(item => item.id === model)) models.unshift({ id: model, label: model });
+      }
+      const model = requestedModel ?? (runtime?.model || creation.model);
+      if (typeof model !== 'string' || !models.some(item => item.id === model)) throw new Error('Model không còn có sẵn.');
+      return { session, models, serviceTier: runtime?.serviceTier || contextWatch?.snapshot().entries[threadId]?.serviceTier || creation.serviceTier || 'default',
+        ...await backend.handoffModes(threadId), metadata: await readModelContext(config().codexHome, model, creation.catalogFile) };
+    }
+  });
+  return handoffForm;
+}
+
+function startContextWatching(context) {
+  const read = createContextReader({
+    async resolveFile(entry) {
+      const session = await tracker.findLatestRolloutForThread(config().sessionsDir, entry.threadId, { scanLimit: config().treeScanLimit });
+      return session?.file || entry.file;
+    }
+  });
+  contextWatch = createContextWatch({
+    state: context.workspaceState.get(CONTEXT_WATCH_KEY),
+    save: value => context.workspaceState.update(CONTEXT_WATCH_KEY, value),
+    async read(entry) {
+      const reading = await read(entry);
+      try { contextHandoffBackend(entry.threadId); }
+      catch (error) { reading.error = error.message; }
+      return reading;
+    },
+    async readManual(entry) {
+      const live = await contextHandoffBackend(entry.threadId).readHandoffState(entry.threadId);
+      const session = await tracker.findLatestRolloutForThread(config().sessionsDir, entry.threadId, { scanLimit: config().treeScanLimit });
+      const runtime = session ? await tracker.readSessionRuntimeProfile(session.file, session) : null;
+      return { ...live, model: runtime?.model || live.model, reasoning: runtime?.reasoning || live.reasoning, serviceTier: runtime?.serviceTier || live.serviceTier };
+    },
+    isBusy(threadId) {
+      if (authSessionBusy || contextCompactBusy || interruptBusy || steerBusy || queueBusy || continueBusy) return true;
+      try { contextHandoffBackend(threadId); return false; } catch { return true; }
+    },
+    async handoff(entry, onProgress) {
+      await prepareOwnerBridge();
+      const backend = contextHandoffBackend(entry.threadId);
+      const prepare = async () => {
+        const session = await tracker.findLatestRolloutForThread(config().sessionsDir, entry.threadId, { scanLimit: config().treeScanLimit });
+        if (!session) throw new Error('Không tìm thấy chat gốc để chuyển tiếp.');
+        const preset = normalizeContextPreset(entry.contextPreset || newChatDefault());
+        const creation = await backend.readCreationConfig(session.cwd || entry.cwd);
+        const runtime = entry.trigger === 'auto_compact' ? await tracker.readSessionRuntimeProfile(session.file, session) : null;
+        const model = entry.successorModel || runtime?.model || entry.model || creation.model;
+        const tier = runtime?.serviceTier || entry.serviceTier || creation.serviceTier || 'default';
+        if (entry.manual && tier !== 'default') {
+          try { requireSpeed(tier, (await backend.listModels()).find(item => item.id === model)); }
+          catch (error) { error.handoffSkipped = true; throw error; }
+        }
+        const metadata = await readModelContext(config().codexHome, model, creation.catalogFile);
+        const overrides = contextConfig(preset, metadata);
+        const tree = await tracker.scanSessionTree(config().sessionsDir, session, { scanLimit: config().treeScanLimit });
+        const children = [];
+        for (const child of tree) {
+          if (child.threadId === entry.threadId) continue;
+          const status = await tracker.readLatestTaskEvent(child.file);
+          if (status?.kind === 'running' && status.turnId) children.push({ threadId: child.threadId, turnId: status.turnId });
+        }
+        return { ...entry, model, reasoning: runtime?.reasoning || entry.reasoning, serviceTier: tier,
+          contextPreset: preset, contextConfig: overrides, file: session.file, cwd: session.cwd || entry.cwd, children };
+      };
+      const names = [...activeChats, ...nonRunningChats, ...Object.values(contextWatch.snapshot().entries)];
+      const reservedCodes = names.map(chat => parseSeries(chat.title)?.code).filter(Boolean);
+      // Interrupt native compaction before model/catalog/tree reads. Prepare
+      // the successor only after the source is confirmed stopped.
+      const automaticCompaction = entry.trigger === 'auto_compact';
+      return runContextHandoff({ entry: automaticCompaction ? entry : await prepare(), backend,
+        ...(automaticCompaction ? { prepareSuccessor: async () => {
+          const prepared = await prepare();
+          for (const child of prepared.children) await backend.stopForHandoff({ ...child, children: [] });
+          return { ...prepared, children: [] };
+        } } : {}),
+        directory: path.join(context.globalStorageUri.fsPath, 'context-handoffs'), reservedCodes, onProgress });
+    },
+    async onTransferred(result) {
+      const inherited = contextWatch.snapshot().entries[result.nextThreadId];
+      if (inherited?.enabled && result.trigger !== 'manual') await getNewChatContextRule().apply(inherited, 'successor', true);
+      await refreshActiveChats(true);
+      await selectThread(result.nextThreadId);
+    },
+    onChange: data => trackerView?.webview.postMessage({ type: 'contextWatch', data })
+  });
+  context.subscriptions.push(contextWatch);
+  context.subscriptions.push(subscribeCompactionStarted(event => contextWatch?.compactionStarted(event)));
+  context.subscriptions.push(subscribeGoalUpdates(event => contextWatch?.goalUpdated(event)));
+  contextWatch.start();
+}
+
+async function setContextWatch(message) {
+  try {
+    const threadId = String(message.threadId || '');
+    const existing = contextWatch.snapshot().entries[threadId];
+    const session = activeChats.concat(nonRunningChats).find(chat => chat.threadId === threadId)
+      || (selected?.threadId === threadId ? selected : null) || existing;
+    if (!session) throw new Error('Không tìm thấy chat để theo dõi.');
+    await contextWatch.setEntry(threadId, { enabled: message.enabled === true,
+      title: session.title, cwd: session.cwd, file: session.file, thresholdPercent: message.thresholdPercent ?? existing?.thresholdPercent });
+    const snapshot = contextWatch.snapshot();
+    const saved = snapshot.entries[threadId];
+    trackerView?.webview.postMessage({ type: 'contextWatchSaved', threadId, thresholdPercent: saved.thresholdPercent, enabled: saved.enabled, data: snapshot });
+  } catch (error) {
+    trackerView?.webview.postMessage({ type: 'contextWatchSaved', threadId: String(message.threadId || ''), error: friendlyError(error) });
+    vscode.window.showErrorMessage('Context: ' + friendlyError(error));
+  }
+  postViewState();
+}
+
+async function handleChatOptions(message, save) {
+  const threadId = String(message.threadId || ''), requestId = String(message.requestId || '');
+  let locked = false, permissionNotice = '';
+  try {
+    if (!THREAD_ID.test(threadId)) throw new Error('ID chat không hợp lệ.');
+    const session = activeChats.concat(nonRunningChats).find(chat => chat.threadId === threadId)
+      || (selected?.threadId === threadId ? selected : null) || contextWatch?.snapshot().entries[threadId];
+    if (!session) throw new Error('Không tìm thấy chat để cài đặt.');
+    let title = session.title;
+    if (save) {
+      if (chatOptionsSaving.has(threadId)) throw new Error('Đang lưu tuỳ chọn chat; chờ hoàn tất.');
+      chatOptionsSaving.add(threadId); locked = true;
+      const { autoAllow, ...otherOptions } = message.options || {};
+      validateChatOptions(otherOptions);
+      if (autoAllow !== undefined && typeof autoAllow !== 'boolean') throw new Error('Auto Allow không hợp lệ.');
+      const hasIdentity = Object.hasOwn(message, 'identity'), hasLabel = Object.hasOwn(message, 'displayLabel');
+      const identity = hasIdentity ? normalizeIdentity(message.identity) : undefined;
+      const expectedIdentity = Object.hasOwn(message, 'expectedIdentity') ? normalizeIdentity(message.expectedIdentity) : undefined;
+      const displayLabel = hasLabel ? normalizeDisplayLabel(message.displayLabel) : undefined;
+      const before = currentAutoAllowStore()?.get(threadId)?.enabled === true;
+      const changing = autoAllow !== undefined && autoAllow !== before;
+      let backend;
+      const getBackend = async () => {
+        if (!backend) { await prepareOwnerBridge(); backend = chatPermissionsBackend(threadId); }
+        return backend;
+      };
+      await contextWatch.setChatOptions(threadId, otherOptions, session, {
+        prepare: async () => {
+          const prepared = hasIdentity
+            ? await prepareIdentityEdit(await getBackend(), threadId, identity, session.title, expectedIdentity)
+            : { patch: {} };
+          if (hasLabel) prepared.patch.displayLabel = displayLabel;
+          title = prepared.patch.title || session.title;
+          return prepared;
+        },
+        afterSave: async () => {
+          if (changing) {
+            await (await getBackend()).setAutoAllow({ threadId, enabled: autoAllow, file: session.file });
+            permissionNotice = autoAllow ? 'Đã bật Auto Allow.' : 'Đã tắt Auto Allow. Quyền trước đó áp dụng từ lượt kế tiếp.';
+          }
+        }
+      });
+      if (hasIdentity) {
+        for (const chat of [...activeChats, ...nonRunningChats, selected].filter(Boolean)) if (chat.threadId === threadId) chat.title = title;
+      }
+    } else {
+      // A loaded native name is fresher than the scan cache. Label editing
+      // remains available when Codex is unavailable.
+      try { title = await chatPermissionsBackend(threadId).readChatTitle(threadId, title); } catch {}
+    }
+    const entry = contextWatch.snapshot().entries[threadId];
+    const currentIdentity = identityFromTitle(title);
+    trackerView?.webview.postMessage({ type: save ? 'chatOptionsSaved' : 'chatOptionsLoaded', threadId, requestId,
+      title, identity: currentIdentity, displayLabel: entry?.displayLabel || '',
+      nextSeries: entry?.series || (currentIdentity ? identityPlan(title, currentIdentity).series : null),
+      options: { ...contextWatch.getChatOptions(threadId), autoAllow: currentAutoAllowStore()?.get(threadId)?.enabled === true },
+      ...(save ? { data: contextWatch.snapshot(), notice: permissionNotice, identityUpdated: Object.hasOwn(message, 'identity') } : {}) });
+    if (save) { renderStatus(); postViewState(); }
+  } catch (error) {
+    trackerView?.webview.postMessage({ type: save ? 'chatOptionsSaved' : 'chatOptionsLoaded', threadId, requestId, error: friendlyError(error) });
+  } finally { if (locked) chatOptionsSaving.delete(threadId); }
+}
+
+async function setContextSeries(message) {
+  const threadId = String(message.threadId || '');
+  const requestId = String(message.requestId || '');
+  try {
+    const existing = contextWatch.snapshot().entries[threadId];
+    const session = activeChats.concat(nonRunningChats).find(chat => chat.threadId === threadId)
+      || (selected?.threadId === threadId ? selected : null) || existing;
+    if (!session) throw new Error('Không tìm thấy chat để chỉnh mã chuỗi.');
+    await contextWatch.setSeries(threadId, message.series, session);
+    const snapshot = contextWatch.snapshot();
+    trackerView?.webview.postMessage({ type: 'contextSeriesSaved', threadId, requestId,
+      series: snapshot.entries[threadId].series, data: snapshot });
+  } catch (error) {
+    trackerView?.webview.postMessage({ type: 'contextSeriesSaved', threadId, requestId, error: friendlyError(error) });
+    vscode.window.showErrorMessage('Mã chuỗi: ' + friendlyError(error));
+  }
+  postViewState();
+}
+
 function startErrorMonitoring(context) {
+  soundSettings = createSoundSettings({ value: context.globalState.get(SOUND_SETTINGS_KEY),
+    legacy: context.globalState.get(USAGE_VOICE_SETTINGS_KEY),
+    save: value => context.globalState.update(SOUND_SETTINGS_KEY, value), onChange: () => postViewState() });
+  completionSounds = createCompletionSounds({
+    state: context.globalState.get(COMPLETION_SOUNDS_KEY),
+    settings: threadId => soundsForChat(soundSettings.snapshot(), contextWatch?.getChatOptions(threadId)),
+    save: value => context.globalState.update(COMPLETION_SOUNDS_KEY, value),
+    async describe(event) {
+      let thread;
+      try { thread = await event.readThread?.(); } catch { /* A crashed runtime can still have local metadata. */ }
+      let meta;
+      if (thread?.path) meta = await tracker.readSessionMeta(thread.path).catch(() => null);
+      if (!meta) meta = await tracker.findLatestRolloutForThread(config().sessionsDir, event.threadId, { scanLimit: config().treeScanLimit });
+      return { isRoot: Boolean(meta && !meta.parentThreadId && meta.source !== 'subagent'), active: thread?.status?.type === 'active' || thread?.goalActive === true };
+    },
+    notify: (type, event) => playSoundType(type, event), onError: reportSoundError,
+    onPlanReady: event => planState.ready(event.threadId, event.turnId)
+  });
+  context.subscriptions.push(completionSounds, subscribeTurnLifecycle(event => completionSounds.handle(event)));
+  context.subscriptions.push(subscribeNewChats(applyNativeNewChatContext));
+  context.subscriptions.push(planState.subscribe(() => attentionMonitor?.poll()));
+  attentionMonitor = createAttentionMonitor({
+    read: async () => mergePlanAttention(await readAttentionInLocalBackend(), planState.snapshot()),
+    notify: notifyAttentionSound,
+    onChange: entries => { attentionEntries = entries; postViewState(); renderStatus(); },
+    onError: error => console.warn('[Codex Session Tracker] Waiting status: ' + friendlyError(error))
+  });
+  context.subscriptions.push(attentionMonitor);
+  attentionMonitor.start();
   errorHistory = createErrorHistory(context.globalStorageUri.fsPath);
   errorSound = createErrorSoundController({
     files: {
@@ -322,16 +782,72 @@ function startErrorMonitoring(context) {
     save: value => context.globalState.update(ERROR_MONITOR_KEY, value),
     notify: event => {
       if (event.alertType === 'user_input_required') {
-        const approval = ['exec_approval_request', 'apply_patch_approval_request', 'request_permissions'].includes(event.code);
-        const prefix = approval ? 'Codex đang chờ mày duyệt' : 'Codex đang chờ mày trả lời';
-        vscode.window.showWarningMessage(`${prefix} trong "${event.title}": ${event.message}`);
+        // The live monitor handles waiting sounds and clears the badge when
+        // resolved. Keep the history entry without a second, delayed sound.
+        return attentionMonitor.poll();
       }
-      return errorSound.play(event.soundKey || 'retry_429');
+      return completionSounds.handle({ threadId: event.threadId,
+        turn: { id: event.turnId || event.id, status: 'failed', error: {
+          message: event.message, codexErrorInfo: event.soundKey === 'model_capacity' ? 'serverOverloaded'
+            : { responseTooManyFailedAttempts: { httpStatusCode: 429 } }
+        } } });
     },
     onError: error => console.warn('[Codex Session Tracker] Error alert: ' + friendlyError(error))
   });
   context.subscriptions.push(errorMonitor);
   errorMonitor.poll(config().sessionsDir);
+}
+
+function reportSoundError(error) {
+  soundNotice = error.message || String(error);
+  console.warn('[Codex Tracker] Sound: ' + soundNotice); postViewState();
+}
+
+async function playSoundType(type, event, preview = false) {
+  return soundSettings?.play(type, async () => {
+    if (!preview && type === 'chat_completed' && contextWatch?.getChatOptions(event?.threadId).completionSound === false) return;
+    if (type === 'chat_completed' || type === 'chat_failed') return speakCompletion(type);
+    if (type === 'retry_429' || type === 'model_capacity') return errorSound.play(type);
+    if (type === 'quota_change' || type === 'quota_large_change') {
+      if (!usageVoice) throw new Error('Âm quota chưa sẵn sàng.');
+      return usageVoice.speak(event || { remainingPercent: 50, largeChange: type === 'quota_large_change' });
+    }
+    const flag = type.startsWith('approval_') ? 'waitingOnApproval' : 'waitingOnUserInput';
+    if (type.endsWith('_reminder')) return speakAttentionReminder(event || { waits: [{ flag, elapsedMinutes: 5 }] });
+    if (event?.newFlags?.includes('waitingOnPlanImplementation')) return speakAttentionInitial(event);
+    if (contextRef?.globalState.get(USER_INPUT_SOUND_KEY, '')) return errorSound.play('user_input');
+    return speakAttentionInitial(event || { flags: [flag] });
+  }, preview);
+}
+
+async function notifyAttentionSound(event) {
+  const filtered = filterAttentionSound(event, soundSettings.snapshot());
+  if (!filtered) return;
+  const waits = event.isReminder ? filtered.waits : filtered.newFlags.map(flag => ({ flag }));
+  // A custom MP3 is shared by both initial waiting types and plays only once.
+  if (!event.isReminder && !filtered.newFlags?.includes('waitingOnPlanImplementation') && contextRef?.globalState.get(USER_INPUT_SOUND_KEY, '')) {
+    return playSoundType(waits[0].flag === 'waitingOnApproval' ? 'approval_initial' : 'input_initial');
+  }
+  for (const wait of waits) {
+    const type = (wait.flag === 'waitingOnApproval' ? 'approval' : 'input') + (event.isReminder ? '_reminder' : '_initial');
+    await playSoundType(type, event.isReminder ? { ...filtered, waits: [wait] } : { ...filtered, newFlags: [wait.flag] });
+  }
+}
+
+async function saveSoundSettings(message) {
+  try {
+    const settings = await soundSettings.update(message.patch || {});
+    trackerView?.webview.postMessage({ type: 'soundSettingsSaved', requestId: message.requestId, settings });
+  } catch (error) {
+    trackerView?.webview.postMessage({ type: 'soundSettingsSaved', requestId: message.requestId, error: friendlyError(error) });
+  }
+}
+
+function usageSoundOptions() {
+  if (!soundSettings) return usageVoiceSettings;
+  const types = soundSettings.snapshot().types;
+  return { ...usageVoiceSettings, enabled: types.quota_change || types.quota_large_change,
+    speakOnChange: types.quota_change, speakOnLargeChange: types.quota_large_change };
 }
 
 async function openErrorHistory() {
@@ -391,7 +907,10 @@ async function previewModelCapacitySound() {
 }
 
 async function previewUserInputSound() {
-  try { await errorSound?.play('user_input'); }
+  try {
+    if (contextRef?.globalState.get(USER_INPUT_SOUND_KEY, '')) await errorSound?.play('user_input');
+    else await speakAttentionInitial({ flags: ['waitingOnApproval', 'waitingOnUserInput'] });
+  }
   catch (error) { vscode.window.showErrorMessage('Không phát được âm báo chờ trả lời: ' + friendlyError(error)); }
 }
 
@@ -422,18 +941,21 @@ function processUsageAlerts(snapshot) {
       };
       await errorHistory?.append(historyEvent);
       if (event.notify) vscode.window.showWarningMessage(event.message);
-      if (event.soundKey) await errorSound?.play(event.soundKey);
+      if (event.soundKey) await playSoundType(event.soundKey);
     }
   }).catch(error => console.warn('[Codex Session Tracker] Usage alert: ' + friendlyError(error)));
   return usageAlertPromise;
 }
 
 function processUsageVoice(snapshot) {
-  const result = evaluateUsageVoice(snapshot, usageVoiceState, usageVoiceSettings, snapshot?.checkedAt || Date.now());
+  const result = evaluateUsageVoice(snapshot, usageVoiceState, usageSoundOptions(), snapshot?.checkedAt || Date.now());
   usageVoiceState = result.state;
   usageVoicePromise = usageVoicePromise.then(async () => {
     await contextRef?.globalState.update(USAGE_VOICE_STATE_KEY, usageVoiceState);
-    for (const event of result.events) await usageVoice?.speak(event);
+    for (const event of result.events) {
+      const large = event.largeChange && soundSettings?.enabled('quota_large_change');
+      await playSoundType(large ? 'quota_large_change' : 'quota_change', { ...event, largeChange: Boolean(large) });
+    }
   }).catch(error => console.warn('[Codex Session Tracker] Usage voice: ' + friendlyError(error)));
   return usageVoicePromise;
 }
@@ -495,7 +1017,7 @@ async function saveUsageAlertSettings(input) {
   const voiceInput = input.voice && typeof input.voice === 'object' ? input.voice : {};
   const contextInput = input.context && typeof input.context === 'object' ? input.context : {};
   usageVoiceSettings = normalizeUsageVoiceSettings({
-    ...usageVoiceSettings,
+    ...usageSoundOptions(),
     ...(Object.prototype.hasOwnProperty.call(voiceInput, 'enabled') ? { enabled: voiceInput.enabled === true } : {}),
     ...(Object.prototype.hasOwnProperty.call(voiceInput, 'speakOnChange') ? { speakOnChange: voiceInput.speakOnChange !== false } : {}),
     ...(Object.prototype.hasOwnProperty.call(voiceInput, 'speakOnLargeChange') ? { speakOnLargeChange: voiceInput.speakOnLargeChange !== false } : {}),
@@ -527,6 +1049,10 @@ async function saveUsageAlertSettings(input) {
     await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
     await contextRef.globalState.update(USAGE_INTERVAL_KEY, minutes);
     await contextRef.globalState.update(USAGE_VOICE_SETTINGS_KEY, usageVoiceSettings);
+    if (soundSettings && input.voice) await soundSettings.update({ types: {
+      quota_change: usageVoiceSettings.enabled && usageVoiceSettings.speakOnChange,
+      quota_large_change: usageVoiceSettings.enabled && usageVoiceSettings.speakOnLargeChange
+    } });
     await contextRef.globalState.update(CONTEXT_COMPACT_SETTINGS_KEY, contextCompactSettings);
     usageMonitor?.setInterval(minutes);
   } catch (error) {
@@ -607,6 +1133,13 @@ function renderUsageStatus() {
 
 async function deactivate() {
   selectionRequestId += 1;
+  completionSounds?.dispose();
+  completionSounds = null;
+  attentionMonitor?.dispose();
+  attentionMonitor = null;
+  attentionEntries = {};
+  contextWatch?.dispose();
+  contextWatch = null;
   errorMonitor?.dispose();
   errorMonitor = null;
   errorHistory = null;
@@ -616,6 +1149,7 @@ async function deactivate() {
   usageHistoryStore = null;
   currentChatTracker?.dispose();
   currentChatTracker = null;
+  planState.clear();
   usageMonitor?.dispose();
   usageMonitor = null;
   usageStatusBar = null;
@@ -640,6 +1174,8 @@ async function deactivate() {
 class TrackerViewProvider {
   resolveWebviewView(webviewView) {
     trackerView = webviewView;
+    showNonRunning = false;
+    newChatDialogReady = false;
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.html = dashboardHtml();
 
@@ -653,6 +1189,34 @@ class TrackerViewProvider {
       if (message.command === 'interruptChat') await interruptSelectedChat(message.threadId);
       if (message.command === 'pauseGoal') await interruptSelectedChat(message.threadId, true);
       if (message.command === 'compactContext') await compactSelectedChat(message.threadId);
+      if (message.command === 'setContextWatch') await setContextWatch(message);
+      if (message.command === 'loadHandoffOptions') await getHandoffForm().load(message);
+      if (message.command === 'submitHandoff') await getHandoffForm().submit(message);
+      if (message.command === 'setContextSeries') await setContextSeries(message);
+      if (message.command === 'loadChatOptions') await handleChatOptions(message, false);
+      if (message.command === 'saveChatOptions') await handleChatOptions(message, true);
+      if (message.command === 'createNewChat') await openNewChatDialog();
+      if (message.command === 'newChatDialogReady') { newChatDialogReady = true; showPendingNewChatDialog(); }
+      if (message.command === 'loadNewChatOptions') await getNewChatForm().load(message);
+      if (message.command === 'browseNewChatWorkspace') await getNewChatForm().load(message, true);
+      if (message.command === 'saveNewChatPreset') await getNewChatForm().save(message);
+      if (message.command === 'saveNewChatSpeed') await getNewChatForm().saveSpeed(message);
+      if (message.command === 'saveNewChatAutoContext') await saveNewChatContextRule(message);
+      if (message.command === 'submitNewChat') await getNewChatForm().submit(message);
+      if (message.command === 'openCreatedChat') await getNewChatForm().openResult(message);
+      if (message.command === 'configureNewChat') await configureNewChatContext();
+      if (message.command === 'saveSoundSettings') await saveSoundSettings(message);
+      if (message.command === 'previewSound') {
+        let errorText = '';
+        try { await playSoundType(message.soundType, undefined, true); }
+        catch (error) { errorText = friendlyError(error); reportSoundError(error); }
+        trackerView?.webview.postMessage({ type: 'soundPreviewDone', requestId: message.requestId, error: errorText });
+      }
+      if (message.command === 'configureSuccessorContext') await configureNewChatContext(String(message.threadId || ''));
+      if (message.command === 'openContextSuccessor') {
+        const next = contextWatch?.snapshot().entries[message.threadId]?.handoff?.nextThreadId;
+        if (next) await selectThread(next);
+      }
       if (message.command === 'copyChatText' && typeof message.text === 'string') {
         let error = '';
         try { await vscode.env.clipboard.writeText(message.text); }
@@ -670,6 +1234,9 @@ class TrackerViewProvider {
       if (message.command === 'configureLocalProxy') await configureLocalProxy();
       if (message.command === 'restartLocalProxy') await restartLocalProxy();
       if (message.command === 'configureProxyWatchdog') await configureProxyWatchdog();
+      if (message.command === 'loadProxyOptions') await handleProxyOptions(message, 'load');
+      if (message.command === 'browseProxyOptions') await handleProxyOptions(message, 'browse');
+      if (message.command === 'saveProxyOptions') await handleProxyOptions(message, 'save');
       if (message.command === 'setUsageInterval') await saveUsageInterval(message.minutes);
       if (message.command === 'reloadAfterDeactivation' && authSessionReloadRequired && !authSessionBusy) await reloadAfterDeactivation();
       if (message.command === 'reprobeQueue' || message.command === 'reprobeCodex') { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }
@@ -682,7 +1249,13 @@ class TrackerViewProvider {
     }, null, contextRef.subscriptions);
 
     webviewView.onDidChangeVisibility(() => {
-      if (webviewView.visible) refreshAll(true);
+      if (webviewView.visible) {
+        if (!deleteBusy) {
+          showNonRunning = false;
+          webviewView.webview.postMessage({ type: 'trackerShown' });
+        }
+        refreshAll(true);
+      }
     }, null, contextRef.subscriptions);
 
     postViewState();
@@ -795,7 +1368,7 @@ async function configureLocalProxy() {
 }
 
 async function restartLocalProxy() {
-  if (!localProxy || localProxy.snapshot().busy) return;
+  if (!localProxy || localProxy.snapshot().busy || proxyOptionsSaving) return;
   if (localProxyPicker && !(await localProxyPicker)) return;
   if (!localProxy.snapshot().executablePath && !(await configureLocalProxy())) return;
   const restarted = await localProxy.restart();
@@ -807,31 +1380,38 @@ async function restartLocalProxy() {
 }
 
 async function configureProxyWatchdog() {
-  if (!proxyWatchdog) return;
-  const current = proxyWatchdog.snapshot();
-  const choice = await vscode.window.showQuickPick([
-    { label: current.enabled ? '$(circle-slash) Tắt tự khởi động lại' : '$(check) Bật tự khởi động lại', action: 'toggle' },
-    { label: '$(clock) Ngưỡng im lặng: ' + current.minutes + ' phút', action: 'minutes' },
-    { label: '$(folder-opened) Chọn EXE proxy', action: 'path' }
-  ], { title: 'Proxy tự khởi động lại: ' + (current.enabled ? 'Bật' : 'Tắt') + ' · ' + current.minutes + ' phút' });
-  if (!choice) return;
-  if (choice.action === 'path') { await configureLocalProxy(); return; }
-  const next = { enabled: current.enabled, minutes: current.minutes };
-  if (choice.action === 'toggle') {
-    next.enabled = !current.enabled;
-    if (next.enabled && !localProxy.snapshot().executablePath && !(await configureLocalProxy())) return;
-  } else {
-    const value = await vscode.window.showInputBox({
-      title: 'Ngưỡng tự khởi động lại proxy', value: String(current.minutes),
-      prompt: 'Restart khi tất cả task chưa xong đều im lặng ít nhất số phút này.', validateInput: thresholdError
-    });
-    if (value === undefined) return;
-    if (thresholdError(value)) { vscode.window.showErrorMessage(thresholdError(value)); return; }
-    next.minutes = Number(value);
-  }
-  try { await proxyWatchdog.configure(next); }
-  catch (error) { vscode.window.showErrorMessage(error.message); }
-  postViewState();
+  pendingProxyDialog = true;
+  await openTracker();
+  showPendingNewChatDialog();
+}
+
+async function handleProxyOptions(message, action) {
+  const type = action === 'save' ? 'proxyOptionsSaved' : action === 'browse' ? 'proxyOptionsBrowsed' : 'proxyOptionsLoaded';
+  const reply = data => trackerView?.webview.postMessage({ type, requestId: message.requestId, ...data });
+  let claimed = false;
+  try {
+    if (!localProxy || !proxyWatchdog) throw new Error('Proxy chưa sẵn sàng.');
+    if (action === 'browse') {
+      const picked = await vscode.window.showOpenDialog({ canSelectFiles: true, canSelectFolders: false, canSelectMany: false,
+        filters: { Executable: ['exe'] }, openLabel: 'Chọn proxy EXE' });
+      reply(picked?.[0] ? { executablePath: picked[0].fsPath } : { cancelled: true }); return;
+    }
+    if (action === 'save') {
+      if (proxyOptionsSaving || localProxy.snapshot().busy || localProxyPicker) throw new Error('Proxy đang có thao tác khác; chờ hoàn tất.');
+      const settings = message.settings || {};
+      if (typeof settings.enabled !== 'boolean' || thresholdError(settings.minutes)) throw new Error(thresholdError(settings.minutes) || 'Thiết lập proxy không hợp lệ.');
+      if (typeof settings.executablePath !== 'string' || (settings.enabled && !settings.executablePath.trim())) throw new Error('Chọn EXE proxy trước khi bật tự khởi động lại.');
+      proxyOptionsSaving = true; claimed = true;
+      const configure = () => proxyWatchdog.configure({ enabled: settings.enabled, minutes: Number(settings.minutes) });
+      if (settings.executablePath !== localProxy.snapshot().executablePath) {
+        if (!settings.executablePath.trim()) throw new Error('Chọn một EXE proxy hợp lệ.');
+        if (!await localProxy.setExecutable(settings.executablePath, configure)) throw new Error(localProxy.snapshot().notice?.text || 'Không lưu được EXE proxy.');
+      } else await configure();
+    }
+    const current = proxyWatchdog.snapshot();
+    reply({ settings: { enabled: current.enabled, minutes: current.minutes, executablePath: localProxy.snapshot().executablePath } });
+  } catch (error) { reply({ error: friendlyError(error) }); }
+  finally { if (claimed) { proxyOptionsSaving = false; postViewState(); } }
 }
 
 async function readProxyObservation() {
@@ -1678,6 +2258,12 @@ async function selectThread(threadId) {
   renderStatus();
   postViewState();
   try {
+    if (currentChatContextStore()?.get(session.threadId)) {
+      const extension = vscode.extensions.getExtension('openai.chatgpt');
+      if (extension && !extension.isActive) await extension.activate();
+      await prepareOwnerBridge();
+      if (ownerBridgeNotice) throw new Error(ownerBridgeNotice);
+    }
     await openCodexConversation(session.threadId, isCurrent);
   } catch (error) {
     if (isCurrent()) {
@@ -1946,6 +2532,9 @@ async function sendComposerRequest(kind, message, operation) {
 }
 
 async function sendQueuedMessage(rawText, rawImages) {
+  if (contextWatch?.snapshot().busy.includes(selected?.threadId)) {
+    queueNotice = { kind: 'error', text: 'Chat đang chuyển tiếp context; chờ chat kế tiếp.', at: Date.now() }; postViewState(); return;
+  }
   const requestedThreadId = selected?.threadId || '';
   if (queueBusy || steerBusy || continueBusy) return;
   const text = String(rawText || '').trim();
@@ -2026,6 +2615,9 @@ async function sendQueuedMessage(rawText, rawImages) {
 }
 
 async function sendSteeredMessage(rawText, rawImages) {
+  if (contextWatch?.snapshot().busy.includes(selected?.threadId)) {
+    steerNotice = { kind: 'error', text: 'Chat đang chuyển tiếp context; chờ chat kế tiếp.', at: Date.now() }; postViewState(); return;
+  }
   const text = String(rawText || '').trim();
   let images;
   try { images = codexSteer.normalizeImageAttachments(rawImages); }
@@ -2085,6 +2677,7 @@ async function sendSteeredMessage(rawText, rawImages) {
 }
 
 async function interruptSelectedChat(threadId, pauseGoal = false) {
+  if (contextWatch?.snapshot().busy.includes(threadId)) return;
   if (interruptBusy || steerBusy || queueBusy || continueBusy || !selected || selected.threadId !== threadId) return;
   await refreshTrackedStatus(true);
   if (!selected || selected.threadId !== threadId || selected.status?.kind !== 'running') return;
@@ -2118,6 +2711,7 @@ function contextCompactKey(snapshot) {
 }
 
 async function compactSelectedChat(threadId, automatic = false) {
+  if (contextWatch?.tracks(threadId) || contextWatch?.blocks(threadId)) return;
   if (contextCompactBusy || interruptBusy || steerBusy || queueBusy || continueBusy || !selected || selected.threadId !== threadId) return;
   if (selected.status?.kind !== 'running') return;
   const key = contextCompactKey(latestSnapshot);
@@ -2166,6 +2760,7 @@ async function compactSelectedChat(threadId, automatic = false) {
 }
 
 async function maybeAutoCompact(snapshot) {
+  if (contextWatch?.tracks(selected?.threadId) || contextWatch?.blocks(selected?.threadId)) return;
   if (contextCompactBusy || interruptBusy || !contextCompactSettings.enabled || !selected || snapshot?.overallStatus?.kind !== 'running') return;
   const runtime = snapshot.runtime || {};
   const key = contextCompactKey(snapshot);
@@ -2184,6 +2779,9 @@ async function continueThread(target) {
 }
 
 async function sendContinuedMessage(rawText, rawImages, threadId, requestId) {
+  if (contextWatch?.snapshot().busy.includes(threadId)) {
+    continueNotice = { kind: 'error', text: 'Chat đang chuyển tiếp context; chờ chat kế tiếp.', threadId, requestId, at: Date.now() }; postViewState(); return;
+  }
   if (continueBusy || steerBusy || queueBusy || !selected || selected.threadId !== threadId) {
     continueNotice = { kind: 'error', text: 'Chat đã đổi hoặc đang có tin khác được gửi. Nội dung nháp được giữ lại.', threadId, requestId, at: Date.now() };
     postViewState();
@@ -2221,6 +2819,8 @@ function postViewState() {
   trackerView.webview.postMessage({
     type: 'state',
     data: {
+      attention: attentionEntries,
+      sounds: { settings: soundSettings?.snapshot(), types: SOUND_TYPES, notice: soundNotice },
       activeChats: activeChats.map(serializeActiveChat),
       nonRunningChats: nonRunningChats.map(serializeActiveChat),
       showNonRunning,
@@ -2252,14 +2852,16 @@ function postViewState() {
       authSession: {
         busy: authSessionBusy,
         accountLabel: authAccount.label,
-        canDeactivate: !authSessionReloadRequired && authAccount.signedIn !== false
+        canDeactivate: !authSessionBusy
       },
       selectedThreadId: selected && selected.threadId || '',
+      contextWatch: contextWatch?.snapshot(),
+      newChat: { contextPreset: newChatDefault(), model: newChatModelDefault(), serviceTier: newChatSpeedDefault(), busy: newChatBusy, autoContext: getNewChatContextRule().snapshot() },
       codexCurrentThreadId,
       usage: (() => {
         const state = usageMonitor?.snapshot() || { intervalMinutes: 5, groups: [] };
         const runtime = latestSnapshot?.runtime || null;
-        return { ...state, display: usageStatus(state), chart: usageHistoryChart(usageHistoryState), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) }, voice: usageVoiceSettings, context: { ...(runtime || {}), settings: contextCompactSettings, state: contextCompactState, busy: contextCompactBusy, notice: contextCompactNotice, compactAvailable: Boolean(selected && selected.status?.kind === 'running' && runtime?.contextWindowTokens) } };
+        return { ...state, display: usageStatus(state), chart: usageHistoryChart(usageHistoryState), alerts: { settings: usageAlertSettings, state: usageAlertState, summary: usageAlertSummary(usageAlertState, usageAlertSettings) }, voice: usageSoundOptions(), context: { ...(runtime || {}), settings: contextCompactSettings, state: contextCompactState, busy: contextCompactBusy, notice: contextCompactNotice, compactAvailable: Boolean(selected && !contextWatch?.tracks(selected.threadId) && !contextWatch?.blocks(selected.threadId) && selected.status?.kind === 'running' && runtime?.contextWindowTokens) } };
       })(),
       selected: selected && latestSnapshot ? serializeSnapshot(latestSnapshot) : (selected ? serializeSelectedShell() : null),
       queue: {
@@ -2489,6 +3091,18 @@ function renderStatus() {
   if (!statusBar) return;
   statusBar.backgroundColor = undefined;
 
+  const waiting = Object.values(attentionEntries);
+  if (waiting.length) {
+    const approval = waiting.some(entry => entry.flags.includes('waitingOnApproval'));
+    const plan = waiting.some(entry => entry.flags.includes('waitingOnPlanImplementation'));
+    statusBar.color = new vscode.ThemeColor('editorWarning.foreground');
+    statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    statusBar.text = `$(bell) ${waiting.length} chat · ${approval ? 'Cần duyệt' : plan ? 'Kế hoạch đã xong' : 'Cần trả lời'}`;
+    statusBar.tooltip = waiting.map(entry => `${entry.title}: ${entry.flags.map(flag => flag === 'waitingOnApproval' ? 'Cần duyệt' : flag === 'waitingOnPlanImplementation' ? PLAN_READY_TEXT : 'Cần trả lời').join(' · ')}`).join('\n');
+    statusBar.show();
+    return;
+  }
+
   if (!selected) {
     statusBar.color = undefined;
     statusBar.text = '$(radio-tower) Codex Tracker';
@@ -2504,7 +3118,7 @@ function renderStatus() {
   else statusBar.color = undefined;
 
   const icon = iconFor(status.kind);
-  const title = tracker.cleanTitle(selected.title, 34) || path.basename(selected.cwd || '') || 'Codex';
+  const title = tracker.cleanTitle(contextWatch?.snapshot().entries[selected.threadId]?.displayLabel || selected.title, 34) || path.basename(selected.cwd || '') || 'Codex';
   const suffix = status.kind === 'running' && status.runningChildren ? ` +${status.runningChildren}` : '';
   statusBar.text = `$(${icon}${status.kind === 'running' ? '~spin' : ''}) ${title}${suffix}`;
   statusBar.tooltip = tooltipForSelection(selected, status);
@@ -2535,7 +3149,7 @@ function iconFor(kind) {
 function tooltipForSelection(session, status) {
   const md = new vscode.MarkdownString();
   md.isTrusted = false;
-  md.appendMarkdown(`**${escapeMarkdown(session.title)}**\n\n`);
+  md.appendMarkdown(`**${escapeMarkdown(contextWatch?.snapshot().entries[session.threadId]?.displayLabel || session.title)}**\n\n`);
   md.appendMarkdown(`- **State:** ${escapeMarkdown(displayState(status))}\n`);
   if (status.runningChildren) md.appendMarkdown(`- **Running child agents:** ${status.runningChildren}\n`);
   if (session.cwd) md.appendMarkdown(`- **Workspace:** \`${escapeInlineCode(session.cwd)}\`\n`);
@@ -2547,7 +3161,18 @@ function tooltipForSelection(session, status) {
 function dashboardHtml() {
   const nonce = String(Date.now());
   const template = fs.readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8');
-  return template.replaceAll('__NONCE__', nonce);
+  return template.replace('__NEW_CHAT_DIALOG_HTML__', () => fs.readFileSync(path.join(__dirname, 'media/new_chat_dialog.html'), 'utf8'))
+    .replace('__PROXY_OPTIONS_HTML__', () => fs.readFileSync(path.join(__dirname, 'media/proxy_options.html'), 'utf8'))
+    .replace('/*__PROXY_OPTIONS_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/proxy_options.js'), 'utf8'))
+    .replace('__CHAT_OPTIONS_HTML__', () => fs.readFileSync(path.join(__dirname, 'media/chat_options.html'), 'utf8'))
+    .replace('/*__CHAT_OPTIONS_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/chat_options.js'), 'utf8'))
+    .replace('__HANDOFF_DIALOG_HTML__', () => fs.readFileSync(path.join(__dirname, 'media/handoff_dialog.html'), 'utf8'))
+    .replace('/*__HANDOFF_DIALOG_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/handoff_dialog.js'), 'utf8'))
+    .replace('/*__NEW_CHAT_DIALOG_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/new_chat_dialog.js'), 'utf8'))
+    .replace('/*__SOUND_SETTINGS_CSS__*/', () => fs.readFileSync(path.join(__dirname, 'media/sound_settings.css'), 'utf8'))
+    .replace('/*__SOUND_SETTINGS_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/sound_settings.js'), 'utf8'))
+    .replace('/*__CHAT_LIST_LAYOUT_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/chat_list_layout.js'), 'utf8'))
+    .replaceAll('__NONCE__', nonce);
 }
 
 function escapeMarkdown(value) {

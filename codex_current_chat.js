@@ -123,6 +123,7 @@ function createCurrentChatTracker(vscode, options = {}) {
     if (!html?.set || !html.get) return;
     const record = {
       threadId: '',
+      planTurnId: '',
       focusedAt: 0,
       token: crypto.randomBytes(24).toString('hex'),
       disposables: [],
@@ -134,7 +135,16 @@ function createCurrentChatTracker(vscode, options = {}) {
       const receive = nativeReceive(message => {
         if (disposed || message?.type !== MESSAGE_TYPE || message.token !== record.token) return;
         if (typeof message.route !== 'string' || message.route.length > 500) return;
-        record.threadId = threadFromRoute(message.route);
+        const threadId = threadFromRoute(message.route);
+        if (threadId && threadId === record.threadId && message.resolvedPlanTurnId === record.planTurnId && record.planTurnId) {
+          options.onPlanPrompt?.({ threadId, turnId: record.planTurnId, visible: false });
+        }
+        const planTurnId = typeof message.planTurnId === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(message.planTurnId) ? message.planTurnId : '';
+        if (threadId && planTurnId && (threadId !== record.threadId || planTurnId !== record.planTurnId)) {
+          options.onPlanPrompt?.({ threadId, turnId: planTurnId, visible: true });
+        }
+        record.threadId = threadId;
+        record.planTurnId = planTurnId;
         if (message.focused === true || !currentView) {
           record.focusedAt = Date.now();
           currentView = record;

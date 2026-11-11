@@ -97,18 +97,18 @@ test('reads model reasoning effort and latest token speed for a session', async 
     meta('thread-runtime'),
     { timestamp: '2026-09-30T07:00:02Z', type: 'turn_context', payload: { turn_id: 'turn-runtime', model: 'gpt-6.1-sol', effort: 'high' } },
     { timestamp: '2026-09-30T07:00:03Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-runtime', started_at_ms: Date.parse('2026-09-30T07:00:02Z'), model_context_window: 100 } },
-    { timestamp: '2026-09-30T07:00:04Z', type: 'event_msg', payload: { type: 'token_count', info: { model_context_window: 100, last_token_usage: { input_tokens: 60 } } } },
+    { timestamp: '2026-09-30T07:00:04Z', type: 'event_msg', payload: { type: 'token_count', info: { model_context_window: 100, last_token_usage: { input_tokens: 60, output_tokens: 5, total_tokens: 65 }, total_token_usage: { input_tokens: 9999 } } } },
     { timestamp: '2026-09-30T07:00:12Z', type: 'token_usage_record', payload: { usage: { output_tokens: 10, total_tokens: 100 } } },
-    { timestamp: '2026-09-30T07:00:17Z', type: 'token_usage_record', payload: { usage: { output_tokens: 30, total_tokens: 140 } } }
+    { timestamp: '2026-09-30T07:00:17Z', type: 'token_usage_record', payload: { usage: { input_tokens: 9999, output_tokens: 30, total_tokens: 140 } } }
   ]);
   const profile = await tracker.readSessionRuntimeProfile(file);
   assert.equal(profile.model, 'gpt-6.1-sol');
   assert.equal(profile.reasoning, 'high');
   assert.equal(profile.outputTokens, 30);
   assert.equal(profile.speedTokensPerSecond, 4);
-  assert.equal(profile.contextUsedTokens, 60);
+  assert.equal(profile.contextUsedTokens, 65);
   assert.equal(profile.contextWindowTokens, 100);
-  assert.equal(profile.contextPercent, 60);
+  assert.equal(profile.contextPercent, 65);
   const activity = await tracker.readRecentActivity(file, await tracker.readSessionSummary(file), 'thread-runtime');
   assert.equal(activity.runtime.model, 'gpt-6.1-sol');
   assert.equal(activity.runtime.reasoning, 'high');

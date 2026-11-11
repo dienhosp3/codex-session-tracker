@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-09T11:40:40.332Z",
+  "label": "plan-decision-detection-0.12.41",
+  "repository": {
+    "revision": "91766965886f02e044660bebaff60f8c517adfcb",
+    "shortRevision": "91766965886f",
+    "dirty": true,
+    "trackerVersion": "0.12.41"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.51021.22027"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.164.0-alpha.11.1",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "",
+      "model": ""
+    }
+  }
+}

@@ -8,6 +8,16 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createLocalProxyController, validateExecutable, restartExecutable, RESTART_SCRIPT } = require('../local_proxy');
 
+test('proxy path rolls back if saving the accompanying watchdog settings fails', async () => {
+  const saved = [];
+  const controller = createLocalProxyController({ executablePath: 'old.exe', validate: async value => value,
+    save: async value => saved.push(value), restart: async () => assert.fail('No restart while saving') });
+  assert.equal(await controller.setExecutable('new.exe', async () => { throw new Error('storage failed'); }), false);
+  assert.equal(controller.snapshot().executablePath, 'old.exe');
+  assert.deepEqual(saved, ['new.exe', 'old.exe']);
+  assert.match(controller.snapshot().notice.text, /storage failed/);
+});
+
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-proxy-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

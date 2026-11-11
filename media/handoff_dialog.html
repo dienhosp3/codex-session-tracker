@@ -1,0 +1,23 @@
+<style>
+.hf-source{overflow-wrap:anywhere;color:var(--vscode-descriptionForeground);font-size:12px}.hf-grid{display:grid;grid-template-columns:minmax(0,1fr) 100px;gap:10px}.hf-grid label{display:grid;gap:5px;min-width:0}.hf-grid input{box-sizing:border-box;width:100%;min-width:0;padding:8px;border:1px solid var(--vscode-input-border,#555);border-radius:5px;background:var(--vscode-input-background,#303030);color:inherit;font:inherit}.hf-auto{display:flex;align-items:center;gap:7px}.hf-auto input{accent-color:#20caff}#hfExtra{min-height:90px}#hfStatus:empty{display:none}
+</style>
+<dialog id="handoffDialog" class="nc-dialog" aria-labelledby="hfTitle">
+  <form id="hfForm">
+    <header class="nc-header"><div class="nc-heading"><h2 id="hfTitle">Chuyển sang chat mới</h2><div id="hfSource" class="hf-source"></div></div><button id="hfClose" class="iconbtn nc-close" type="button" aria-label="Đóng">×</button></header>
+    <div class="nc-body">
+      <div class="nc-field"><label for="hfMode">Chế độ bắt đầu</label><select id="hfMode"><option value="normal">Thường</option><option value="goal">Goal</option><option value="plan">Plan</option></select></div>
+      <div id="hfGoalField" class="nc-field" hidden><label for="hfGoal">Mục tiêu</label><textarea id="hfGoal" rows="3" placeholder="Nhập mục tiêu cần tiếp tục…" spellcheck="false"></textarea></div>
+      <div id="hfModeStatus" class="nc-note" role="status" hidden></div>
+      <div class="nc-field"><label for="hfModel">Model chat kế tiếp</label><select id="hfModel" required></select></div>
+      <div class="nc-field"><label for="hfSpeed">Tốc độ chat kế tiếp</label><select id="hfSpeed" class="speed-picker"><option value="default">Standard</option><option value="priority">Fast</option><option value="ultrafast">⚡ Ultrafast</option></select><div id="hfSpeedStatus" class="nc-note" role="status" hidden></div></div>
+      <div class="nc-field"><span id="hfContextLabel" class="nc-label">Context chat kế tiếp</span><fieldset id="hfPresets" class="nc-presets" aria-labelledby="hfContextLabel"></fieldset></div>
+      <div class="nc-field"><label for="hfExtra">Nội dung thêm (tùy chọn)</label><textarea id="hfExtra" rows="3" placeholder="Thêm yêu cầu vào lệnh tiếp tục…" spellcheck="false"></textarea></div>
+      <div class="hf-grid"><label>ID chuỗi<input id="hfCode" type="text" aria-label="ID chuỗi" title="Tối đa 30 chữ hoặc số"></label><label>Số kế tiếp<input id="hfNumber" type="text" inputmode="numeric" pattern="[0-9]+" value="0001" required></label></div>
+      <label class="hf-auto" title="Chuyển chat khi đạt ngưỡng context hoặc Codex bắt đầu tự compact"><input id="hfEnabled" type="checkbox">Auto resume</label>
+      <div class="hf-grid hf-limits"><label>Ngưỡng chat kế tiếp (%)<input id="hfThreshold" type="number" min="1" max="99" step="1" required></label><label>Chờ (giây)<input id="hfDelay" type="number" min="0" max="3600" step="1" required></label></div>
+      <div id="hfStatus" class="nc-status" role="status" aria-live="polite"></div>
+      <div><button id="hfReload" class="nc-button" type="button" hidden>Thử tải lại</button><button id="hfOpenNext" class="nc-button" type="button" hidden>Mở chat kế tiếp</button></div>
+    </div>
+    <footer class="nc-footer"><button id="hfCancel" class="nc-button" type="button">Hủy</button><button id="hfSubmit" class="nc-button primary" type="submit">Chuyển chat</button></footer>
+  </form>
+</dialog>

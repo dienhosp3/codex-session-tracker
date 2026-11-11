@@ -136,6 +136,7 @@ test('dashboard combines account and usage without a login heading and blocks du
     esc: s => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;')
   });
   vm.runInContext(html.slice(html.indexOf('function usageChartPlot('), html.indexOf('function renderComposer(')), context);
+  vm.runInContext(html.match(/const saveIcon=.*;/)[0], context);
   const rendered = vm.runInContext('renderAuthSession()', context);
   assert.match(rendered, />Deactive<\/button>/);
   assert.match(rendered, /&lt;owner&gt;@example.test/);
@@ -158,7 +159,22 @@ test('dashboard combines account and usage without a login heading and blocks du
   assert.match(vm.runInContext('renderAuthSession()', context), /id="deactivateSession"[^>]*disabled/);
   context.state.authSession = { accountLabel: 'Chưa đăng nhập', canDeactivate: false };
   assert.match(vm.runInContext('renderAuthSession()', context), /Chưa đăng nhập/);
-  assert.match(vm.runInContext('renderAuthSession()', context), /id="deactivateSession"[^>]*disabled/);
+  assert.doesNotMatch(vm.runInContext('renderAuthSession()', context), /id="deactivateSession"[^>]*disabled/);
+});
+
+test('deactivation remains local and available when Codex cannot load, including after a deferred reload', async t => {
+  const home = fixture(t), extension = extensionHarness(home);
+  extension.run("prepareOwnerBridge=async()=>{throw new Error('Codex unavailable')}");
+  await extension.run('refreshAuthAccount(true)');
+  assert.equal(extension.run('authAccount.signedIn'), null);
+  await extension.run('deactivateCodexSession()');
+  assert.equal(extension.run('authSessionNotice.kind'), 'success');
+  assert.equal(extension.run('authSessionReloadRequired'), true);
+  await extension.run('deactivateCodexSession()');
+  assert.equal(extension.prompts.length, 2);
+  assert.deepEqual(extension.commands, []);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'auth.json'), 'utf8')), { OPENAI_API_KEY: null, tokens: null });
+  assert.equal(extension.errors.length, 0);
 });
 
 test('account label comes only from supported public metadata, never credential fields', async () => {

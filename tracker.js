@@ -1,4 +1,5 @@
 'use strict';
+const { speedFromSettings } = require('./codex_speed');
 
 const fs = require('fs');
 const path = require('path');
@@ -847,6 +848,7 @@ function emptyRuntimeProfile() {
   return {
     model: '',
     reasoning: '',
+    serviceTier: '',
     turnId: '',
     turnStartedAt: 0,
     firstTokenAt: 0,
@@ -870,6 +872,10 @@ function updateRuntimeProfile(profile, item) {
   if (at) profile.updatedAt = Math.max(profile.updatedAt, at);
   const payloadType = String(payload.type || '');
   const isTurnContext = item.type === 'turn_context' || payloadType === 'turn_context';
+  if (isTurnContext || (item.type === 'event_msg' && payloadType === 'thread_settings_applied')) {
+    const speed = speedFromSettings(isTurnContext ? payload : payload.thread_settings);
+    if (speed !== undefined) profile.serviceTier = speed;
+  }
   const model = payload.model || payload.model_slug || payload.modelSlug || payload.resolved_model;
   const reasoning = payload.effort || payload.reasoning_effort || payload.reasoningEffort;
   if (model) profile.model = String(model);
@@ -897,8 +903,8 @@ function updateRuntimeProfile(profile, item) {
   if (item.type === 'event_msg' && payload.type === 'token_count') {
     const info = payload.info && typeof payload.info === 'object' ? payload.info : {};
     const lastUsage = info.last_token_usage && typeof info.last_token_usage === 'object' ? info.last_token_usage : {};
-    const totalUsage = info.total_token_usage && typeof info.total_token_usage === 'object' ? info.total_token_usage : {};
-    const usedTokens = Number(lastUsage.input_tokens ?? totalUsage.input_tokens);
+    const usedTokens = Number(lastUsage.total_tokens ?? (Number.isFinite(lastUsage.input_tokens)
+      ? lastUsage.input_tokens + (Number.isFinite(lastUsage.output_tokens) ? lastUsage.output_tokens : 0) : NaN));
     const windowTokens = Number(info.model_context_window ?? info.context_window);
     if (Number.isFinite(usedTokens) && usedTokens >= 0) profile.contextUsedTokens = Math.round(usedTokens);
     if (Number.isFinite(windowTokens) && windowTokens > 0) profile.contextWindowTokens = Math.round(windowTokens);
@@ -918,7 +924,6 @@ function updateRuntimeProfile(profile, item) {
   }
   if (roundedOutput !== null) profile.outputTokens = roundedOutput;
   if (Number.isFinite(totalTokens) && totalTokens >= 0) profile.totalTokens = Math.round(totalTokens);
-  if (Number.isFinite(Number(usage.input_tokens)) && Number(usage.input_tokens) >= 0) profile.contextUsedTokens = Math.round(Number(usage.input_tokens));
   if (at) {
     if (!profile.firstTokenAt) profile.firstTokenAt = at;
     profile.lastTokenAt = at;
@@ -1521,10 +1526,10 @@ async function buildSessionSnapshot(sessionsDir, rootSession, options = {}) {
       at: latestClockAt,
       type: 'metadata_update',
       kind: 'sync',
-      label: 'Codex da cap nhat metadata',
+      label: 'Đã cập nhật thông tin',
       detail: lastActivitySource === 'codex-index'
-        ? 'Thoi gian cap nhat tu chi muc Codex; chua co su kien rollout tuong ung.'
-        : 'Tep rollout da thay doi; chua co su kien hoat dong duoc hien thi tuong ung.',
+        ? 'Đồng bộ từ Codex; chưa có hoạt động mới.'
+        : 'Lịch sử đã thay đổi; chưa có hoạt động mới.',
       actor: rootNode && rootNode.displayName || 'Main',
       threadId: rootThreadId,
       terminal: false

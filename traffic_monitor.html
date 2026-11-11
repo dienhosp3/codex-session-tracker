@@ -87,7 +87,7 @@ pre{margin:8px 0 0;padding:9px;border:1px solid var(--vscode-panel-border);borde
 <details class="rules"><summary>Bộ lọc JSON outbound</summary>
   <div class="note">Rule khớp host, method, path; operations dùng JSON Pointer với add/replace/remove. [] giữ nguyên request. Áp dụng cho request tiếp theo; không gửi lại request cũ.</div>
   <textarea id="jsonRules" aria-label="JSON filter rules" spellcheck="false">[]</textarea>
-  <button id="saveJsonRules">Lưu bộ lọc</button><span id="rulesNotice" class="note"></span>
+  <button id="saveJsonRules" title="Lưu bộ lọc" aria-label="Lưu bộ lọc" style="width:28px;height:28px;padding:5px;display:inline-flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 1.5h9l3 3v10H2zM5 1.5v4h6v-4M5 14.5v-6h6v6"/></svg></button><span id="rulesNotice" class="note"></span>
 </details>
 <div class="grid">
   <div class="list-wrap">

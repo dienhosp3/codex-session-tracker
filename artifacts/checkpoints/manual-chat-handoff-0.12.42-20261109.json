@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-09T15:53:13.518Z",
+  "label": "manual-chat-handoff-0.12.42",
+  "repository": {
+    "revision": "91766965886f02e044660bebaff60f8c517adfcb",
+    "shortRevision": "91766965886f",
+    "dirty": true,
+    "trackerVersion": "0.12.42"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.51021.22027"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.164.0-alpha.11.1",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "0.164.0-alpha.11.1",
+      "model": "gpt-6-astra"
+    }
+  }
+}

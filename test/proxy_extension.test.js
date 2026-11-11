@@ -15,7 +15,7 @@ function fixture(options = {}) {
   const localRequire = createRequire(file);
   const saved = [];
   const errors = [];
-  const dialogs = [];
+  const dialogs = [], replies = [];
   let starts = 0;
   const proxy = createLocalProxyController({
     executablePath: options.executablePath || '', validate: async value => value,
@@ -47,39 +47,35 @@ function fixture(options = {}) {
       ? { ...localRequire(name), scanConversationSessions: async () => options.observation() }
       : localRequire(name),
     process, module: { exports: {} }, setInterval, clearInterval, setTimeout, clearTimeout, console,
-    fixtureProxy: proxy, fixtureWatchdog: watchdog, fixtureRecovery: options.recovery || null
+    fixtureProxy: proxy, fixtureWatchdog: watchdog, fixtureRecovery: options.recovery || null, fixtureReplies: replies
   });
-  vm.runInContext(fs.readFileSync(file, 'utf8') + '\nlocalProxy=fixtureProxy;proxyWatchdog=fixtureWatchdog;proxyRecovery=fixtureRecovery;', context, { filename: file });
-  return { proxy, watchdog, saved, errors, dialogs, starts: () => starts,
+  vm.runInContext(fs.readFileSync(file, 'utf8') + '\nlocalProxy=fixtureProxy;proxyWatchdog=fixtureWatchdog;proxyRecovery=fixtureRecovery;trackerView={webview:{postMessage:m=>fixtureReplies.push(m)}};postViewState=()=>{};', context, { filename: file });
+  return { proxy, watchdog, saved, errors, dialogs, replies, starts: () => starts,
     setFilePicker: fn => { selectFile = fn; }, run: expression => vm.runInContext(expression, context) };
 }
 
-test('right click settings uses five minute default and persists a changed threshold', async () => {
-  const f = fixture({ action: 'minutes', minutes: '8' });
-  await f.run('configureProxyWatchdog()');
-  assert.equal(f.dialogs[0].value, '5');
-  assert.deepEqual(f.saved, [{ enabled: false, minutes: 8 }]);
-  assert.equal(f.watchdog.snapshot().minutes, 8);
+test('proxy dialog loads settings and saves enabled/threshold/path without restarting', async () => {
+  const f = fixture();
+  await f.run("handleProxyOptions({requestId:'load'},'load')");
+  assert.equal(f.replies.at(-1).settings.minutes, 5);
+  await f.run("handleProxyOptions({requestId:'browse'},'browse')");
+  assert.equal(f.replies.at(-1).executablePath, 'C:\\fixture\\proxy.exe');
+  assert.equal(f.proxy.snapshot().executablePath, '', 'browse alone must not save');
+  await f.run("handleProxyOptions({requestId:'save',settings:{enabled:true,minutes:8,executablePath:'C:/fixture/proxy.exe'}},'save')");
+  assert.equal(f.replies.at(-1).error, undefined);
+  assert.equal(f.watchdog.snapshot().minutes, 8); assert.equal(f.watchdog.snapshot().enabled, true);
+  assert.equal(f.proxy.snapshot().executablePath, 'C:/fixture/proxy.exe'); assert.equal(f.starts(), 0);
 });
 
-test('right click enabling chooses and saves EXE without restarting it', async () => {
-  const f = fixture({ action: 'toggle' });
-  await f.run('configureProxyWatchdog()');
-  assert.equal(f.proxy.snapshot().executablePath, 'C:\\fixture\\proxy.exe');
-  assert.equal(f.watchdog.snapshot().enabled, true);
-  assert.equal(f.watchdog.snapshot().minutes, 5);
-  assert.equal(f.starts(), 0);
-});
-
-test('invalid threshold and cancelled selection do not enable automation or restart', async () => {
-  const invalid = fixture({ action: 'minutes', minutes: '0' });
-  await invalid.run('configureProxyWatchdog()');
-  assert.equal(invalid.errors.length, 1);
-  assert.equal(invalid.saved.length, 0);
-  const cancelled = fixture({ action: 'toggle', selectFile: () => undefined });
-  await cancelled.run('configureProxyWatchdog()');
-  assert.equal(cancelled.watchdog.snapshot().enabled, false);
-  assert.equal(cancelled.starts(), 0);
+test('proxy dialog rejects invalid minutes and missing EXE before saving', async () => {
+  const f = fixture();
+  await f.run("handleProxyOptions({requestId:'bad',settings:{enabled:true,minutes:0,executablePath:'C:/proxy.exe'}},'save')");
+  assert.ok(f.replies.at(-1).error); assert.equal(f.saved.length, 0);
+  await f.run("handleProxyOptions({requestId:'missing',settings:{enabled:true,minutes:5,executablePath:''}},'save')");
+  assert.ok(f.replies.at(-1).error); assert.equal(f.saved.length, 0);
+  f.setFilePicker(() => undefined);
+  await f.run("handleProxyOptions({requestId:'cancel'},'browse')");
+  assert.equal(f.replies.at(-1).cancelled, true); assert.equal(f.starts(), 0);
 });
 
 test('manual restart selects EXE once and later restarts using the saved path', async () => {
