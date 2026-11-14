@@ -1,0 +1,54 @@
+{
+  "trackerVersion": "0.13.1",
+  "tests": {
+    "nodePassed": 531,
+    "nodeFailed": 0,
+    "edgeAccountModal": true,
+    "edgeExistingLayout": true,
+    "chatRows": 1000,
+    "accountRows": 25,
+    "backgroundUpdates": 12,
+    "viewports": [
+      [
+        1100,
+        840
+      ],
+      [
+        520,
+        700
+      ],
+      [
+        320,
+        480
+      ],
+      [
+        900,
+        360
+      ]
+    ],
+    "visualReview": [
+      "dark account list",
+      "dark policy",
+      "light compact policy"
+    ],
+    "pageErrors": []
+  },
+  "installed": {
+    "registeredVersions": [
+      "0.13.1"
+    ],
+    "payloadFilesVerified": 324,
+    "packageManifestEqualIgnoringVSCodeMetadata": true,
+    "mismatches": [],
+    "vsixSha256": "26af4340a891398b47e0d9c41d861542568ef40937d1450850a39e1e704e7a90"
+  },
+  "liveRegistryReadOnly": {
+    "codexAccounts": 0,
+    "chromeBatLaunchers": 3
+  },
+  "scratch": {
+    "ordinaryExplorerUserToken": true,
+    "aclAndCreateReadModifyRenameDeleteProbes": true,
+    "ownedRunDirectoriesRemoved": true
+  }
+}

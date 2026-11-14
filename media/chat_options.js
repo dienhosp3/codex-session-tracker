@@ -3,14 +3,15 @@
   const el = id => document.getElementById(id), dialog = el('chatOptionsDialog'), form = el('coForm');
   let threadId = '', sequence = 0, loading = false, saving = false, ready = false, loadId = '', saveId = '';
   let originalIdentity = null, originalNextSeries = null;
+  let copyId = '', copyTimer;
   function identityValue() {
     const code = el('coCode').value.trim().normalize('NFC'), number = el('coNumber').value.trim();
     return code ? { code, number: number.padStart(4, '0') } : null;
   }
   function identityPreview() {
     const value = identityValue();
-    if (originalNextSeries && JSON.stringify(value) === JSON.stringify(originalIdentity)) {
-      el('coNextPreview').textContent = 'Chat kế tiếp: [' + originalNextSeries.code + '-' + originalNextSeries.nextNumber + ']';
+    if (originalNextSeries && value && value.number === originalIdentity?.number) {
+      el('coNextPreview').textContent = 'Chat kế tiếp: [' + value.code + '-' + originalNextSeries.nextNumber + ']';
       return;
     }
     el('coNextPreview').textContent = value && /^\d+$/.test(value.number) && BigInt(value.number) > 0n
@@ -36,6 +37,7 @@
     if (!id || saving) return;
     if (dialog.open) { el('coDelay').focus(); return; }
     threadId = id; ready = false; loading = true; form.reset(); originalIdentity = null; originalNextSeries = null; identityPreview(); loadId = nextId();
+    copyId = ''; clearTimeout(copyTimer); el('coCopyStatus').hidden = true; el('coCopyDeeplink').disabled = false;
     const chat = (state.activeChats || []).concat(state.nonRunningChats || []).find(item => item.threadId === id);
     el('coSource').textContent = chat?.title || (state.selectedThreadId === id ? state.selected?.title : '') || id;
     status('Đang tải…'); controls(); dialog.showModal();
@@ -43,12 +45,17 @@
   };
   const close = () => { if (!saving) { loadId = ''; dialog.close(); } };
   el('coClose').onclick = el('coCancel').onclick = close;
+  el('coCopyDeeplink').onclick = () => {
+    if (!threadId || copyId) return;
+    copyId = nextId(); el('coCopyDeeplink').disabled = true;
+    vscode.postMessage({ command: 'copyChatDeeplink', threadId, requestId: copyId });
+  };
   dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
   for (const name of ['coCode', 'coNumber', 'coLabel']) el(name).oninput = () => { el(name).setCustomValidity(''); identityPreview(); controls(); };
   form.addEventListener('submit', event => {
     event.preventDefault(); if (el('coSave').disabled) return;
     const identity = identityValue(), label = el('coLabel').value.trim().normalize('NFC');
-    el('coCode').setCustomValidity(!identity || /^[\p{L}\p{N}]{1,30}$/u.test(identity.code) ? '' : 'ID phải có 1–30 chữ hoặc số.');
+    el('coCode').setCustomValidity(!identity || /^[\p{L}\p{N}_ ]{1,30}$/u.test(identity.code) ? '' : 'ID gồm 1–30 chữ, số, dấu cách hoặc _.');
     el('coNumber').setCustomValidity(!identity || /^\d+$/.test(identity.number) && BigInt(identity.number) > 0n ? '' : 'Số hiện tại phải lớn hơn 0.');
     el('coLabel').setCustomValidity([...label].length <= 120 ? '' : 'Nhãn tối đa 120 ký tự.');
     if (!form.reportValidity()) return;
@@ -64,7 +71,13 @@
   window.addEventListener('message', event => {
     const m = event.data;
     if (m.threadId !== threadId) return;
-    if (m.type === 'chatOptionsLoaded' && m.requestId === loadId) {
+    if (m.type === 'chatDeeplinkCopied' && m.requestId === copyId) {
+      copyId = ''; el('coCopyDeeplink').disabled = false;
+      const notice = el('coCopyStatus');
+      notice.hidden = false; notice.textContent = m.error ? 'Copy thất bại: ' + m.error : 'Đã copy deeplink.';
+      notice.classList.toggle('error', Boolean(m.error));
+      clearTimeout(copyTimer); copyTimer = setTimeout(() => { notice.hidden = true; }, 4000);
+    } else if (m.type === 'chatOptionsLoaded' && m.requestId === loadId) {
       loading = false; ready = !m.error;
       if (m.error) status(m.error, true);
       else {

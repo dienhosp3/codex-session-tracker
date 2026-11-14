@@ -55,11 +55,11 @@ class TraceStore {
     this.ready = true;
   }
 
-  async rotateIfNeeded() {
+  async rotateIfNeeded(incomingBytes = 0) {
     if (!this.file) return;
     try {
       const stat = await fsp.stat(this.file);
-      if (stat.size < this.maxBytes) return;
+      if (stat.size + incomingBytes <= this.maxBytes) return;
       const rotated = path.join(this.dir, 'gateway-trace.previous.jsonl');
       await fsp.rm(rotated, { force: true });
       await fsp.rename(this.file, rotated);
@@ -77,8 +77,13 @@ class TraceStore {
     if (this.events.length > this.memoryLimit) this.events.splice(0, this.events.length - this.memoryLimit);
     if (!this.file) return safe;
     this.writeChain = this.writeChain.then(async () => {
-      await this.rotateIfNeeded();
-      await fsp.appendFile(this.file, JSON.stringify(safe) + '\n', 'utf8');
+      let serialized=JSON.stringify(safe)+'\n';
+      if(Buffer.byteLength(serialized)>this.maxBytes){
+        const {contentCapture,...metadata}=safe;
+        serialized=JSON.stringify({...metadata,captureUnavailable:true,tracePayloadOmitted:true})+'\n';
+      }
+      await this.rotateIfNeeded(Buffer.byteLength(serialized));
+      await fsp.appendFile(this.file, serialized, 'utf8');
     });
     await this.writeChain;
     return safe;

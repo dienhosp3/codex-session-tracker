@@ -4,7 +4,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const childProcess = require('child_process');
-const runtimeVersions = require('../runtime_versions');
+const runtimeVersions = require('../src/runtime_versions');
 
 function readTrackerVersion(repoRoot) {
   try {

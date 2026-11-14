@@ -11,6 +11,13 @@ function soundViewSettings() {
 function updateSoundCount(settings) {
   const counter = document.querySelector('.sound-panel-count'), types = state.sounds?.types || [];
   if (counter) counter.textContent = (settings.enabled ? types.filter(type => settings.types[type.id]).length : 0) + '/' + types.length + ' bật';
+  const button = document.getElementById('soundSettingsButton');
+  if (button) {
+    const muted = !settings.enabled || types.length > 0 && types.every(type => settings.types[type.id] === false);
+    button.classList.toggle('is-muted', muted);
+    button.setAttribute('aria-label', muted ? 'Cài đặt âm thanh · Đã tắt toàn bộ âm' : 'Cài đặt âm thanh');
+    button.title = muted ? 'Cài đặt âm thanh · Đã tắt toàn bộ âm' : 'Cài đặt âm thanh';
+  }
 }
 function renderSoundSettings() {
   const types = state.sounds?.types || [], settings = soundViewSettings();

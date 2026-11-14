@@ -8,8 +8,8 @@ try {
     $env:TEMP = $scratch
     $env:TMP = $scratch
     $env:CST_UI_SCRATCH = $scratch
-    if ($TestFile -notin @('context_watch_ui.py', 'new_chat_dialog_ui.py', 'sounds_layout_ui.py', 'plan_prompt_ui.py', 'handoff_dialog_ui.py', 'speed_proxy_ui.py', 'layout_controls_ui.py')) { throw 'Unsupported UI test.' }
-    & python (Join-Path $PSScriptRoot ('../test/' + $TestFile))
+    if ($TestFile -notin @('context_watch_ui.py', 'new_chat_dialog_ui.py', 'sounds_layout_ui.py', 'plan_prompt_ui.py', 'async_input_ui.py', 'handoff_dialog_ui.py', 'speed_proxy_ui.py', 'layout_controls_ui.py', 'chat_feedback_ui.py', 'failure_recovery_ui.py', 'account_manager_ui.py', 'scrollbars_ui.py', 'image_attachments_ui.py', 'workspace_controls_ui.py')) { throw 'Unsupported UI test.' }
+    & python -B (Join-Path $PSScriptRoot ('../test/ui/' + $TestFile))
     $testExit = $LASTEXITCODE
 } finally {
     $env:TEMP = $previousTemp

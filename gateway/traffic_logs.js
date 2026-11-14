@@ -9,6 +9,7 @@ class TrafficLogs{
     this.root=options.directory||'';this.enabled=options.enabled!==false;this.sessionStartedAt=options.sessionStartedAt||Date.now();
     this.session=stamp(this.sessionStartedAt)+'-'+crypto.randomBytes(3).toString('hex');
     this.requests=new Map();this.sequence=0;this.written=0;this.error='';this.chain=Promise.resolve();
+    this.remainingBudget=Infinity;this.maintenancePaused=false;
   }
   configure({directory,enabled}){
     // Existing requests finish in their original folders; new requests use this root.
@@ -16,9 +17,18 @@ class TrafficLogs{
     this.error='';
   }
   newSession(){this.sessionStartedAt=Date.now();this.session=stamp(this.sessionStartedAt)+'-'+crypto.randomBytes(3).toString('hex');}
-  snapshot(){return {trafficLogsEnabled:this.enabled,trafficLogsDirectory:this.root,trafficLogsSession:this.session,trafficLogsWritten:this.written,trafficLogsError:this.error};}
+  setMaintenanceBudget(bytes){this.remainingBudget=bytes;this.maintenancePaused=bytes<=0;if(!this.maintenancePaused&&this.error.startsWith('Tạm dừng ghi'))this.error='';}
+  snapshot(){return {trafficLogsEnabled:this.enabled,trafficLogsDirectory:this.root,trafficLogsSession:this.session,trafficLogsWritten:this.written,trafficLogsError:this.error,trafficLogsMaintenancePaused:this.maintenancePaused};}
   append(event,payload={}){
     if(!this.enabled||!this.root)return Promise.resolve();
+    if(!['client_request','client_response','client_response_event','client_hook_status','http_upstream','native_plaintext','ws_frame','ws_connection'].includes(event.type))return Promise.resolve();
+    const estimate=Buffer.byteLength(JSON.stringify(event))+Number(payload.bytes?.length||0)+Number(payload.originalBytes?.length||0)+4096;
+    if(estimate>this.remainingBudget){
+      this.maintenancePaused=true;this.error='Tạm dừng ghi log để giữ giới hạn dung lượng; mạng vẫn hoạt động.';
+      const terminal=['CLIENT_RESPONSE_FINISHED','CLIENT_TRANSPORT_ERROR','UPSTREAM_FINISHED','UPSTREAM_ERROR','DISCONNECTED'].includes(event.stage);
+      if(!terminal)return Promise.resolve();
+      const {contentCapture,...metadata}=event;event={...metadata,captureUnavailable:true};payload={};
+    }else this.remainingBudget-=estimate;
     const task=this.chain.then(()=>this.write(event,payload));
     this.chain=task.catch(()=>{});
     return task.catch(error=>{this.error=`Không ghi được log (${error.code||'IO_ERROR'}).`;});

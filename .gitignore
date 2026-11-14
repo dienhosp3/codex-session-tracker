@@ -4,6 +4,7 @@ node_modules/
 runtime/bin/
 __pycache__/
 *.vsix
+/dist/
 .DS_Store
 .vscode-test/
 artifacts/.ui-edge-profile-*/

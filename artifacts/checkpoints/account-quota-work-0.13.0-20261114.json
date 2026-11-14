@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-14T10:09:14.857Z",
+  "label": "account-quota-work-0.13.0",
+  "repository": {
+    "revision": "bb6886248723f6247ca40c2ee354739a664813e7",
+    "shortRevision": "bb6886248723",
+    "dirty": true,
+    "trackerVersion": "0.13.0"
+  },
+  "versions": {
+    "installedExtension": {
+      "id": "openai.chatgpt",
+      "version": "26.51021.22027"
+    },
+    "bundledCli": {
+      "version": "codex-cli 0.164.0-alpha.11.1",
+      "source": "bundled",
+      "error": ""
+    },
+    "rollout": {
+      "cliVersion": "",
+      "model": ""
+    }
+  }
+}

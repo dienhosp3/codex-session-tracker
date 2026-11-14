@@ -1,0 +1,60 @@
+{
+  "trackerVersion": "0.13.0",
+  "coreVersion": "0.4.0",
+  "installedOpenAIExtension": "26.51021.22027",
+  "bundledQuotaCli": "0.164.0-alpha.11.1",
+  "tests": {
+    "trackerFull": 524,
+    "coreFull": 423,
+    "coreFocusedAfterChanges": 39,
+    "coreSyntaxAndVendorIntegrity": true,
+    "edgeAccountRows": 1000,
+    "edgeAccountUI": true,
+    "edgePlanAcceptance": true,
+    "edgeFailureRecovery": true
+  },
+  "live": {
+    "workArithmeticMessages": 1,
+    "workReply": "1 + 3 = 4",
+    "arithmeticModelBeforeUserCorrection": "GPT-6 Luna",
+    "finalModelControl": "GPT-5.6 Luna",
+    "finalReasoning": "Light",
+    "sliderMinimum": 0,
+    "fastMode": false,
+    "additionalMessagesAfterCorrection": 0,
+    "isolatedNativeQuotaProtocol": true,
+    "realAccountSwitchPerformed": false
+  },
+  "installedTracker": {
+    "payloadFilesByteEqual": 322,
+    "manifestEquivalentIgnoringVSCodeMetadata": true,
+    "mismatches": [],
+    "vsixSha256": "1a6f542391a15cd8e00f83fab398b59e5a39f6b55a8e61edf9eb1eb35f3440a8"
+  },
+  "installedCore": {
+    "manifestFilesVerified": 4176,
+    "mismatches": [],
+    "activeVersion": "0.4.0",
+    "newCapabilitiesVerified": true,
+    "existingLaunchers": 3,
+    "registeredAccounts": 0,
+    "confirmedTurnsBeforeAndAfter": 34,
+    "notSentAttemptsBeforeAndAfter": 1
+  },
+  "defaults": {
+    "warmup": false,
+    "autoSwitch": false,
+    "autoResume": false,
+    "autoModelFallback": false,
+    "chooserSeconds": 30,
+    "busyPolicy": "wait",
+    "resumeScope": "trigger"
+  },
+  "scratchRemaining": 0,
+  "scratchVerification": {
+    "ordinaryExplorerUserToken": true,
+    "directoriesProbed": 29,
+    "descendantInheritanceAndFullControl": true,
+    "removed": true
+  }
+}

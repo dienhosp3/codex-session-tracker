@@ -1,6 +1,6 @@
-let chatListLayoutFrame = 0, chatListAutoFit = true, chatListFitAll = false;
+let chatListLayoutFrame = 0, chatListAutoFit = true;
 function fitVisibleChatList() {
-  chatListAutoFit = true; chatListFitAll = true;
+  chatListAutoFit = true;
   const sidebar = document.querySelector('.sidebar');
   if (sidebar) sidebar.scrollTop = 0;
   scheduleChatListLayout();
@@ -19,8 +19,20 @@ function chatListMeasurements() {
 }
 function chatListHeightLimits() {
   const available = Math.max(0, window.innerHeight - 9), first = chatListMeasurements().first;
-  const min = Math.min(available, Math.max(100, first));
-  return { min, max: available };
+  const detail = document.getElementById('main'), head = detail?.querySelector('.head');
+  let reserve = Math.min(160, available * 0.45);
+  if (head) {
+    const rect = detail.getBoundingClientRect();
+    const bottomOf = element => element.getBoundingClientRect().bottom - rect.top + detail.scrollTop + 12;
+    const headerEnd = bottomOf(detail.querySelector('.view-switch') || head);
+    const account = detail.querySelector('.auth-session-card');
+    // Keep the title, model and summary controls visible before fitting rows.
+    // The account/context card also fits when the viewport can accommodate it.
+    reserve = Math.min(Math.max(0, available - 40), Math.max(headerEnd,
+      Math.min(account ? bottomOf(account) : headerEnd, Math.max(0, available - 100))));
+  }
+  const max = Math.max(0, Math.floor(available - reserve));
+  return { min: Math.min(max, Math.max(100, first)), max };
 }
 function scheduleChatListLayout(force = false) {
   if (force) chatListAutoFit = true;
@@ -30,9 +42,7 @@ function scheduleChatListLayout(force = false) {
     const sidebar = document.querySelector('.sidebar'); if (!sidebar) return;
     if (window.matchMedia('(max-width:700px)').matches) {
       const limits = chatListHeightLimits(), measured = chatListMeasurements();
-      const preferred = chatListAutoFit
-        ? measured.all <= limits.max ? measured.all : chatListFitAll ? limits.max : Math.max(limits.min, limits.max - 160)
-        : sidebarHeight;
+      const preferred = chatListAutoFit ? Math.min(measured.all, limits.max) : sidebarHeight;
       sidebarHeight = Math.max(limits.min, Math.min(limits.max, preferred));
       document.documentElement.style.setProperty('--sidebar-height', sidebarHeight + 'px');
       const handle = document.getElementById('sidebarResizer');
@@ -46,6 +56,7 @@ function scheduleChatListLayout(force = false) {
       // An exceptionally short viewport can show a chat by scrolling the header.
       sidebar.scrollTop += Math.max(0, first.getBoundingClientRect().top - sidebar.getBoundingClientRect().top - 4);
     }
+    positionDeleteToast();
   });
 }
 function activateRunningList(notifyHost = true) {

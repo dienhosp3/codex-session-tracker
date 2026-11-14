@@ -3,8 +3,9 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scratch.ps1')
 $repo = Split-Path -Parent $PSScriptRoot
 $package = Get-Content -LiteralPath (Join-Path $repo 'package.json') -Raw | ConvertFrom-Json
-if (-not $Output) { $Output = Join-Path $repo ('codex-session-tracker-' + $package.version + '.vsix') }
+if (-not $Output) { $Output = Join-Path $repo ('dist/codex-session-tracker-' + $package.version + '.vsix') }
 $Output = [IO.Path]::GetFullPath($Output)
+[IO.Directory]::CreateDirectory((Split-Path -Parent $Output)) | Out-Null
 if (Test-Path -LiteralPath $Output) { throw "Output already exists: $Output" }
 if (-not $RuntimeSource) { $RuntimeSource = $repo }
 $runtimeBinary = Join-Path $RuntimeSource 'runtime\bin\windows-x86_64\codex.exe'
@@ -17,7 +18,7 @@ try {
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $files = @{}
-    foreach ($pattern in @($package.files) + @('package.json', 'proxy_watchdog.js', 'proxy_recovery.js', 'runtime/manifest.json', 'runtime/LICENSE-Codex.txt', 'runtime/NOTICE-Codex.txt', 'runtime/tracker_hook.rs')) {
+    foreach ($pattern in @($package.files) + @('package.json', 'src/proxy_watchdog.js', 'src/proxy_recovery.js', 'runtime/manifest.json', 'runtime/LICENSE-Codex.txt', 'runtime/NOTICE-Codex.txt', 'runtime/tracker_hook.rs')) {
         foreach ($item in Get-ChildItem -Path (Join-Path $repo $pattern) -ErrorAction Stop) {
             $children = if ($item.PSIsContainer) { @(Get-ChildItem -LiteralPath $item.FullName -Recurse -File) } else { @($item) }
             foreach ($child in $children) {
@@ -42,7 +43,7 @@ try {
 <Assets><Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" /><Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/README.md" Addressable="true" /><Asset Type="Microsoft.VisualStudio.Services.Content.License" Path="extension/LICENSE.txt" Addressable="true" /></Assets></PackageManifest>
 "@
     $contentTypes = '<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-    foreach ($extension in @('json','js','css','md','html','svg','mp3','wav','txt','exe','py','rs','vsixmanifest')) { $contentTypes += '<Default Extension="' + $extension + '" ContentType="application/octet-stream" />' }
+    foreach ($extension in @('json','js','cjs','ts','css','md','html','svg','mp3','wav','txt','exe','py','rs','vsixmanifest')) { $contentTypes += '<Default Extension="' + $extension + '" ContentType="application/octet-stream" />' }
     $contentTypes += '</Types>'
     [IO.File]::WriteAllText((Join-Path $scratch 'extension.vsixmanifest'), $vsixManifest)
     [IO.File]::WriteAllText((Join-Path $scratch '[Content_Types].xml'), $contentTypes)
@@ -55,7 +56,7 @@ try {
     $archive.Dispose(); $archive = $null
     $archive = [IO.Compression.ZipFile]::OpenRead($Output)
     if ($archive.Entries.Count -ne $files.Count) { throw 'Package file count mismatch.' }
-    foreach ($required in @('extension/package.json', 'extension/extension.js', 'extension/codex_context_watch.js', 'extension/codex_context_reader.js', 'extension/codex_context_handoff.js', 'extension/codex_new_chat.js', 'extension/codex_chat_context_store.js', 'extension/codex_new_chat_form.js', 'extension/media/new_chat_dialog.html', 'extension/media/new_chat_dialog.js', 'extension/media/attention_voice/approval_initial.wav', 'extension/media/attention_voice/input_initial.wav', 'extension/media/attention_voice/chat_completed.wav', 'extension/media/attention_voice/chat_failed.wav', 'extension/media/sound_settings.js', 'extension/media/sound_settings.css', 'extension/media/chat_list_layout.js', 'extension/codex_sound_settings.js', 'extension/codex_completion_sounds.js', 'extension/codex_plan_state.js', 'extension/codex_new_chat_context.js', 'extension/gateway/index.js', 'extension/runtime/bin/windows-x86_64/codex.exe')) {
+    foreach ($required in @('extension/package.json', 'extension/extension.js', 'extension/src/codex_context_watch.js', 'extension/src/codex_context_reader.js', 'extension/src/codex_context_handoff.js', 'extension/src/codex_new_chat.js', 'extension/src/codex_chat_context_store.js', 'extension/src/codex_new_chat_form.js', 'extension/media/new_chat_dialog.html', 'extension/media/new_chat_dialog.js', 'extension/media/attention_voice/approval_initial.wav', 'extension/media/attention_voice/input_initial.wav', 'extension/media/attention_voice/chat_completed.wav', 'extension/media/attention_voice/chat_failed.wav', 'extension/media/sound_settings.js', 'extension/media/sound_settings.css', 'extension/media/chat_list_layout.js', 'extension/src/codex_sound_settings.js', 'extension/src/codex_completion_sounds.js', 'extension/src/codex_plan_state.js', 'extension/src/codex_new_chat_context.js', 'extension/gateway/index.js', 'extension/runtime/bin/windows-x86_64/codex.exe')) {
         if (-not $archive.GetEntry($required)) { throw "Missing required archive entry: $required" }
     }
     foreach ($entry in $archive.Entries) {

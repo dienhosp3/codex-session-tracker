@@ -22,7 +22,7 @@ try {
     $compiledHookHash=(Get-FileHash -LiteralPath (Join-Path $source 'codex-rs/http-client/src/tracker_hook.rs') -Algorithm SHA256).Hash
     if ($compiledHookHash -ne (Get-FileHash -LiteralPath 'runtime/tracker_hook.rs' -Algorithm SHA256).Hash) { throw 'Existing runtime hook source differs.' }
   }
-  $verification = & node test/client_runtime_integration.js
+  $verification = & node test/integration/client_runtime_integration.js
   if ($LASTEXITCODE -ne 0) { throw 'Client runtime integration failed.' }
   New-Item -ItemType Directory -Path 'artifacts/verification' -Force | Out-Null
   [IO.File]::WriteAllText((Join-Path $repository 'artifacts/verification/client-runtime.json'),($verification -join [Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))

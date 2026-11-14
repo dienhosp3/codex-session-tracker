@@ -1,0 +1,31 @@
+{
+  "name": "@ahust/chatgpt-sdk",
+  "version": "0.4.0",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
+  },
+  "ahustSdkContract": "1",
+  "dependencies": {},
+  "exports": {
+    ".": {
+      "types": "./src/client.d.ts",
+      "import": "./src/client.js"
+    }
+  },
+  "files": [
+    "src/quota.cjs",
+    "src/client.js",
+    "src/client.d.ts",
+    "src/python_bridge.js",
+    "src/errors.js",
+    "src/paths.js",
+    "src/diagnostics.js",
+    "src/responses.js",
+    "src/code-blocks.js",
+    "src/runtime-resolver.js",
+    "sdk/python/ahust_chatgpt_core.py"
+  ]
+}

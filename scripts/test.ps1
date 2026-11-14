@@ -9,7 +9,7 @@ try {
     $env:TEMP = $scratch
     $env:TMP = $scratch
     Set-Location (Split-Path -Parent $PSScriptRoot)
-    if (-not $TestFiles) { $TestFiles = @('test/*.test.js') }
+    if (-not $TestFiles) { $TestFiles = @('test/unit/*.test.js') }
     & node --require ./scripts/test-scratch.js --test @TestFiles
     $testExit = $LASTEXITCODE
 } finally {

@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import pathlib
 import subprocess
-import tempfile
 import urllib.parse
 import urllib.request
 
@@ -61,22 +60,30 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=pathlib.Path, default=pathlib.Path(__file__).resolve().parents[1] / "media" / "usage_voice")
     parser.add_argument("--ffmpeg", default="ffmpeg")
+    parser.add_argument("--scratch", required=True, type=pathlib.Path)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
 
     phrases = {"large_prefix": "quota thay đổi mạnh."}
     phrases.update({f"percent_{value}": f"quota năm giờ còn {vietnamese_number(value)} phần trăm." for value in range(101)})
-    with tempfile.TemporaryDirectory(prefix="codex-usage-voice-") as temporary:
-        temp = pathlib.Path(temporary)
+    if not args.scratch.is_dir() or 'AHUST-Work' not in args.scratch.parts:
+        raise RuntimeError('Use scripts/scratch.ps1 to create and verify scratch first.')
+    try:
         for name, phrase in phrases.items():
             target = args.output / f"{name}.wav"
             if target.exists() and not args.force:
                 continue
-            mp3 = temp / f"{name}.mp3"
+            mp3 = args.scratch / f"{name}.mp3"
             print(f"{name}: {phrase}")
-            mp3.write_bytes(fetch_mp3(phrase))
-            convert_to_wav(args.ffmpeg, mp3, target)
+            try:
+                mp3.write_bytes(fetch_mp3(phrase))
+                convert_to_wav(args.ffmpeg, mp3, target)
+            finally:
+                mp3.unlink(missing_ok=True)
+    finally:
+        for name in phrases:
+            (args.scratch / f"{name}.mp3").unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

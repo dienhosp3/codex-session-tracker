@@ -3,71 +3,91 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
-const tracker = require('./tracker');
-const codexQueue = require('./codex_queue');
-const codexSteer = require('./codex_steer');
-const { ensureOwnerBridge } = require('./codex_owner_bridge');
-const { disposeOwnerBridges, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, interruptInLocalBackend, compactInLocalBackend, compactAndResumeInLocalBackend } = require('./codex_live_backend');
-const { createUsageMonitor, intervalMinutes, usageIntervalError, usageStatus, accountKeyFromResult } = require('./codex_usage');
-const { normalizeUsageAlertSettings, evaluateUsageAlerts, usageAlertSummary } = require('./codex_usage_alerts');
-const { normalizeUsageHistory, recordUsageSample, createUsageHistoryStore, usageHistoryChart } = require('./codex_usage_history');
-const { normalizeUsageVoiceSettings, normalizeUsageVoiceState, evaluateUsageVoice, createUsageVoiceController } = require('./codex_usage_voice');
-const { normalizeContextCompactSettings, normalizeContextCompactState, contextPercent, contextCompactDecision, markContextCompactStarted, markContextCompactSucceeded, markContextCompactFailed } = require('./codex_context_compact');
-const { createContextWatch } = require('./codex_context_watch');
-const { subscribeCompactionStarted } = require('./codex_compaction_events');
-const { createContextReader } = require('./codex_context_reader');
-const { runContextHandoff, parseSeries, THREAD_ID } = require('./codex_context_handoff');
-const { contextHandoffBackend, readAttentionInLocalBackend } = require('./codex_live_backend');
-const { newChatBackend } = require('./codex_live_backend');
-const { PRESETS, normalizeContextPreset, readModelContext, contextChoice, contextConfig, formatContextK } = require('./codex_new_chat');
-const { configureChatContextStore, currentChatContextStore } = require('./codex_chat_context_store');
+const tracker = require('./src/tracker');
+const { createAttentionDismissals } = require('./src/codex_attention_dismissals');
+let attentionDismissals;
+const {createAccountManager} = require('./src/codex_account_manager');
+const {createImageQueue} = require('./src/codex_image_queue');
+const {createStorageMaintenance} = require('./src/codex_storage');
+let storageMaintenance;
+let imageQueue;
+let accountManager, attentionNativeThreads = [], attentionNativeAt = 0;
+const planAccepting = new Set();
+const sessionReader = tracker.createSessionReader?.() || tracker;
+const codexQueue = require('./src/codex_queue');
+const codexSteer = require('./src/codex_steer');
+const { ensureOwnerBridge } = require('./src/codex_owner_bridge');
+const { disposeOwnerBridges, installedBridgeInfo, continueInLocalBackend, readAccountInLocalBackend, readRateLimitsInLocalBackend, interruptInLocalBackend, compactInLocalBackend, compactAndResumeInLocalBackend } = require('./src/codex_live_backend');
+const { createUsageMonitor, intervalMinutes, usageIntervalError, usageInterval, usageStatus, accountKeyFromResult } = require('./src/codex_usage');
+const { normalizeUsageAlertSettings, evaluateUsageAlerts, usageAlertSummary } = require('./src/codex_usage_alerts');
+const { normalizeUsageHistory, recordUsageSample, createUsageHistoryStore, usageHistoryChart } = require('./src/codex_usage_history');
+const { normalizeUsageVoiceSettings, normalizeUsageVoiceState, evaluateUsageVoice, createUsageVoiceController } = require('./src/codex_usage_voice');
+const { createUsageNotifications } = require('./src/codex_usage_notifications');
+const { createFailureRecovery } = require('./src/codex_failure_recovery');
+const { diagnoseConnection, connectionTargets, readRelayFailure } = require('./src/codex_connection_diagnostics');
+const { readRecoveryInLocalBackend } = require('./src/codex_live_backend');
+let failureRecovery = null;
+const { normalizeContextCompactSettings, normalizeContextCompactState, contextPercent, contextCompactDecision, markContextCompactStarted, markContextCompactSucceeded, markContextCompactFailed } = require('./src/codex_context_compact');
+const { createContextWatch } = require('./src/codex_context_watch');
+const { subscribeCompactionStarted } = require('./src/codex_compaction_events');
+const { createContextReader } = require('./src/codex_context_reader');
+const { runContextHandoff, parseSeries, THREAD_ID } = require('./src/codex_context_handoff');
+const { contextHandoffBackend, readAttentionInLocalBackend } = require('./src/codex_live_backend');
+const { newChatBackend } = require('./src/codex_live_backend');
+const { PRESETS, normalizeContextPreset, readModelContext, contextChoice, contextConfig, formatContextK,customPresetK,contextChoices } = require('./src/codex_new_chat');
+const { configureChatContextStore, currentChatContextStore } = require('./src/codex_chat_context_store');
 const NEW_CHAT_SETTINGS_KEY = 'codexSessionTracker.newChatContext.v1';
 const NEW_CHAT_MODEL_KEY = 'codexSessionTracker.newChatModel.v1';
 const NEW_CHAT_SPEED_KEY = 'codexSessionTracker.newChatSpeed.v1';
-const { normalizeSpeed, requireSpeed } = require('./codex_speed');
+const { normalizeSpeed, requireSpeed } = require('./src/codex_speed');
 let newChatBusy = false;
-const { createNewChatForm } = require('./codex_new_chat_form');
-const { createHandoffForm } = require('./codex_handoff_form');
+const { createNewChatForm } = require('./src/codex_new_chat_form');
+const { createHandoffForm } = require('./src/codex_handoff_form');
 let handoffForm = null, pendingHandoffDialog = null;
 let newChatForm = null, newChatDialogReady = false, pendingNewChatDialog = null;
-const { createAttentionMonitor } = require('./codex_attention');
-const { speakAttentionReminder, speakAttentionInitial } = require('./codex_attention_voice');
-const { speakCompletion } = require('./codex_attention_voice');
-const { SOUND_TYPES, createSoundSettings, filterAttentionSound } = require('./codex_sound_settings');
-const { createCompletionSounds } = require('./codex_completion_sounds');
-const { soundsForChat } = require('./codex_chat_options');
-const { validateChatOptions } = require('./codex_chat_options');
-const { normalizeDisplayLabel, normalizeIdentity, identityFromTitle, identityPlan, prepareIdentityEdit } = require('./codex_chat_identity');
-const { configureAutoAllowStore, currentAutoAllowStore } = require('./codex_auto_allow');
-const { chatPermissionsBackend } = require('./codex_live_backend');
+const { createAttentionMonitor } = require('./src/codex_attention');
+const { createAsyncInputReader } = require('./src/codex_async_input');
+const { speakAttentionReminder, speakAttentionInitial } = require('./src/codex_attention_voice');
+const { speakCompletion } = require('./src/codex_attention_voice');
+const { SOUND_TYPES, createSoundSettings, filterAttentionSound } = require('./src/codex_sound_settings');
+const { createCompletionSounds } = require('./src/codex_completion_sounds');
+const { soundsForChat } = require('./src/codex_chat_options');
+const { validateChatOptions } = require('./src/codex_chat_options');
+const { normalizeDisplayLabel, normalizeIdentity, identityFromTitle, identityPlan, prepareIdentityEdit,familyMembers,prepareFamilyIdentityEdit,displayChatTitle } = require('./src/codex_chat_identity');
+const { configureAutoAllowStore, currentAutoAllowStore } = require('./src/codex_auto_allow');
+const { chatPermissionsBackend } = require('./src/codex_live_backend');
 const chatOptionsSaving = new Set();
-const { planState, mergePlanAttention, PLAN_READY_TEXT } = require('./codex_plan_state');
-const { subscribeTurnLifecycle } = require('./codex_live_backend');
-const { subscribeNewChats } = require('./codex_live_backend');
-const { subscribeGoalUpdates } = require('./codex_live_backend');
-const { createNewChatContextRule } = require('./codex_new_chat_context');
+const { planState, mergePlanAttention, PLAN_READY_TEXT } = require('./src/codex_plan_state');
+const { subscribeTurnLifecycle } = require('./src/codex_live_backend');
+const { subscribeNewChats } = require('./src/codex_live_backend');
+const { subscribeGoalUpdates } = require('./src/codex_live_backend');
+const { createNewChatContextRule } = require('./src/codex_new_chat_context');
 const NEW_CHAT_CONTEXT_RULE_KEY = 'codexSessionTracker.newChatContextRule.v1';
 let newChatContextRule = null;
 const SOUND_SETTINGS_KEY = 'codexSessionTracker.soundSettings.v1';
 const COMPLETION_SOUNDS_KEY = 'codexSessionTracker.completionSounds.v1';
 let soundSettings = null, completionSounds = null, soundNotice = '';
-const codexDelete = require('./codex_delete');
-const codexAuth = require('./codex_auth');
-const { createConversationNavigator } = require('./codex_navigation');
-const { createCurrentChatTracker } = require('./codex_current_chat');
-const { createLocalProxyController, restartExecutable } = require('./local_proxy');
-const { createProxyWatchdog, thresholdError } = require('./proxy_watchdog');
-const { createProxyRecovery } = require('./proxy_recovery');
-const { createErrorHistory, createRetryLimitMonitor } = require('./codex_error_alerts');
-const { DEFAULT_ERROR_SOUND, DEFAULT_MODEL_CAPACITY_SOUND, createErrorSoundController } = require('./codex_error_sound');
+const codexDelete = require('./src/codex_delete');
+const codexAuth = require('./src/codex_auth');
+const { createConversationNavigator } = require('./src/codex_navigation');
+const { createCurrentChatTracker } = require('./src/codex_current_chat');
+const { createLocalProxyController, restartExecutable } = require('./src/local_proxy');
+const { createProxyWatchdog, thresholdError } = require('./src/proxy_watchdog');
+const { createProxyRecovery } = require('./src/proxy_recovery');
+const { createErrorHistory, createRetryLimitMonitor } = require('./src/codex_error_alerts');
+const { DEFAULT_ERROR_SOUND, DEFAULT_MODEL_CAPACITY_SOUND, createErrorSoundController } = require('./src/codex_error_sound');
 const openCodexConversation = createConversationNavigator(vscode);
 const { CodexGateway } = require('./gateway');
 const gatewayConfig = require('./gateway/config_manager');
 const { NativeInstrumentation, discoverOwners } = require('./gateway/native_instrumentation');
-const runtimeVersions = require('./runtime_versions');
+const runtimeVersions = require('./src/runtime_versions');
 const clientRuntime = require('./gateway/client_runtime');
 const {SavedTraffic}=require('./gateway/saved_traffic');
 const TRAFFIC_SETTINGS_KEY='codexSessionTracker.trafficSettings.v1';
+const { createKeepAwake } = require('./src/codex_keep_awake');
+const KEEP_AWAKE_KEY = 'codexSessionTracker.keepAwake.v1';
+const USAGE_INTERVAL_CONFIG_KEY = 'codexSessionTracker.usageInterval.v2';
+let keepAwake = null, pendingUsageDialog = '';
 const USAGE_INTERVAL_KEY = 'codexSessionTracker.usageIntervalMinutes.v1';
 const USAGE_ALERT_SETTINGS_KEY = 'codexSessionTracker.usageAlertSettings.v1';
 const USAGE_ALERT_STATE_KEY = 'codexSessionTracker.usageAlertState.v1';
@@ -101,6 +121,7 @@ let usageAlertPromise = Promise.resolve();
 let usageVoiceSettings = normalizeUsageVoiceSettings();
 let usageVoiceState = normalizeUsageVoiceState();
 let usageVoice = null;
+let usageNotifications = null;
 let usageVoicePromise = Promise.resolve();
 let contextCompactSettings = normalizeContextCompactSettings();
 let contextCompactState = normalizeContextCompactState();
@@ -108,6 +129,8 @@ let contextCompactBusy = false;
 let contextCompactNotice = null;
 let contextWatch = null;
 let attentionMonitor = null;
+let asyncInputs = null;
+const RESOLVED_INPUTS_KEY = 'codexSessionTracker.resolvedInputs.v1';
 let attentionEntries = {};
 const CONTEXT_WATCH_KEY = 'codexSessionTracker.contextWatch.v1';
 let usageHistoryState = { schemaVersion: 1, samples: [] };
@@ -187,6 +210,37 @@ let gatewayProxyEnvApplied = false;
 
 async function activate(context) {
   contextRef = context;
+  imageQueue=createImageQueue({file:path.join(context.globalStorageUri.fsPath,'image-queue.json'),imageDirectory:path.join(context.globalStorageUri.fsPath,'attachments'),
+    changed:postViewState,
+    async readStatus(threadId){await prepareOwnerBridge();return readRecoveryInLocalBackend(threadId);},
+    send:job=>continueInLocalBackend({conversationId:job.threadId,expectedPreviousTurnId:job.expectedPreviousTurnId,clientUserMessageId:job.clientUserMessageId,
+      input:[...(job.message.trim()?[{type:'text',text:job.message,text_elements:[]}]:[]),...job.images.map(image=>({type:'image',url:image.dataUrl}))]})});
+  imageQueue.start();context.subscriptions.push({dispose:()=>imageQueue.dispose()});
+  accountManager = createAccountManager(vscode,context,{
+    codexHome:()=>config().codexHome,changed:postViewState,persist:persistSelection,
+    async describeHost(){
+      await prepareOwnerBridge();
+      let account=null;try{account=(await readAccountInLocalBackend())?.account;}catch{}
+      return {account,ready:Boolean(account&&Date.now()-attentionNativeAt<10000),
+        busy:attentionNativeThreads.filter(t=>t.status?.type==='active').map(t=>({threadId:t.id})),
+        modelFailures:Object.values(failureRecovery?.snapshot().entries||{}).filter(e=>!e.historical&&e.category==='capacity'&&!['resolved','dismissed'].includes(e.phase)).map(e=>({threadId:e.threadId,turnId:e.turnId})),
+        quotaFailures:Object.values(failureRecovery?.snapshot().entries||{}).filter(e=>!e.historical&&e.category==='quota'&&!['resolved','dismissed'].includes(e.phase)).map(e=>({threadId:e.threadId,turnId:e.turnId,model:attentionNativeThreads.find(t=>t.id===e.threadId)?.model||activeChats.concat(nonRunningChats).find(t=>t.threadId===e.threadId)?.runtime?.model||''}))};
+    },
+    async readNativeQuota(){const before=await readAccountInLocalBackend(),result=await readRateLimitsInLocalBackend(),after=await readAccountInLocalBackend();if(accountKeyFromResult(before)!==accountKeyFromResult(after))throw new Error('Tài khoản vừa thay đổi.');return {account:after.account,result};},
+    readStatus:readRecoveryInLocalBackend,
+    interrupt:turn=>interruptInLocalBackend({threadId:turn.threadId,conversationId:turn.threadId}),
+    resume:task=>continueInLocalBackend({conversationId:task.threadId,expectedPreviousTurnId:task.turnId,clientUserMessageId:task.requestId,input:[{type:'text',text:'Tiếp tục công việc còn dang dở từ trạng thái đã lưu. Kiểm tra kết quả trước khi thực hiện lại.',text_elements:[]}]}),
+    async fallbackModel(threadId,allowed){
+      const live=await readRecoveryInLocalBackend(threadId);if(live.active||live.waiting||live.goalPaused||live.status!=='failed')throw new Error('Chat chưa ở trạng thái lỗi có thể tiếp tục.');
+      const backend=contextHandoffBackend(threadId),models=await backend.listModels(),model=allowed.find(id=>models.some(m=>m.id===id));if(!model)throw new Error('Không có model được phép đang khả dụng.');
+      return continueInLocalBackend({conversationId:threadId,expectedPreviousTurnId:live.turnId,model,clientUserMessageId:require('node:crypto').randomUUID(),input:[{type:'text',text:'Tiếp tục công việc còn dang dở từ trạng thái đã lưu.',text_elements:[]}]});
+    }
+  });
+  accountManager.start().catch(error=>console.warn('[Codex Tracker] Account settings: '+friendlyError(error)));
+
+  keepAwake = createKeepAwake({ onChange: () => postViewState() });
+  context.subscriptions.push(keepAwake);
+  if (context.globalState.get(KEEP_AWAKE_KEY, false)) keepAwake.setEnabled(true);
   configureChatContextStore(path.join(context.globalStorageUri.fsPath, 'chat-contexts'));
   configureAutoAllowStore(path.join(context.globalStorageUri.fsPath, 'chat-permissions'));
   startErrorMonitoring(context);
@@ -228,6 +282,7 @@ async function activate(context) {
     restart: () => localProxy.restart('auto'),
     onChange: () => postViewState()
   });
+  getAsyncInputs(context);
   currentChatTracker = createCurrentChatTracker(vscode, {
     extensionUri: context.extensionUri,
     onChange(threadId) {
@@ -237,7 +292,8 @@ async function activate(context) {
     onPlanPrompt(event) {
       if (event.visible) planState.ready(event.threadId, event.turnId);
       else planState.resolved(event.threadId, event.turnId);
-    }
+    },
+    onInputResolved: event => asyncInputs.resolve(event.threadId, event.ids)
   });
   context.subscriptions.push(currentChatTracker);
   const savedUsageInterval = context.globalState.get(USAGE_INTERVAL_KEY, 5);
@@ -245,22 +301,34 @@ async function activate(context) {
   usageAlertState = context.globalState.get(USAGE_ALERT_STATE_KEY) || { schemaVersion: 1, initialized: false, windows: {} };
   usageVoiceSettings = normalizeUsageVoiceSettings(context.globalState.get(USAGE_VOICE_SETTINGS_KEY));
   usageVoiceState = normalizeUsageVoiceState(context.globalState.get(USAGE_VOICE_STATE_KEY));
+  usageNotifications = createUsageNotifications(path.join(context.globalStorageUri.fsPath, 'usage-notifications.json'), { voice: usageVoiceState, alerts: usageAlertState });
   contextCompactSettings = normalizeContextCompactSettings(context.globalState.get(CONTEXT_COMPACT_SETTINGS_KEY));
   contextCompactState = normalizeContextCompactState(context.globalState.get(CONTEXT_COMPACT_STATE_KEY));
   startContextWatching(context);
+  await startFailureRecovery(context);
   usageVoice = createUsageVoiceController({ assetsDirectory: path.join(context.extensionPath, 'media', 'usage_voice') });
   usageHistoryStore = createUsageHistoryStore(context.globalStorageUri.fsPath);
   usageHistoryState = { samples: await usageHistoryStore.load().catch(error => { console.warn('[Codex Session Tracker] Usage history read: ' + friendlyError(error)); return []; }) };
   usageMonitor = createUsageMonitor({
+    interval: context.globalState.get(USAGE_INTERVAL_CONFIG_KEY),
     intervalMinutes: Number.isInteger(savedUsageInterval) && savedUsageInterval >= 0 && savedUsageInterval <= 1440 ? savedUsageInterval : 5,
     async read() {
       await prepareOwnerBridge();
-      const rateLimits = await readRateLimitsInLocalBackend();
+      let before;
+      try { before = await readAccountInLocalBackend(); }
+      catch { return { pending: true }; }
+      if (!before?.account) return { pending: true };
+      if (before.account.type !== 'chatgpt') return { pending: true, terminal: true };
+      let rateLimits;
       try {
+        rateLimits = await readRateLimitsInLocalBackend();
         const account = await readAccountInLocalBackend();
+        if (accountKeyFromResult(before) !== accountKeyFromResult(account)) return { pending: true };
+        accountManager?.observeNative(account.account,rateLimits).catch(()=>{});
         return { ...rateLimits, accountKey: accountKeyFromResult(account) };
-      } catch {
-        return { ...rateLimits, accountKey: 'account:unknown' };
+      } catch (error) {
+        if (!installedBridgeInfo().length) return { pending: true };
+        throw error;
       }
     },
     onChange: () => {
@@ -269,8 +337,7 @@ async function activate(context) {
         usageAlertCheckedAt = snapshot.checkedAt;
         usageHistoryState = recordUsageSample(snapshot, usageHistoryState, snapshot.checkedAt);
         usageHistoryPromise = usageHistoryPromise.then(() => usageHistoryStore?.append(snapshot, snapshot.checkedAt)).catch(error => console.warn('[Codex Session Tracker] Usage history write: ' + friendlyError(error)));
-        processUsageAlerts(snapshot);
-        processUsageVoice(snapshot);
+        processUsageNotifications(snapshot);
       }
       renderUsageStatus();
       postViewState();
@@ -287,6 +354,11 @@ async function activate(context) {
     }catch{}
   }
   applyGatewayProcessEnvironment();
+  storageMaintenance=createStorageMaintenance({directory:context.globalStorageUri.fsPath,trafficDirectory:()=>trafficSettings.directory,changed:postViewState,
+    memoryStats:()=>sessionReader.cacheStats?.(),
+    clearMemory:async()=>{await sessionReader.clearCaches?.();await refreshAll(true);},
+    budget:({traceCap,trafficBytes})=>{if(gateway){if(traceCap)gateway.trace.maxBytes=traceCap;gateway.server.trafficLogs.setMaintenanceBudget(trafficBytes);}}});
+  storageMaintenance.start();context.subscriptions.push({dispose:()=>storageMaintenance.dispose()});
 
   const migratedLegacyRoute = await migrateLegacyGatewayRoute();
   if (migratedLegacyRoute) {
@@ -393,13 +465,9 @@ async function newChatMetadata(cwd, requestedModel) {
 }
 
 async function pickContext(metadata, current, title) {
-  const items = PRESETS.map(preset => {
-    const choice = contextChoice(preset, metadata);
-    return { preset, label: preset === 'default' ? 'Theo model (' + formatContextK(choice.requestedTokens) + ')' : preset.toUpperCase(),
-      description: preset === current ? 'Đang chọn' : '',
-      detail: !choice.available ? 'Chưa rõ' : 'Dùng ' + formatContextK(choice.effectiveTokens) +
-        (choice.limited ? ' · trần ' + formatContextK(choice.appliedTokens) : '') };
-  });
+  const items = contextChoices(metadata).map(choice => ({...choice,
+    description: choice.preset === current || choice.preset === 'custom' && customPresetK(current) !== null ? 'Đang chọn' : '',
+    detail: choice.detail + (choice.note ? ' ? ' + choice.note : '')}));
   const picked = await new Promise(resolve => {
     const picker = vscode.window.createQuickPick();
     picker.title = title;
@@ -407,7 +475,7 @@ async function pickContext(metadata, current, title) {
     picker.matchOnDetail = true;
     picker.items = items;
     // A label alone does not preselect the saved item in a native QuickPick.
-    picker.activeItems = [items.find(item => item.preset === current) || items[0]];
+    picker.activeItems = [items.find(item => item.preset === current || item.preset==='custom'&&customPresetK(current)!==null) || items[0]];
     let settled = false;
     const listeners = [];
     const finish = item => {
@@ -422,6 +490,11 @@ async function pickContext(metadata, current, title) {
     picker.show();
   });
   if (!picked) return;
+  if(picked.preset==='custom'){
+    const value=await vscode.window.showInputBox({title:'Context tự đặt (K)',value:String(customPresetK(current)||Math.ceil((metadata.defaultTokens||400000)/1000)),validateInput:value=>{try{normalizeContextPreset('custom:'+value);return undefined;}catch{return 'Nhập số K nguyên dương.';}}});
+    if(value===undefined)return;
+    return normalizeContextPreset('custom:'+value);
+  }
   contextConfig(picked.preset, metadata);
   return picked.preset;
 }
@@ -497,6 +570,7 @@ async function applyNativeNewChatContext(event) {
 }
 
 function showPendingNewChatDialog() {
+  if (trackerView && newChatDialogReady && pendingUsageDialog) { trackerView.webview.postMessage({ type: pendingUsageDialog }); pendingUsageDialog = ''; }
   if (trackerView && newChatDialogReady && pendingProxyDialog) { trackerView.webview.postMessage({type:'openProxyOptions'}); pendingProxyDialog=false; }
   if (trackerView && newChatDialogReady && pendingHandoffDialog) {
     trackerView.webview.postMessage({ type: 'openHandoffDialog', threadId: pendingHandoffDialog });
@@ -524,13 +598,32 @@ function getHandoffForm() {
   if (!handoffForm) handoffForm = createHandoffForm({
     post: message => trackerView?.webview.postMessage(message), watch: () => contextWatch,
     defaultPreset: newChatDefault, changed: postViewState,
+    async beforeTransfer(threadId,series,session){
+      if(!series)return;
+      const backend=chatPermissionsBackend(threadId),title=await backend.readChatTitle(threadId,session.title),identity=identityFromTitle(title);
+      const entries=contextWatch.snapshot().entries;
+      for(const id of familyMembers(entries,threadId)){
+        let name=title;
+        if(id!==threadId)try{name=await backend.readChatTitle(id,entries[id]?.title);}catch(error){if(/not found|does not exist|no saved thread/i.test(error.message))continue;throw error;}
+        const existing=identityFromTitle(name);
+        if(existing&&BigInt(existing.number)===BigInt(series.nextNumber))throw new Error('Số kế tiếp đã có trong dãy. Chọn STT chưa dùng.');
+      }
+      if(!identity||identity.code===series.code)return;
+      await contextWatch.setChatOptions(threadId,contextWatch.getChatOptions(threadId),session,{
+        members:familyMembers(entries,threadId),
+        prepare:()=>prepareFamilyIdentityEdit({backend,threadId,identity:{code:series.code,number:identity.number},hasIdentity:true,
+          entries,sessions:[...activeChats,...nonRunningChats,selected,session].filter(Boolean),expectedIdentity:identity})
+      });
+      const updated=contextWatch.snapshot().entries;
+      for(const chat of [...activeChats,...nonRunningChats,selected].filter(Boolean))if(updated[chat.threadId]?.title)chat.title=updated[chat.threadId].title;
+    },
     async describe(threadId, requestedModel) {
       const session = activeChats.concat(nonRunningChats).find(chat => chat.threadId === threadId)
         || (selected?.threadId === threadId ? selected : null) || contextWatch?.snapshot().entries[threadId];
       if (!session) throw new Error('Không tìm thấy chat gốc.');
       await prepareOwnerBridge();
       const backend = contextHandoffBackend(threadId);
-      const latest = await tracker.findLatestRolloutForThread(config().sessionsDir, threadId, { scanLimit: config().treeScanLimit });
+      const latest = await sessionReader.findLatestRolloutForThread(config().sessionsDir, threadId, { scanLimit: config().treeScanLimit });
       const runtime = latest ? await tracker.readSessionRuntimeProfile(latest.file, latest) : session.runtime;
       const creation = await backend.readCreationConfig(latest?.cwd || session.cwd);
       const models = await backend.listModels();
@@ -549,7 +642,7 @@ function getHandoffForm() {
 function startContextWatching(context) {
   const read = createContextReader({
     async resolveFile(entry) {
-      const session = await tracker.findLatestRolloutForThread(config().sessionsDir, entry.threadId, { scanLimit: config().treeScanLimit });
+      const session = await sessionReader.findLatestRolloutForThread(config().sessionsDir, entry.threadId, { scanLimit: config().treeScanLimit });
       return session?.file || entry.file;
     }
   });
@@ -564,7 +657,7 @@ function startContextWatching(context) {
     },
     async readManual(entry) {
       const live = await contextHandoffBackend(entry.threadId).readHandoffState(entry.threadId);
-      const session = await tracker.findLatestRolloutForThread(config().sessionsDir, entry.threadId, { scanLimit: config().treeScanLimit });
+      const session = await sessionReader.findLatestRolloutForThread(config().sessionsDir, entry.threadId, { scanLimit: config().treeScanLimit });
       const runtime = session ? await tracker.readSessionRuntimeProfile(session.file, session) : null;
       return { ...live, model: runtime?.model || live.model, reasoning: runtime?.reasoning || live.reasoning, serviceTier: runtime?.serviceTier || live.serviceTier };
     },
@@ -576,7 +669,7 @@ function startContextWatching(context) {
       await prepareOwnerBridge();
       const backend = contextHandoffBackend(entry.threadId);
       const prepare = async () => {
-        const session = await tracker.findLatestRolloutForThread(config().sessionsDir, entry.threadId, { scanLimit: config().treeScanLimit });
+        const session = await sessionReader.findLatestRolloutForThread(config().sessionsDir, entry.threadId, { scanLimit: config().treeScanLimit });
         if (!session) throw new Error('Không tìm thấy chat gốc để chuyển tiếp.');
         const preset = normalizeContextPreset(entry.contextPreset || newChatDefault());
         const creation = await backend.readCreationConfig(session.cwd || entry.cwd);
@@ -589,7 +682,7 @@ function startContextWatching(context) {
         }
         const metadata = await readModelContext(config().codexHome, model, creation.catalogFile);
         const overrides = contextConfig(preset, metadata);
-        const tree = await tracker.scanSessionTree(config().sessionsDir, session, { scanLimit: config().treeScanLimit });
+        const tree = await sessionReader.scanSessionTree(config().sessionsDir, session, { scanLimit: config().treeScanLimit });
         const children = [];
         for (const child of tree) {
           if (child.threadId === entry.threadId) continue;
@@ -672,11 +765,10 @@ async function handleChatOptions(message, save) {
         return backend;
       };
       await contextWatch.setChatOptions(threadId, otherOptions, session, {
+        members:familyMembers(contextWatch.snapshot().entries,threadId),
         prepare: async () => {
-          const prepared = hasIdentity
-            ? await prepareIdentityEdit(await getBackend(), threadId, identity, session.title, expectedIdentity)
-            : { patch: {} };
-          if (hasLabel) prepared.patch.displayLabel = displayLabel;
+          const prepared=await prepareFamilyIdentityEdit({backend:hasIdentity?await getBackend():null,threadId,identity,hasIdentity,displayLabel,hasLabel,
+            entries:contextWatch.snapshot().entries,sessions:[...activeChats,...nonRunningChats,selected,session].filter(Boolean),expectedIdentity});
           title = prepared.patch.title || session.title;
           return prepared;
         },
@@ -688,7 +780,8 @@ async function handleChatOptions(message, save) {
         }
       });
       if (hasIdentity) {
-        for (const chat of [...activeChats, ...nonRunningChats, selected].filter(Boolean)) if (chat.threadId === threadId) chat.title = title;
+        const updated=contextWatch.snapshot().entries;
+        for (const chat of [...activeChats, ...nonRunningChats, selected].filter(Boolean)) if (updated[chat.threadId]?.title) chat.title=updated[chat.threadId].title;
       }
     } else {
       // A loaded native name is fresher than the scan cache. Label editing
@@ -727,7 +820,74 @@ async function setContextSeries(message) {
   postViewState();
 }
 
+function getAsyncInputs(context) {
+  if (!asyncInputs) {
+    asyncInputs = createAsyncInputReader({
+      resolved: context.globalState.get(RESOLVED_INPUTS_KEY, []),
+      save: value => context.globalState.update(RESOLVED_INPUTS_KEY, value),
+      onChange: ({ threadId, ids }) => { attentionMonitor?.resolveInputs(threadId, ids); attentionMonitor?.poll(); },
+      onError: error => console.warn('[Codex Session Tracker] Async questions: ' + friendlyError(error))
+    });
+    context.subscriptions.push(asyncInputs);
+  }
+  return asyncInputs;
+}
+
+async function startFailureRecovery(context) {
+  failureRecovery = createFailureRecovery({
+    file: path.join(context.globalStorageUri.fsPath, 'failure-recovery.json'), onChange: postViewState,
+    onError: error => console.warn('[Codex Session Tracker] Recovery: ' + friendlyError(error)),
+    async diagnose(entry) {
+      const targets = await connectionTargets(config().codexHome);
+      const connection = await diagnoseConnection({ targets });
+      const relayConfigured = targets.local && new URL(targets.local).port === '11500' && /[\\/]\.ch-relay[\\/]/i.test(localProxy?.snapshot().executablePath || '');
+      const failure = relayConfigured ? readRelayFailure(path.join(require('node:os').homedir(), '.ch-relay', 'ch-relay.sqlite'), entry.occurredAt) : null;
+      return { connection, failure };
+    },
+    async readStatus(threadId) { await prepareOwnerBridge(); return readRecoveryInLocalBackend(threadId); },
+    blocked: threadId => Boolean(contextWatch?.blocks(threadId) || contextWatch?.snapshot().busy.includes(threadId) || attentionEntries[threadId]?.flags?.length || continueBusy || steerBusy || queueBusy || contextCompactBusy || newChatBusy),
+    async compact(threadId, turnId) {
+      contextCompactBusy = true; postViewState();
+      try { await prepareOwnerBridge(); return await compactInLocalBackend({ threadId, conversationId: threadId, expectedPreviousTurnId: turnId }); }
+      finally { contextCompactBusy = false; postViewState(); }
+    },
+    async send(task) {
+      if (continueBusy || steerBusy || queueBusy) throw Object.assign(new Error('Đang gửi một tin khác.'), { delivery: 'not_sent' });
+      continueBusy = true; postViewState();
+      try { return await continueThread(task); }
+      finally { continueBusy = false; postViewState(); }
+    },
+    async restart() {
+      const observation = await readProxyObservation();
+      if (!observation?.complete || observation.tasks?.some(task => task.stateKind === 'running')) throw Object.assign(new Error('Còn chat đang chạy hoặc chưa kiểm tra đủ; không restart proxy.'), { delivery: 'not_sent' });
+      if (!await localProxy.restart('manual')) throw new Error('Proxy chưa xác nhận restart thành công.');
+    }
+  });
+  context.subscriptions.push(failureRecovery, subscribeTurnLifecycle(async event => {
+    if (event.turn?.status === 'failed' && event.turn.error) {
+      await failureRecovery?.observe({ threadId: event.threadId, turnId: event.turn.id, error: event.turn.error, occurredAt: Date.now() });
+      await failureRecovery?.diagnose(event.threadId, event.turn.id);
+    } else await failureRecovery?.settle(event);
+  }));
+  await failureRecovery.ready;
+}
+
+async function handleFailureAction(message) {
+  if (!failureRecovery) return;
+  const threadId = String(message.threadId || ''), turnId = String(message.turnId || '');
+  try {
+    if (message.action === 'auto') { await failureRecovery.setAutoResume(message.enabled === true); return; }
+    if (failureRecovery.snapshot().entries?.[threadId]?.turnId !== turnId) return;
+    if (message.action === 'diagnose') await failureRecovery.diagnose(threadId, turnId);
+    else if (message.action === 'dismiss') await failureRecovery.dismiss(threadId, turnId);
+    else if (message.action === 'transfer') await openHandoffDialog(threadId);
+    else await failureRecovery.act(threadId, turnId, message.action);
+  } catch (error) { vscode.window.showErrorMessage('Không xử lý được lỗi chat: ' + friendlyError(error)); }
+  postViewState();
+}
+
 function startErrorMonitoring(context) {
+  getAsyncInputs(context);
   soundSettings = createSoundSettings({ value: context.globalState.get(SOUND_SETTINGS_KEY),
     legacy: context.globalState.get(USAGE_VOICE_SETTINGS_KEY),
     save: value => context.globalState.update(SOUND_SETTINGS_KEY, value), onChange: () => postViewState() });
@@ -740,7 +900,7 @@ function startErrorMonitoring(context) {
       try { thread = await event.readThread?.(); } catch { /* A crashed runtime can still have local metadata. */ }
       let meta;
       if (thread?.path) meta = await tracker.readSessionMeta(thread.path).catch(() => null);
-      if (!meta) meta = await tracker.findLatestRolloutForThread(config().sessionsDir, event.threadId, { scanLimit: config().treeScanLimit });
+      if (!meta) meta = await sessionReader.findLatestRolloutForThread(config().sessionsDir, event.threadId, { scanLimit: config().treeScanLimit });
       return { isRoot: Boolean(meta && !meta.parentThreadId && meta.source !== 'subagent'), active: thread?.status?.type === 'active' || thread?.goalActive === true };
     },
     notify: (type, event) => playSoundType(type, event), onError: reportSoundError,
@@ -749,10 +909,11 @@ function startErrorMonitoring(context) {
   context.subscriptions.push(completionSounds, subscribeTurnLifecycle(event => completionSounds.handle(event)));
   context.subscriptions.push(subscribeNewChats(applyNativeNewChatContext));
   context.subscriptions.push(planState.subscribe(() => attentionMonitor?.poll()));
+  attentionDismissals = createAttentionDismissals({ initial: context.globalState.get('attentionHidden.v1', []), save: value => context.globalState.update('attentionHidden.v1', value), onError: reportSoundError });
   attentionMonitor = createAttentionMonitor({
-    read: async () => mergePlanAttention(await readAttentionInLocalBackend(), planState.snapshot()),
+    read: async () => { const threads=await readAttentionInLocalBackend();attentionNativeThreads=threads;attentionNativeAt=Date.now();return mergePlanAttention(await asyncInputs.read(threads),planState.snapshot()); },
     notify: notifyAttentionSound,
-    onChange: entries => { attentionEntries = entries; postViewState(); renderStatus(); },
+    onChange: entries => { attentionEntries = entries; attentionDismissals?.observe(entries); postViewState(); renderStatus(); },
     onError: error => console.warn('[Codex Session Tracker] Waiting status: ' + friendlyError(error))
   });
   context.subscriptions.push(attentionMonitor);
@@ -780,6 +941,9 @@ function startErrorMonitoring(context) {
       return { threadId, title: names.get(threadId)?.name || 'Codex chat' };
     },
     save: value => context.globalState.update(ERROR_MONITOR_KEY, value),
+    onEvent: event => {
+      if (!event.historical && event.alertType !== 'user_input_required') failureRecovery?.observe({ ...event, error: event.message }).then(() => failureRecovery?.diagnose(event.threadId, event.turnId)).catch(error => console.warn('[Codex Session Tracker] Failure: ' + friendlyError(error)));
+    },
     notify: event => {
       if (event.alertType === 'user_input_required') {
         // The live monitor handles waiting sounds and clears the badge when
@@ -788,7 +952,7 @@ function startErrorMonitoring(context) {
       }
       return completionSounds.handle({ threadId: event.threadId,
         turn: { id: event.turnId || event.id, status: 'failed', error: {
-          message: event.message, codexErrorInfo: event.soundKey === 'model_capacity' ? 'serverOverloaded'
+          message: event.message, codexErrorInfo: event.alertType === 'turn_failure' ? event.code : event.soundKey === 'model_capacity' ? 'serverOverloaded'
             : { responseTooManyFailedAttempts: { httpStatusCode: 429 } }
         } } });
     },
@@ -914,9 +1078,17 @@ async function previewUserInputSound() {
   catch (error) { vscode.window.showErrorMessage('Không phát được âm báo chờ trả lời: ' + friendlyError(error)); }
 }
 
-function processUsageAlerts(snapshot) {
+async function processUsageNotifications(snapshot) {
+  try {
+    const result = await usageNotifications.process(snapshot, { voice: usageSoundOptions(), alerts: usageAlertSettings });
+    if (!result) return;
+    await Promise.all([processUsageAlerts(snapshot, result.alerts, result.voice.events.length > 0), processUsageVoice(snapshot, result.voice)]);
+  } catch (error) { console.warn('[Codex Session Tracker] Usage notifications: ' + friendlyError(error)); }
+}
+
+function processUsageAlerts(snapshot, prepared, voiceAnnouncement = false) {
   usageAlertPromise = usageAlertPromise.then(async () => {
-    const result = evaluateUsageAlerts(snapshot.groups, usageAlertSettings, usageAlertState);
+    const result = prepared || evaluateUsageAlerts(snapshot.groups, usageAlertSettings, usageAlertState, () => snapshot.checkedAt || Date.now());
     usageAlertState = result.state;
     await contextRef?.globalState.update(USAGE_ALERT_STATE_KEY, usageAlertState);
     for (const event of result.events) {
@@ -939,22 +1111,30 @@ function processUsageAlerts(snapshot) {
         message: event.message,
         historical: false
       };
-      await errorHistory?.append(historyEvent);
+      if (errorHistory && !await errorHistory.append(historyEvent)) continue;
+      if (usageMonitor && JSON.stringify(usageMonitor.snapshot().groups) !== JSON.stringify(snapshot.groups)) continue;
       if (event.notify) vscode.window.showWarningMessage(event.message);
-      if (event.soundKey) await playSoundType(event.soundKey);
+      if (event.soundKey && !(voiceAnnouncement && ['quota_change', 'quota_large_change'].includes(event.soundKey))) await playSoundType(event.soundKey);
     }
   }).catch(error => console.warn('[Codex Session Tracker] Usage alert: ' + friendlyError(error)));
   return usageAlertPromise;
 }
 
-function processUsageVoice(snapshot) {
-  const result = evaluateUsageVoice(snapshot, usageVoiceState, usageSoundOptions(), snapshot?.checkedAt || Date.now());
+function processUsageVoice(snapshot, prepared) {
+  const result = prepared || evaluateUsageVoice(snapshot, usageVoiceState, usageSoundOptions(), snapshot?.checkedAt || Date.now());
   usageVoiceState = result.state;
   usageVoicePromise = usageVoicePromise.then(async () => {
     await contextRef?.globalState.update(USAGE_VOICE_STATE_KEY, usageVoiceState);
     for (const event of result.events) {
+      const isCurrent = () => {
+        const settings = usageSoundOptions();
+        if (!settings.enabled || !(settings.speakOnChange || (settings.speakOnLargeChange && event.largeChange))) return false;
+        return usageNotifications ? usageNotifications.isCurrent(event) :
+          usageVoiceState.activeKey === event.key && usageVoiceState.samples[event.key]?.remainingPercent === event.remainingPercent && usageVoiceState.samples[event.key]?.changedAt === event.changedAt;
+      };
+      if (!await isCurrent()) continue;
       const large = event.largeChange && soundSettings?.enabled('quota_large_change');
-      await playSoundType(large ? 'quota_large_change' : 'quota_change', { ...event, largeChange: Boolean(large) });
+      await playSoundType(large ? 'quota_large_change' : 'quota_change', { ...event, largeChange: Boolean(large), isCurrent });
     }
   }).catch(error => console.warn('[Codex Session Tracker] Usage voice: ' + friendlyError(error)));
   return usageVoicePromise;
@@ -1005,14 +1185,9 @@ async function saveUsageAlertSettings(input) {
     vscode.window.showErrorMessage('Mốc tốc độ phải là các số lớn hơn 0, tối đa 1000, cách nhau bằng dấu phẩy.');
     return false;
   }
-  const currentMinutes = usageMonitor?.snapshot().intervalMinutes ?? contextRef.globalState.get(USAGE_INTERVAL_KEY, 5);
-  const intervalValue = input.intervalMinutes === undefined ? currentMinutes : input.intervalMinutes;
-  const intervalError = usageIntervalError(String(intervalValue));
-  if (intervalError) {
-    vscode.window.showErrorMessage(intervalError);
-    return false;
-  }
-  const minutes = Number(String(intervalValue).trim());
+  let interval;
+  try { interval = usageInterval(input.interval || (input.intervalMinutes === undefined ? usageMonitor?.snapshot().interval : { value: input.intervalMinutes, unit: 'm' })); }
+  catch (error) { vscode.window.showErrorMessage(error.message); return false; }
   const enabled = input.enabled !== false;
   const voiceInput = input.voice && typeof input.voice === 'object' ? input.voice : {};
   const contextInput = input.context && typeof input.context === 'object' ? input.context : {};
@@ -1047,14 +1222,14 @@ async function saveUsageAlertSettings(input) {
   });
   try {
     await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
-    await contextRef.globalState.update(USAGE_INTERVAL_KEY, minutes);
+    await contextRef.globalState.update(USAGE_INTERVAL_CONFIG_KEY, interval);
     await contextRef.globalState.update(USAGE_VOICE_SETTINGS_KEY, usageVoiceSettings);
     if (soundSettings && input.voice) await soundSettings.update({ types: {
       quota_change: usageVoiceSettings.enabled && usageVoiceSettings.speakOnChange,
       quota_large_change: usageVoiceSettings.enabled && usageVoiceSettings.speakOnLargeChange
     } });
     await contextRef.globalState.update(CONTEXT_COMPACT_SETTINGS_KEY, contextCompactSettings);
-    usageMonitor?.setInterval(minutes);
+    usageMonitor?.setIntervalConfig(interval);
   } catch (error) {
     vscode.window.showErrorMessage(error.message);
     return false;
@@ -1064,54 +1239,9 @@ async function saveUsageAlertSettings(input) {
 }
 
 async function configureUsageAlerts() {
-  if (!contextRef) return false;
-  const current = usageAlertSettings || normalizeUsageAlertSettings();
-  const enabled = await vscode.window.showQuickPick([
-    { label: 'Bật cảnh báo quota 5h', value: true },
-    { label: 'Tắt cảnh báo quota 5h', value: false }
-  ], { title: 'Cảnh báo Usage theo quota 5h' });
-  if (!enabled) return false;
-  if (enabled.value === false) {
-    usageAlertSettings = normalizeUsageAlertSettings({
-      ...current,
-      enabled: false,
-      primary: { ...current.primary, enabled: false }
-    });
-    await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
-    postViewState();
-    return true;
-  }
-  const value = await vscode.window.showInputBox({
-    title: 'Các mốc cảnh báo quota 5h',
-    prompt: 'Nhập % đã dùng, cách nhau bằng dấu phẩy. Ví dụ: 50,70,85,95',
-    placeHolder: '50,70,85,95',
-    value: current.primary.thresholds.map(item => item.usedPercent).join(','),
-    validateInput: input => {
-      const values = String(input || '').split(',').map(item => Number(item.trim()));
-      return values.length && values.every(item => Number.isFinite(item) && item > 0 && item < 100) ? undefined : 'Nhập các số từ 1 đến 99, cách nhau bằng dấu phẩy.';
-    }
-  });
-  if (value === undefined) return false;
-  const thresholds = value.split(',').map(item => ({ usedPercent: Number(item.trim()), notify: true, soundKey: '' }));
-  const rateValue = await vscode.window.showInputBox({
-    title: 'Tốc độ tụt quota 5h',
-    prompt: 'Nhập các mốc % quota đã dùng trung bình mỗi giờ; để trống nếu không cần. Ví dụ: 10,20,30',
-    placeHolder: '10,20,30 (%/giờ)',
-    value: current.primary.rateThresholds.map(item => item.percentPerHour).join(','),
-    validateInput: input => {
-      if (!String(input || '').trim()) return undefined;
-      const values = String(input).split(',').map(item => Number(item.trim()));
-      return values.length && values.every(item => Number.isFinite(item) && item > 0 && item <= 1000) ? undefined : 'Nhập các số lớn hơn 0, cách nhau bằng dấu phẩy.';
-    }
-  });
-  if (rateValue === undefined) return false;
-  const rateThresholds = String(rateValue || '').trim()
-    ? rateValue.split(',').map(item => ({ percentPerHour: Number(item.trim()), notify: true, soundKey: '' }))
-    : [];
-  usageAlertSettings = normalizeUsageAlertSettings({ ...current, enabled: true, primary: { ...current.primary, enabled: true, thresholds, rateThresholds } });
-  await contextRef.globalState.update(USAGE_ALERT_SETTINGS_KEY, usageAlertSettings);
-  postViewState();
-  return true;
+  pendingUsageDialog = 'openUsageAlerts';
+  await openTracker();
+  showPendingNewChatDialog();
 }
 
 function renderUsageStatus() {
@@ -1132,6 +1262,11 @@ function renderUsageStatus() {
 }
 
 async function deactivate() {
+  require('./src/codex_account_barrier').disposeAccountBarriers();
+  await accountManager?.dispose();
+  await sessionReader.dispose?.();
+  keepAwake?.dispose();
+  keepAwake = null;
   selectionRequestId += 1;
   completionSounds?.dispose();
   completionSounds = null;
@@ -1144,7 +1279,9 @@ async function deactivate() {
   errorMonitor = null;
   errorHistory = null;
   errorSound = null;
-  usageVoice = null;
+  usageVoice?.dispose?.(); usageVoice = null;
+  usageNotifications = null;
+  failureRecovery?.dispose(); failureRecovery = null;
   usageVoicePromise = Promise.resolve();
   usageHistoryStore = null;
   currentChatTracker?.dispose();
@@ -1181,10 +1318,51 @@ class TrackerViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async message => {
       if (!message || typeof message !== 'object') return;
+      if(message.command==='failureAction'&&['accounts','model'].includes(message.action)){
+        await accountManager?.action({action:message.action==='model'?'fallbackModel':'switch',threadId:message.threadId});
+        return;
+      }
+      if (message.command === 'accountAction') {
+        let error = '', result;
+        try {
+          if (!accountManager) throw new Error('Quản lý account chưa sẵn sàng.');
+          result = await accountManager.action(message);
+          error = result?.error || '';
+        } catch (failure) { error = String(failure.message || failure); }
+        if (message.requestId) webviewView.webview.postMessage({type:'accountActionResult',requestId:message.requestId,error,launcherId:result?.launcherId,data:accountManager?.snapshot()});
+        return;
+      }
+      if (message.command === 'dismissAttention' && attentionEntries[message.threadId]) {
+        await attentionDismissals?.dismiss(message.threadId, attentionEntries[message.threadId], message.key);
+        postViewState();
+      }
+      if (message.command === 'implementPlan') {
+        const id = String(message.threadId || ''), turnId = String(message.turnId || '');
+        if (attentionEntries[id]?.planTurnId !== turnId || planAccepting.has(id)) return;
+        planAccepting.add(id); postViewState();
+        try {
+          await openCodexConversation(id);
+          const deadline = Date.now() + 10000;
+          while (currentChatTracker?.threadId !== id && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
+          await currentChatTracker.implementPlan(id, turnId);
+        } catch (error) { vscode.window.showErrorMessage(friendlyError(error)); }
+        finally { planAccepting.delete(id); postViewState(); }
+      }
       if (message.command === 'selectChat' && message.threadId) await selectThread(String(message.threadId));
       if (message.command === 'refresh') await refreshAll(true);
       if (message.command === 'clear') await clearSelection();
-      if (message.command === 'queueMessage') await sendComposerRequest('queue', message, () => sendQueuedMessage(message.text, message.images));
+      if (message.command === 'queueMessage') await sendComposerRequest('queue', message, () => sendQueuedMessage(message.text, message.images, message.requestId));
+      if (message.command === 'cancelQueuedImage') { await imageQueue?.cancel(message.id); postViewState(); }
+      if (message.command === 'storageAction') {
+        let error='';try{
+          if(!storageMaintenance)throw new Error('Bộ dọn dữ liệu chưa sẵn sàng.');
+          if(message.action==='configure')await storageMaintenance.configure(message.policy);
+          else if(message.action==='clean')await storageMaintenance.clean(true);
+          else if(message.action==='memory')await storageMaintenance.clearMemory();
+          else await storageMaintenance.inspect();
+        }catch(failure){error=failure.message;}
+        webviewView.webview.postMessage({type:'storageResult',requestId:message.requestId,action:message.action,error,data:storageMaintenance?.snapshot()});return;
+      }
       if (message.command === 'steerMessage') await sendComposerRequest('steer', message, () => sendSteeredMessage(message.text, message.images));
       if (message.command === 'interruptChat') await interruptSelectedChat(message.threadId);
       if (message.command === 'pauseGoal') await interruptSelectedChat(message.threadId, true);
@@ -1223,9 +1401,11 @@ class TrackerViewProvider {
         catch (failure) { error = friendlyError(failure); }
         trackerView?.webview.postMessage({ type: 'chatCopyResult', field: String(message.field || ''), error });
       }
+      if (message.command === 'copyChatDeeplink') await copyChatDeeplink(message);
       if (message.command === 'continueMessage') await sendContinuedMessage(message.text, message.images, message.threadId, message.requestId);
       if (message.command === 'setShowNonRunning') await setShowNonRunning(Boolean(message.enabled));
       if (message.command === 'deleteChat' && message.threadId) await deleteChat(String(message.threadId));
+      if (message.command === 'failureAction') await handleFailureAction(message);
       if (message.command === 'deactivateSession') await deactivateCodexSession();
       if (message.command === 'checkUsage') await usageMonitor?.refresh();
       if (message.command === 'configureUsageInterval') await configureUsageInterval();
@@ -1237,7 +1417,13 @@ class TrackerViewProvider {
       if (message.command === 'loadProxyOptions') await handleProxyOptions(message, 'load');
       if (message.command === 'browseProxyOptions') await handleProxyOptions(message, 'browse');
       if (message.command === 'saveProxyOptions') await handleProxyOptions(message, 'save');
-      if (message.command === 'setUsageInterval') await saveUsageInterval(message.minutes);
+      if (message.command === 'setUsageInterval') await saveUsageInterval(message.interval || { value: message.minutes, unit: 'm' }, message.requestId);
+      if (message.command === 'setKeepAwake') {
+        const result = await keepAwake.setEnabled(message.enabled === true);
+        try { if (!result.error) await contextRef.globalState.update(KEEP_AWAKE_KEY, result.enabled); }
+        catch (error) { await keepAwake.setEnabled(false); vscode.window.showErrorMessage(error.message); }
+        postViewState();
+      }
       if (message.command === 'reloadAfterDeactivation' && authSessionReloadRequired && !authSessionBusy) await reloadAfterDeactivation();
       if (message.command === 'reprobeQueue' || message.command === 'reprobeCodex') { await refreshQueueCapability(true); await refreshSteerCapability(true); postViewState(); }
       if (message.command === 'saveGatewaySettings') await saveGatewaySettings(message.settings || {});
@@ -1314,30 +1500,21 @@ async function deactivateCodexSession() {
   }
 }
 
-async function saveUsageInterval(value) {
+async function saveUsageInterval(value, requestId) {
+  let error = '';
   try {
-    const minutes = intervalMinutes(value);
-    await contextRef.globalState.update(USAGE_INTERVAL_KEY, minutes);
-    usageMonitor?.setInterval(minutes);
-  } catch (error) {
-    vscode.window.showErrorMessage(error.message);
-  }
+    const interval = usageInterval(typeof value === 'number' ? { value, unit: 'm' } : value);
+    await contextRef.globalState.update(USAGE_INTERVAL_CONFIG_KEY, interval);
+    usageMonitor?.setIntervalConfig(interval);
+  } catch (failure) { error = failure.message; }
+  trackerView?.webview.postMessage({ type: 'usageIntervalSaved', requestId, error });
+  return !error;
 }
 
 async function configureUsageInterval() {
-  const value = await vscode.window.showInputBox({
-    title: 'Chu kỳ kiểm tra Usage Codex',
-    prompt: 'Số phút giữa các lần kiểm tra (0: thủ công)',
-    value: String(usageMonitor?.snapshot().intervalMinutes ?? 5),
-    validateInput: usageIntervalError
-  });
-  if (value === undefined) return;
-  const error = usageIntervalError(value);
-  if (error) {
-    vscode.window.showErrorMessage(error);
-    return;
-  }
-  await saveUsageInterval(Number(value.trim()));
+  pendingUsageDialog = 'openUsageInterval';
+  await openTracker();
+  showPendingNewChatDialog();
 }
 
 async function configureLocalProxy() {
@@ -1416,7 +1593,7 @@ async function handleProxyOptions(message, action) {
 
 async function readProxyObservation() {
   const cfg = config();
-  const conversations = await tracker.scanConversationSessions({
+  const conversations = await sessionReader.scanConversationSessions({
     codexHome: cfg.codexHome, sessionsDir: cfg.sessionsDir, historyLimit: cfg.historyLimit,
     includeNonVsCodeSessions: cfg.includeNonVsCodeSessions, monitorAll: true
   });
@@ -1559,6 +1736,8 @@ async function startGateway() {
           executable: resolved.executable,
           threadId: input.threadId,
           message: input.message,
+          images: input.images,
+          imageDirectory:path.join(contextRef.globalStorageUri.fsPath,'attachments'),
           codexHome: current.codexHome,
           cwd: input.cwd || undefined
         });
@@ -1882,7 +2061,7 @@ function restartPolling() {
 
 function trafficMonitorHtml() {
   const nonce = String(Date.now());
-  const template = fs.readFileSync(path.join(__dirname, 'traffic_monitor.html'), 'utf8');
+  const template = fs.readFileSync(path.join(__dirname, 'media/traffic_monitor.html'), 'utf8').replace('/*__UI_BASE_CSS__*/',()=>fs.readFileSync(path.join(__dirname,'media/ui_base.css'),'utf8'));
   return template.replaceAll('__NONCE__', nonce);
 }
 
@@ -2099,6 +2278,7 @@ async function openTracker() {
 }
 
 async function refreshAll(force) {
+  failureRecovery?.tick().catch(error => console.warn('[Codex Session Tracker] Recovery poll: ' + friendlyError(error)));
   errorMonitor?.poll(config().sessionsDir);
   if (trackerView && trackerView.visible) refreshAuthAccount(force).catch(() => {});
   if (trackerView && trackerView.visible) usageMonitor?.refreshIfDue();
@@ -2122,13 +2302,14 @@ async function refreshActiveChats(force) {
   refreshingActive = true;
   lastActiveScanAt = Date.now();
   try {
-    const conversations = await tracker.scanConversationSessions({
+    const conversations = await sessionReader.scanConversationSessions({
       codexHome: cfg.codexHome,
       sessionsDir: cfg.sessionsDir,
       historyLimit: cfg.historyLimit,
       includeNonVsCodeSessions: cfg.includeNonVsCodeSessions,
       scanLimit: cfg.treeScanLimit,
-      includeNonRunning: showNonRunning,
+      includeNonRunning: true,
+      lightweight: true,
       monitorAll: Boolean(monitorProxy)
     });
     activeChats = conversations.active;
@@ -2161,20 +2342,41 @@ async function refreshActiveChats(force) {
 
 async function setShowNonRunning(enabled) {
   showNonRunning = enabled;
-  if (!enabled) nonRunningChats = [];
   await refreshActiveChats(true);
   postViewState();
+}
+
+async function copyChatDeeplink(message) {
+  const threadId = String(message.threadId || '');
+  let error = '';
+  try {
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(threadId)) throw new Error('ID cuộc trò chuyện không hợp lệ.');
+    await vscode.env.clipboard.writeText('codex://threads/' + threadId);
+  } catch (failure) { error = friendlyError(failure); }
+  trackerView?.webview.postMessage({ type: 'chatDeeplinkCopied', threadId, requestId: message.requestId, error });
 }
 
 async function deleteChat(threadId) {
   if (deleteBusy) return;
   deleteBusy = true;
   deleteNotice = null;
-  postViewState();
   try {
+    // The displayed row already supplies the title. Do not scan rollout files
+    // before prompting: a large history can otherwise delay even Cancel.
+    const listedSession = nonRunningChats.find(chat => chat.threadId === threadId);
+    if (activeChats.some(chat => chat.threadId === threadId)) throw new Error('Chat đang chạy, không thể xóa.');
+    if (!listedSession) throw new Error('Không tìm thấy chat không chạy này. Hãy làm mới danh sách.');
+    const confirmation = vscode.window.showWarningMessage(
+      `Xóa vĩnh viễn cuộc trò chuyện “${humanChatTitle(listedSession)}” khỏi Codex?`,
+      { modal: true }, 'Xóa chat'
+    );
+    postViewState();
+    if (await confirmation !== 'Xóa chat') return;
+
     const cfg = config();
-    // A queued turn can make a listed chat active. Recheck all its nodes.
-    const conversations = await tracker.scanConversationSessions({
+    // The list is only a display cache. A queued turn can start while the
+    // confirmation is open, so recheck the root and all children before deletion.
+    const conversations = await sessionReader.scanConversationSessions({
       codexHome: cfg.codexHome,
       sessionsDir: cfg.sessionsDir,
       historyLimit: 1000,
@@ -2186,29 +2388,21 @@ async function deleteChat(threadId) {
     if (!session) throw new Error(conversations.active.some(chat => chat.threadId === threadId)
       ? 'Chat đang chạy, không thể xóa.' : 'Không tìm thấy chat không chạy này. Hãy làm mới danh sách.');
     const snapshotOptions = { scanLimit: 10000, codexHome: cfg.codexHome, timelineLimit: 10, activityMaxBytes: 128 * 1024 };
-    const tree = await tracker.scanSessionTree(cfg.sessionsDir, session, { scanLimit: 10000 });
-    const snapshot = await tracker.buildSessionSnapshot(cfg.sessionsDir, session, { ...snapshotOptions, tree });
+    const tree = await sessionReader.scanSessionTree(cfg.sessionsDir, session, { scanLimit: 10000 });
+    const snapshot = await sessionReader.buildSessionSnapshot(cfg.sessionsDir, session, { ...snapshotOptions, tree });
     if (snapshot.overallStatus.kind === 'running') throw new Error('Chat vừa chạy lại, không thể xóa.');
-    const answer = await vscode.window.showWarningMessage(
-      `Xóa vĩnh viễn cuộc trò chuyện “${humanChatTitle(session)}” khỏi Codex?`,
-      { modal: true }, 'Xóa chat'
-    );
-    if (answer !== 'Xóa chat') return;
-    // The confirmation can stay open while a new turn starts.
-    const latestTree = await tracker.scanSessionTree(cfg.sessionsDir, session, { scanLimit: 10000 });
-    const latestSnapshot = await tracker.buildSessionSnapshot(cfg.sessionsDir, session, { ...snapshotOptions, tree: latestTree });
-    if (latestSnapshot.overallStatus.kind === 'running') throw new Error('Chat vừa chạy lại, không thể xóa.');
     const resolved = await codexQueue.resolveCodexExecutable({
       configuredPath: cfg.codexCliPath,
       extensionRoots: openAiExtensionRoots()
     });
     if (!resolved.executable) throw new Error(resolved.error || 'Không tìm thấy Codex CLI để xóa chat.');
     await codexDelete.deleteThread({ executable: resolved.executable, codexHome: cfg.codexHome, threadId });
+    await contextWatch?.markDeleted?.(threadId);
     if (selected && selected.threadId === threadId) await clearSelection();
     deleteNotice = { kind: 'success', text: 'Đã xóa chat khỏi Codex.', at: Date.now() };
     await refreshAll(true);
   } catch (error) {
-    deleteNotice = { kind: 'error', text: friendlyError(error), at: Date.now() };
+    deleteNotice = { kind: 'error', text: 'Không xoá được cuộc trò chuyện: ' + friendlyError(error), threadId, at: Date.now() };
   } finally {
     deleteBusy = false;
     postViewState();
@@ -2221,7 +2415,7 @@ async function selectThread(threadId) {
   let session = activeChats.concat(nonRunningChats).find(chat => chat.threadId === threadId) || null;
   if (!session) {
     const cfg = config();
-    session = await tracker.findLatestRolloutForThread(cfg.sessionsDir, threadId, { scanLimit: cfg.treeScanLimit });
+    session = await sessionReader.findLatestRolloutForThread(cfg.sessionsDir, threadId, { scanLimit: cfg.treeScanLimit });
   }
   if (!isCurrent()) return;
   if (!session) {
@@ -2230,10 +2424,8 @@ async function selectThread(threadId) {
   }
 
   const cfg = config();
-  const names = await tracker.readThreadNames(cfg.codexHome, new Set([session.threadId]));
-  if (!isCurrent()) return;
-  const indexed = names.get(session.threadId);
-  const stateTimes = tracker.readStateThreadActivity(cfg.codexHome, new Set([session.threadId]));
+  const indexed = null;
+  const stateTimes = new Map();
   selected = {
     threadId: session.threadId,
     sessionId: session.sessionId || session.threadId,
@@ -2253,7 +2445,7 @@ async function selectThread(threadId) {
   steerCapabilityCheckedAt = 0;
   steerCapabilityConversationId = '';
   lastTreeRescanAt = 0;
-  await persistSelection();
+  persistSelection().catch(error => console.warn('[Codex Tracker] Selection: ' + friendlyError(error)));
   if (!isCurrent()) return;
   renderStatus();
   postViewState();
@@ -2307,7 +2499,7 @@ async function refreshTrackedStatus(forceRescan) {
 
     if (shouldRescan || selectedTree.length === 0) {
       lastTreeRescanAt = Date.now();
-      const tree = await tracker.scanSessionTree(cfg.sessionsDir, target, { scanLimit: cfg.treeScanLimit });
+      const tree = await sessionReader.scanSessionTree(cfg.sessionsDir, target, { scanLimit: cfg.treeScanLimit });
       if (!isCurrent()) return;
       selectedTree = tree;
       const latestRoot = selectedTree.find(node => node.threadId === selected.threadId);
@@ -2317,11 +2509,11 @@ async function refreshTrackedStatus(forceRescan) {
         selected.cwd = latestRoot.cwd || selected.cwd;
         selected.source = latestRoot.source || selected.source;
       }
-      const names = await tracker.readThreadNames(cfg.codexHome, new Set([selected.threadId]));
+      const names = await sessionReader.readThreadNames(cfg.codexHome, new Set([selected.threadId]));
       if (!isCurrent()) return;
       const indexed = names.get(selected.threadId);
       if (indexed && indexed.name) selected.title = indexed.name;
-      const stateTimes = tracker.readStateThreadActivity(cfg.codexHome, new Set([selected.threadId]));
+      const stateTimes = await sessionReader.readStateThreadActivity(cfg.codexHome, new Set([selected.threadId]));
       selected.indexedUpdatedAtMs = Math.max(
         selected.indexedUpdatedAtMs || 0,
         parseDateMs(indexed && indexed.updatedAt),
@@ -2339,7 +2531,7 @@ async function refreshTrackedStatus(forceRescan) {
 
     await fs.promises.access(target.file, fs.constants.R_OK);
     if (!isCurrent()) return;
-    const snapshot = await tracker.buildSessionSnapshot(cfg.sessionsDir, target, {
+    const snapshot = await sessionReader.buildSessionSnapshot(cfg.sessionsDir, target, {
       scanLimit: cfg.treeScanLimit,
       tree: selectedTree,
       activityMaxBytes: Math.max(1, Number(cfg.activityTailMb || 6)) * 1024 * 1024,
@@ -2352,6 +2544,13 @@ async function refreshTrackedStatus(forceRescan) {
     latestSnapshot = snapshot;
     maybeAutoCompact(snapshot).catch(error => console.warn('[Codex Session Tracker] Context compact: ' + friendlyError(error)));
     selected.status = snapshot.overallStatus;
+    if (failureRecovery && selected.status.kind === 'error' && selected.status.error && selected.status.turnId) {
+      const failedThreadId = selected.threadId, failedTurnId = selected.status.turnId;
+      await failureRecovery.observe({ threadId: failedThreadId, turnId: failedTurnId, error: selected.status.error,
+        occurredAt: selected.status.completedAt || selected.status.eventAt, historical: true });
+      if (!failureRecovery.snapshot().entries?.[failedThreadId]?.connection) failureRecovery.diagnose(failedThreadId, failedTurnId).catch(error => console.warn('[Codex Session Tracker] Recovery diagnosis: ' + friendlyError(error)));
+    }
+    if (!isCurrent()) return;
     if (gateway) await gateway.refreshLocalPersistence(selected.threadId, selected.file).catch(() => {});
     if (!isCurrent()) return;
     renderStatus();
@@ -2531,19 +2730,17 @@ async function sendComposerRequest(kind, message, operation) {
   postViewState();
 }
 
-async function sendQueuedMessage(rawText, rawImages) {
+async function sendQueuedMessage(rawText, rawImages, requestId) {
   if (contextWatch?.snapshot().busy.includes(selected?.threadId)) {
     queueNotice = { kind: 'error', text: 'Chat đang chuyển tiếp context; chờ chat kế tiếp.', at: Date.now() }; postViewState(); return;
   }
   const requestedThreadId = selected?.threadId || '';
   if (queueBusy || steerBusy || continueBusy) return;
   const text = String(rawText || '').trim();
-  if (rawImages && (!Array.isArray(rawImages) || rawImages.length)) {
-    queueNotice = { kind: 'error', text: 'Gửi sau hiện chỉ hỗ trợ văn bản. Hãy dùng Steer ngay để gửi ảnh.', at: Date.now() };
-    postViewState();
-    return;
-  }
-  if (!text) return;
+  let images;
+  try { images=codexSteer.normalizeImageAttachments(rawImages); }
+  catch(error){queueNotice={kind:'error',text:error.message,at:Date.now()};postViewState();return;}
+  if (!text && !images.length) return;
   if (!selected) {
     queueNotice = { kind: 'error', text: 'Chưa chọn chat Codex.', at: Date.now() };
     postViewState();
@@ -2555,6 +2752,19 @@ async function sendQueuedMessage(rawText, rawImages) {
   if (!selected.status || selected.status.kind !== 'running') {
     queueNotice = { kind: 'error', text: 'Chat này không còn chạy nên tracker không gửi vào hàng chờ.', at: Date.now() };
     postViewState();
+    return;
+  }
+  if(images.length){
+    queueBusy=true;queueNotice=null;postViewState();
+    try{
+      if(!imageQueue)throw new Error('Hàng chờ ảnh chưa sẵn sàng.');
+      await prepareOwnerBridge();
+      const live=await readRecoveryInLocalBackend(requestedThreadId);
+      if(selected?.threadId!==requestedThreadId)throw new Error('Chat đã đổi; chưa xếp tin ảnh.');
+      await imageQueue.enqueue({threadId:requestedThreadId,sourceTurnId:live.turnId,message:text,images,requestId});
+      queueNotice={kind:'success',text:'Đã xếp tin kèm ảnh. Giữ Tracker mở để gửi sau khi lượt hiện tại hoàn tất.',at:Date.now()};
+    }catch(error){queueNotice={kind:'error',text:error.message,at:Date.now()};}
+    finally{queueBusy=false;postViewState();}
     return;
   }
   await refreshQueueCapability(false);
@@ -2577,6 +2787,8 @@ async function sendQueuedMessage(rawText, rawImages) {
     executable: queueCapability.executable,
     threadId: target.threadId,
     message: text,
+    images, imagesAvailable:queueCapability.imagesAvailable,
+    imageDirectory:path.join(contextRef.globalStorageUri.fsPath,'attachments'),
     codexHome: config().codexHome,
     cwd: target.cwd || undefined
   });
@@ -2585,7 +2797,7 @@ async function sendQueuedMessage(rawText, rawImages) {
     try {
       const activeGateway = gateway || await startGateway();
       result = activeGateway
-        ? await activeGateway.queue({ threadId: target.threadId, message: text, cwd: target.cwd || undefined })
+        ? await activeGateway.queue({ threadId: target.threadId, message: text, images, cwd: target.cwd || undefined })
         : await codexQueue.queueMessage(queueArgs());
     } catch (error) {
       // An extension update can leave a cached path pointing at a removed
@@ -2597,7 +2809,7 @@ async function sendQueuedMessage(rawText, rawImages) {
       if (!queueCapability.available || !queueCapability.executable || queueCapability.executable === previous) throw error;
       const activeGateway = gateway || await startGateway();
       result = activeGateway
-        ? await activeGateway.queue({ threadId: target.threadId, message: text, cwd: target.cwd || undefined })
+        ? await activeGateway.queue({ threadId: target.threadId, message: text, images, cwd: target.cwd || undefined })
         : await codexQueue.queueMessage(queueArgs());
     }
     queueNotice = {
@@ -2819,7 +3031,12 @@ function postViewState() {
   trackerView.webview.postMessage({
     type: 'state',
     data: {
+      accountManager: accountManager?.snapshot(),
+      storage:storageMaintenance?.snapshot(),
+      keepAwake: keepAwake?.snapshot(),
       attention: attentionEntries,
+      attentionPresentation: attentionDismissals?.snapshot(attentionEntries),
+      planAccepting: [...planAccepting],
       sounds: { settings: soundSettings?.snapshot(), types: SOUND_TYPES, notice: soundNotice },
       activeChats: activeChats.map(serializeActiveChat),
       nonRunningChats: nonRunningChats.map(serializeActiveChat),
@@ -2847,11 +3064,13 @@ function postViewState() {
         cliVersion: queueCapability.version || ''
       },
       deleteChat: { busy: deleteBusy, notice: deleteNotice },
+      failureRecovery: failureRecovery?.snapshot(),
       localProxy: { ...(localProxy?.snapshot() || { executablePath: '', busy: false, notice: null }),
         watchdog: proxyWatchdog?.snapshot(), recovery: proxyRecovery?.snapshot() },
       authSession: {
         busy: authSessionBusy,
         accountLabel: authAccount.label,
+        planType: authAccount.planType || '',
         canDeactivate: !authSessionBusy
       },
       selectedThreadId: selected && selected.threadId || '',
@@ -2867,6 +3086,9 @@ function postViewState() {
       queue: {
         checked: Boolean(queueCapability.checked),
         available: Boolean(queueCapability.available),
+        imagesAvailable: Boolean(imageQueue?.snapshot().ready),
+        imageJobs: (imageQueue?.snapshot().jobs||[]).filter(job=>job.threadId===selected?.threadId&&!['sent','cancelled'].includes(job.phase)),
+        imageQueueError: imageQueue?.snapshot().error||'',
         busy: queueBusy,
         reason: queueCapability.reason || '',
         source: queueCapability.source || '',
@@ -3118,7 +3340,7 @@ function renderStatus() {
   else statusBar.color = undefined;
 
   const icon = iconFor(status.kind);
-  const title = tracker.cleanTitle(contextWatch?.snapshot().entries[selected.threadId]?.displayLabel || selected.title, 34) || path.basename(selected.cwd || '') || 'Codex';
+  const title = tracker.cleanTitle(displayChatTitle(selected,contextWatch?.snapshot().entries),34) || path.basename(selected.cwd || '') || 'Codex';
   const suffix = status.kind === 'running' && status.runningChildren ? ` +${status.runningChildren}` : '';
   statusBar.text = `$(${icon}${status.kind === 'running' ? '~spin' : ''}) ${title}${suffix}`;
   statusBar.tooltip = tooltipForSelection(selected, status);
@@ -3149,7 +3371,7 @@ function iconFor(kind) {
 function tooltipForSelection(session, status) {
   const md = new vscode.MarkdownString();
   md.isTrusted = false;
-  md.appendMarkdown(`**${escapeMarkdown(contextWatch?.snapshot().entries[session.threadId]?.displayLabel || session.title)}**\n\n`);
+  md.appendMarkdown(`**${escapeMarkdown(displayChatTitle(session,contextWatch?.snapshot().entries))}**\n\n`);
   md.appendMarkdown(`- **State:** ${escapeMarkdown(displayState(status))}\n`);
   if (status.runningChildren) md.appendMarkdown(`- **Running child agents:** ${status.runningChildren}\n`);
   if (session.cwd) md.appendMarkdown(`- **Workspace:** \`${escapeInlineCode(session.cwd)}\`\n`);
@@ -3160,8 +3382,9 @@ function tooltipForSelection(session, status) {
 
 function dashboardHtml() {
   const nonce = String(Date.now());
-  const template = fs.readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8');
+  const template = fs.readFileSync(path.join(__dirname, 'media/dashboard.html'), 'utf8');
   return template.replace('__NEW_CHAT_DIALOG_HTML__', () => fs.readFileSync(path.join(__dirname, 'media/new_chat_dialog.html'), 'utf8'))
+    .replace('/*__UI_BASE_CSS__*/', () => fs.readFileSync(path.join(__dirname, 'media/ui_base.css'), 'utf8'))
     .replace('__PROXY_OPTIONS_HTML__', () => fs.readFileSync(path.join(__dirname, 'media/proxy_options.html'), 'utf8'))
     .replace('/*__PROXY_OPTIONS_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/proxy_options.js'), 'utf8'))
     .replace('__CHAT_OPTIONS_HTML__', () => fs.readFileSync(path.join(__dirname, 'media/chat_options.html'), 'utf8'))
@@ -3172,6 +3395,14 @@ function dashboardHtml() {
     .replace('/*__SOUND_SETTINGS_CSS__*/', () => fs.readFileSync(path.join(__dirname, 'media/sound_settings.css'), 'utf8'))
     .replace('/*__SOUND_SETTINGS_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/sound_settings.js'), 'utf8'))
     .replace('/*__CHAT_LIST_LAYOUT_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/chat_list_layout.js'), 'utf8'))
+    .replace('/*__ACCOUNT_MANAGER_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/account_manager.js'), 'utf8'))
+    .replace('/*__SCROLLBARS_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/scrollbars.js'), 'utf8'))
+    .replace('/*__IMAGE_ATTACHMENTS_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/image_attachments.js'), 'utf8'))
+    .replace('/*__CONTEXT_CHOICES_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/context_choices.js'), 'utf8'))
+    .replace('<!--__STORAGE_MANAGER_HTML__-->', () => fs.readFileSync(path.join(__dirname, 'media/storage_manager.html'), 'utf8'))
+    .replace('/*__STORAGE_MANAGER_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/storage_manager.js'), 'utf8'))
+    .replace('<!--__ACCOUNT_MANAGER_HTML__-->', () => fs.readFileSync(path.join(__dirname, 'media/account_manager.html'), 'utf8'))
+    .replace('/*__FAILURE_RECOVERY_JS__*/', () => fs.readFileSync(path.join(__dirname, 'media/failure_recovery.js'), 'utf8'))
     .replaceAll('__NONCE__', nonce);
 }
 

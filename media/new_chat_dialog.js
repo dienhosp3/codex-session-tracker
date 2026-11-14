@@ -9,6 +9,8 @@
   let loading = false, sending = false, blocked = false, settingsOnly = false, touched = false, ready = false;
   let savingPreference = false, saveFailed = false;
   let autoRuleRequest = '', autoRuleSaving = false, autoRuleInvalid = false;
+  const imageEditor = window.TrackerImageAttachments?.create({root:el('ncImages'),pasteTarget:form,changed:()=>updateControls()});
+  const contexts=window.TrackerContextChoice;
   const id = () => 'new-chat-' + Date.now() + '-' + (++sequence);
   const send = message => vscode.postMessage(message);
   const status = (text = '', error = false) => {
@@ -18,6 +20,8 @@
   };
   function updateControls() {
     const locked = sending || blocked;
+    const customValid=contexts.sync(el('ncCustomField'),el('ncCustomK'),selectedPreset,choices,locked||loading);
+    imageEditor?.setLocked(locked || settingsOnly);
     workspace.disabled = locked || loading;
     modelSelect.disabled = locked || loading;
     speedSelect.disabled = locked || loading;
@@ -31,21 +35,23 @@
       input.disabled = locked || loading || !choices.find(choice => choice.preset === input.value)?.available;
     }
     for (const name of ['ncClose', 'ncCancel']) el(name).disabled = sending;
-    el('ncSubmit').disabled = sending || blocked || loading || !ready || autoRuleSaving || autoRuleInvalid || speedSaving || speedFailed || speedUnavailable ||
+    el('ncSubmit').disabled = sending || blocked || loading || !ready || !customValid || imageEditor?.busy || autoRuleSaving || autoRuleInvalid || speedSaving || speedFailed || speedUnavailable ||
       (settingsOnly && (savingPreference || saveFailed)) ||
-      !modelSelect.value || (!settingsOnly && (!workspace.value || !prompt.value.trim())) || !choices.find(choice => choice.preset === selectedPreset)?.available;
+      !modelSelect.value || (!settingsOnly && (!workspace.value || !prompt.value.trim() && !imageEditor?.images.length)) || !choices.find(choice => choice.preset === contexts.key(selectedPreset,choices))?.available;
     el('ncSubmit').textContent = sending ? 'Đang tạo chat…' : settingsOnly ? 'Xong' : 'Tạo chat';
     form.setAttribute('aria-busy', String(sending || loading));
   }
   function renderChoices() {
     el('ncPresets').replaceChildren();
-    const data = choices.length ? choices : ['default', '400k', '600k', '900k'].map(preset => ({ preset, label: preset === 'default' ? 'Mặc định' : preset.toUpperCase(), detail: 'Đang tải…' }));
+    const data = choices.length ? choices : ['default', '400k', '550k', '700k', '900k','custom'].map(preset => ({ preset, label: preset === 'default' ? '—K' : preset==='custom'?'Tự đặt':preset.toUpperCase(), detail: 'Đang tải…' }));
     for (const choice of data) {
       const label = document.createElement('label'); label.className = 'nc-choice';
       const input = document.createElement('input'); input.type = 'radio'; input.name = 'newChatContext'; input.value = choice.preset;
-      input.checked = choice.preset === selectedPreset;
+      input.checked = choice.preset === contexts.key(selectedPreset,choices);
       input.addEventListener('change', () => {
-        selectedPreset = choice.preset; touched = true; saveId = id();
+        selectedPreset = choice.preset==='custom'?contexts.fromInput(el('ncCustomK')):choice.preset;
+        if(selectedPreset==='custom'){updateControls();el('ncCustomK').focus();return;}
+        touched = true; saveId = id();
         savingPreference = true; saveFailed = false;
         el('ncPreference').textContent = 'Đang lưu…';
         send({ command: 'saveNewChatPreset', requestId: saveId, preset: selectedPreset });
@@ -68,6 +74,14 @@
     send({ command: browse ? 'browseNewChatWorkspace' : 'loadNewChatOptions', requestId: optionsId, cwd: workspace.value,
       ...(modelSelect.value ? { model: modelSelect.value } : {}) });
   }
+  el('ncCustomK').oninput=()=>{
+    selectedPreset=contexts.fromInput(el('ncCustomK'));touched=true;
+    if(selectedPreset!=='custom'){
+      saveId=id();savingPreference=true;saveFailed=false;
+      send({command:'saveNewChatPreset',requestId:saveId,preset:selectedPreset});
+    }
+    updateControls();
+  };
   function open(onlySettings = false) {
     if (dialog.open) { prompt.focus(); return; }
     settingsOnly = onlySettings; speedTouched = speedSaving;
@@ -94,7 +108,7 @@
     if (el('ncSubmit').disabled) return;
     if (settingsOnly) { close(); return; }
     sending = true; submitId = id(); status('Đang tạo chat…'); updateControls();
-    send({ command: 'submitNewChat', requestId: submitId, cwd: workspace.value, model: modelSelect.value, preset: selectedPreset, message: prompt.value, serviceTier: speedSelect.value });
+    send({ command: 'submitNewChat', requestId: submitId, cwd: workspace.value, model: modelSelect.value, preset: selectedPreset, message: prompt.value, ...(imageEditor?.images.length?{images:imageEditor.images}:{}), serviceTier: speedSelect.value });
   });
   form.addEventListener('keydown', event => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing && !settingsOnly) {
@@ -120,7 +134,7 @@
   el('ncRetry').onclick = () => load();
   el('ncOpenCreated').onclick = () => send({ command: 'openCreatedChat', requestId: submitId });
   el('ncStartOver').onclick = () => {
-    blocked = false; submitId = ''; prompt.value = '';
+    blocked = false; submitId = ''; prompt.value = ''; imageEditor?.clear();
     el('ncStartOver').hidden = true; el('ncOpenCreated').hidden = true;
     load(); prompt.focus();
   };
@@ -199,7 +213,7 @@
     } else if (message.type === 'newChatResult' && message.requestId === submitId) {
       sending = false;
       if (message.success) {
-        prompt.value = ''; blocked = false; status(); dialog.close();
+        prompt.value = ''; blocked = false; imageEditor?.clear(); status(); dialog.close();
         el('ncOpenCreated').hidden = true; el('ncStartOver').hidden = true;
       } else {
         blocked = Boolean(message.threadId) || message.delivery === 'unknown';

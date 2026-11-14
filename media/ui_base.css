@@ -1,0 +1,14 @@
+/* Baseline for every control, including controls rendered after polling.
+   Component classes can refine this; browser-default white buttons cannot leak. */
+button,input,select,textarea{font:inherit}
+[hidden]{display:none!important}
+button{color:var(--vscode-button-secondaryForeground,var(--vscode-foreground,#ddd));background:var(--vscode-button-secondaryBackground,#3a3d41);border:1px solid var(--vscode-button-border,var(--vscode-panel-border,#555));border-radius:4px;padding:4px 8px;cursor:pointer;line-height:1.35}
+button:hover:not(:disabled){background:var(--vscode-button-secondaryHoverBackground,var(--vscode-toolbar-hoverBackground,#4b4d42))}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--vscode-focusBorder,#3794ff);outline-offset:2px}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea{color:var(--vscode-input-foreground,var(--vscode-foreground,#ddd));background:var(--vscode-input-background,#303030);border:1px solid var(--vscode-input-border,var(--vscode-panel-border,#555));border-radius:4px;min-width:0}
+input[type=checkbox],input[type=radio]{accent-color:var(--vscode-focusBorder,#3794ff)}
+.attention-accept{min-width:32px;height:26px;font-weight:600;color:var(--vscode-button-foreground,#fff);background:var(--vscode-button-background,#0878c9)}
+.attention-accept:hover:not(:disabled){background:var(--vscode-button-hoverBackground,#086bb2)}
+.attention-dismiss{display:grid;place-items:center;flex:none;width:26px;height:26px;padding:4px}
+.attention-dismiss svg{width:16px;height:16px}

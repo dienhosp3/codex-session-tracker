@@ -15,6 +15,7 @@
 .nc-path{font-size:11px;color:var(--vscode-descriptionForeground,#aaa);overflow-wrap:anywhere;min-height:16px}
 .nc-context-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.nc-model{font-size:11px;font-weight:400;color:var(--vscode-descriptionForeground,#aaa);overflow-wrap:anywhere;text-align:right}
 .nc-presets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;border:0;margin:0;padding:0;min-width:0}
+.nc-custom-context{display:flex;align-items:center;gap:7px;font-size:12px}.nc-custom-context input{width:110px;padding:7px}.nc-custom-context[hidden]{display:none}
 .nc-choice{position:relative;display:grid;grid-template-columns:17px minmax(0,1fr);gap:4px 8px;padding:11px 12px;border:1px solid var(--vscode-panel-border,#555);border-radius:7px;cursor:pointer;background:var(--vscode-input-background,#303030)}
 .nc-choice:has(input:checked){border-color:#39d8ff;box-shadow:inset 0 0 0 2px #39d8ff;background:#064c78;color:#fff}
 .nc-choice:has(input:checked) small{color:#d5f4ff}.nc-choice:has(input:checked) input{accent-color:#39d8ff}
@@ -43,11 +44,13 @@
       <div class="nc-field">
         <div class="nc-context-head"><span id="ncContextLabel" class="nc-label">Context</span></div>
         <fieldset id="ncPresets" class="nc-presets" aria-labelledby="ncContextLabel"></fieldset>
+        <label id="ncCustomField" class="nc-custom-context" hidden>Context tự đặt<input id="ncCustomK" type="number" min="1" step="1" aria-label="Context tự đặt (K)"><span>K</span></label>
         <div id="ncPreference" class="nc-note" role="status">Tự nhớ lựa chọn.</div>
       </div>
       <div id="ncPromptField" class="nc-field">
         <label for="ncPrompt">Yêu cầu</label>
         <textarea id="ncPrompt" rows="5" placeholder="Nhập yêu cầu…" spellcheck="false"></textarea>
+        <div id="ncImages"></div>
       </div>
       <div class="nc-auto">
         <label class="nc-auto-title"><input id="ncAutoEnabled" type="checkbox"> Auto resume</label>

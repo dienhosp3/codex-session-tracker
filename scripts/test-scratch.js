@@ -39,3 +39,5 @@ if (process.platform === 'win32') {
     catch (error) { queueMicrotask(() => callback(error)); }
   };
 }
+
+require('node:module').syncBuiltinESMExports();

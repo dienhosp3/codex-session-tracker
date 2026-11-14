@@ -1,0 +1,30 @@
+<style>
+.storage-dialog{width:min(620px,calc(100vw - 24px))}
+.storage-groups{display:grid;gap:7px}.storage-group{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px solid var(--vscode-panel-border,#555);border-radius:5px}
+.storage-group span{min-width:0}.storage-group small{display:block;color:var(--vscode-descriptionForeground,#aaa);font-size:10px}
+.storage-group b{white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}
+.storage-policy{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.storage-policy input[type=number]{width:100%;padding:8px}
+.storage-auto{grid-column:1/-1;display:flex;align-items:center;gap:7px}
+.storage-actions{display:flex;flex-wrap:wrap;gap:7px}.storage-hint{font-size:11px;color:var(--vscode-descriptionForeground,#aaa);margin:0}
+.storage-status:empty{display:none}
+@media(max-width:360px){.storage-policy{grid-template-columns:minmax(0,1fr)}}
+</style>
+<dialog id="storageDialog" class="nc-dialog storage-dialog" aria-labelledby="storageTitle">
+ <form id="storageForm">
+  <header class="nc-header"><div class="nc-heading"><h2 id="storageTitle">Dữ liệu &amp; dọn dẹp</h2><p>Giới hạn log, giữ ảnh và dữ liệu công việc</p></div><button id="storageClose" class="iconbtn nc-close" type="button" aria-label="Đóng dọn dẹp">×</button></header>
+  <div class="nc-body">
+   <div id="storageGroups" class="storage-groups"></div>
+   <div class="storage-policy">
+    <label class="storage-auto"><input id="storageAuto" type="checkbox">Tự dọn log đã kết thúc</label>
+    <label class="account-field">Giữ log (ngày)<input id="storageDays" type="number" min="1" max="365" step="1" required value="7"></label>
+    <label class="account-field">Tổng trace/log tối đa (MiB)<input id="storageLimit" type="number" min="64" max="4096" step="1" required value="512"></label>
+   </div>
+   <p class="storage-hint">Không tự xoá ảnh trong chat, phiên đăng nhập, lịch sử hay receipt chống gửi lặp. File đang ghi được giữ; ghi log mới có thể tạm dừng khi chưa dọn đủ.</p>
+   <div id="storagePreview" role="status" class="storage-hint"></div>
+   <div class="storage-actions"><button id="storageRefresh" class="nc-button" type="button">Đo lại</button><button id="storageClean" class="nc-button" type="button">Dọn theo chính sách</button><button id="storageMemory" class="nc-button" type="button">Làm mới cache hiển thị</button></div>
+   <div id="storageStatus" class="nc-status storage-status" role="status" aria-live="polite"></div>
+  </div>
+  <footer class="nc-footer"><button id="storageDone" class="nc-button" type="button">Đóng</button><button id="storageSave" class="nc-button primary" type="submit">Lưu chính sách</button></footer>
+ </form>
+</dialog>

@@ -1,0 +1,178 @@
+<style>
+.account-dialog{width:min(760px,calc(100vw - 24px))}
+.account-dialog .nc-heading h2{font-size:17px}
+.account-dialog .nc-header{padding:16px 20px 12px}
+.account-dialog .nc-body{padding:16px 20px;gap:12px;scrollbar-gutter:stable;overflow-anchor:none}
+.account-dialog .nc-footer{padding:12px 20px;flex-wrap:wrap}
+.account-dialog .nc-button{white-space:normal;overflow-wrap:anywhere}
+.account-dialog .nc-button.primary{background:var(--vscode-button-background,#0878c9);color:var(--vscode-button-foreground,#fff);border-color:var(--vscode-button-border,transparent)}
+.account-dialog .nc-button:hover:not(:disabled){background:var(--vscode-button-secondaryHoverBackground,#45494e);filter:none}
+.account-dialog .nc-button.primary:hover:not(:disabled){background:var(--vscode-button-hoverBackground,#086bb2)}
+.account-tabs{display:flex;gap:4px;padding:8px 20px 0;border-bottom:1px solid var(--vscode-panel-border,#454545);flex:none}
+.account-tabs button{min-width:0;padding:9px 10px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--vscode-descriptionForeground,#aaa);font:inherit;cursor:pointer}
+.account-tabs button[aria-selected="true"]{border-bottom-color:var(--vscode-focusBorder,#3794ff);color:var(--vscode-foreground,#ddd);font-weight:600}
+.account-tabs button:hover{background:var(--vscode-toolbar-hoverBackground,#ffffff0d)}
+.account-panel{min-width:0;display:grid;gap:16px}
+.account-toolbar,.account-actions{display:flex;align-items:center;flex-wrap:wrap;gap:7px;min-width:0}
+.account-toolbar{justify-content:space-between}
+.account-dialog h3{margin:0;font-size:13px;font-weight:650}
+.account-link{display:grid;gap:9px;padding:12px;border:1px solid var(--vscode-panel-border,#454545);border-radius:6px}
+.account-help{font-size:11px;color:var(--vscode-descriptionForeground,#aaa);margin:0;overflow-wrap:anywhere}
+.account-field{display:grid;gap:5px;min-width:0;font-size:12px}
+.account-field input:not([type=checkbox]){width:100%;min-width:0;padding:9px 10px;border:1px solid var(--vscode-input-border,#555);border-radius:6px;background:var(--vscode-input-background,#303030);color:var(--vscode-input-foreground,#eee);font:inherit}
+.account-field select{font-size:12px}
+.account-list{display:grid;gap:10px;min-width:0}
+.account-row{padding:12px;border:1px solid var(--vscode-panel-border,#454545);border-radius:6px;display:grid;gap:10px;min-width:0}
+.account-summary{display:grid;grid-template-columns:32px minmax(0,1fr) 164px auto;align-items:center;gap:10px;min-width:0}
+.account-avatar{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:color-mix(in srgb,var(--vscode-focusBorder,#3794ff) 16%,transparent);color:var(--vscode-textLink-foreground,#4daafc);font-weight:650}
+.account-avatar svg{width:18px;height:18px}
+.account-main{min-width:0;display:grid;gap:4px}.account-main .account-email{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-meta{display:flex;gap:5px;align-items:center;flex-wrap:wrap}.account-row-tools{display:flex;gap:3px;align-items:center}
+.account-tool{display:grid;place-items:center;width:29px;height:29px;padding:5px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--vscode-descriptionForeground,#aaa);cursor:pointer}
+.account-tool:hover:not(:disabled),.account-tool[aria-expanded="true"]{color:var(--vscode-foreground,#ddd);background:var(--vscode-toolbar-hoverBackground,#ffffff0d);border-color:var(--vscode-panel-border,#555)}
+.account-tool:disabled{opacity:.4;cursor:default}.account-tool svg{width:16px;height:16px}.account-tool.primary{color:var(--vscode-textLink-foreground,#4daafc)}
+.account-row-options{display:grid;gap:10px;padding-top:10px;border-top:1px solid var(--vscode-panel-border,#454545)}
+.account-linked-meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--vscode-descriptionForeground,#aaa)}
+.account-launcher-row .account-summary{grid-template-columns:32px minmax(0,1fr) auto}
+.account-launcher-row .account-badge{border-style:dashed}
+.account-link{display:none}.account-link[data-expanded="true"]{display:grid}
+.account-link-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.account-help-button{display:grid;place-items:center;width:30px;height:30px;flex:none;padding:5px}.account-help-button svg{width:19px;height:19px}
+.account-guide{display:grid;gap:14px;padding:14px;border:1px solid var(--vscode-panel-border,#555);border-radius:6px;min-width:0}
+.account-guide ol{margin:0;padding-left:22px;display:grid;gap:10px}.account-guide p{margin:4px 0 0}.account-guide strong{font-size:12px}.account-guide .account-help{font-size:12px;line-height:1.6}
+.account-guide dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 12px;font-size:12px;margin:0}.account-guide dt{font-weight:600}.account-guide dd{margin:0;color:var(--vscode-descriptionForeground,#aaa)}
+.account-link-step{display:grid;gap:8px;min-width:0}.account-step-title{font-size:12px;font-weight:600}.account-step-title span{display:inline-grid;place-items:center;width:19px;height:19px;border-radius:50%;background:var(--vscode-button-secondaryBackground,#3a3d41);margin-right:6px;font-size:10px}
+.account-bat-picker{display:flex;align-items:center;gap:7px;min-width:0}.account-bat-picker select{flex:1;min-width:0}
+.account-link-methods{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.account-link-method{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:11px;border:1px solid var(--vscode-panel-border,#555);border-radius:5px;min-width:0}.account-link-method strong{font-size:12px}.account-link-method .nc-button{margin-top:auto;width:100%}
+.account-login-status{display:grid;gap:7px;padding:9px;background:var(--vscode-textCodeBlock-background,#ffffff08);border-radius:4px}
+@media(max-width:520px){.account-link-methods{grid-template-columns:minmax(0,1fr)}.account-bat-picker{flex-wrap:wrap}.account-bat-picker select{flex-basis:100%}.account-guide dl{grid-template-columns:minmax(0,1fr);gap:4px}.account-guide dd{margin-bottom:7px}}
+.account-discovered{display:grid;gap:10px;min-width:0}.account-discovered h3{color:var(--vscode-descriptionForeground,#aaa);font-size:11px;font-weight:500}
+.account-row[data-current="true"]{border-left:3px solid var(--vscode-focusBorder,#3794ff)}
+.account-identity{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;min-width:0}
+.account-email{font-weight:650;overflow-wrap:anywhere;min-width:0}
+.account-badge{font-size:10px;padding:2px 6px;border:1px solid var(--vscode-panel-border,#555);border-radius:4px;color:var(--vscode-descriptionForeground,#aaa)}
+.account-current{color:var(--vscode-textLink-foreground,#4daafc)}
+.account-plan[data-plan="plus"]{color:var(--vscode-charts-green,#73c991);border-color:currentColor;background:color-mix(in srgb,var(--vscode-charts-green,#73c991) 10%,transparent)}
+.account-plan[data-plan="pro"]{color:var(--vscode-charts-purple,#c586c0);border-color:currentColor;background:color-mix(in srgb,var(--vscode-charts-purple,#c586c0) 10%,transparent)}
+.account-plan[data-plan="business"],.account-plan[data-plan="team"]{color:var(--vscode-charts-blue,#75beff);border-color:currentColor;background:color-mix(in srgb,var(--vscode-charts-blue,#75beff) 10%,transparent)}
+.account-plan[data-plan="enterprise"]{color:var(--vscode-charts-yellow,#d7ba7d);border-color:currentColor}
+.account-plan[data-plan="edu"]{color:var(--vscode-charts-orange,#d18616);border-color:currentColor}
+.account-plan[data-plan="free"],.account-plan[data-plan="unknown"]{border-style:dashed}
+.account-quota{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;font-size:11px;min-width:0}
+.account-quota-label{display:flex;align-items:center;justify-content:space-between;gap:3px;margin-bottom:4px;color:var(--vscode-descriptionForeground,#aaa)}
+.account-quota-label b{color:var(--vscode-foreground,#ddd);font-weight:600}
+.account-meter{height:4px;border-radius:2px;overflow:hidden;background:var(--vscode-panel-border,#454545)}.account-meter span{display:block;height:100%;background:var(--vscode-testing-iconPassed,#73c991)}.account-meter[data-level="low"] span{background:var(--vscode-editorWarning-foreground,#cca700)}.account-meter[data-level="empty"] span{background:var(--vscode-errorForeground,#f48771)}
+.account-check{display:flex;align-items:flex-start;gap:8px;font-size:12px;cursor:pointer;min-width:0}
+.account-check input{margin:3px 0 0;flex:none;accent-color:var(--vscode-focusBorder,#3794ff)}
+.account-check small{display:block;margin-top:2px;font-weight:400}
+.account-policy-group{display:grid;gap:12px;margin:0;padding:14px;border:1px solid var(--vscode-panel-border,#454545);border-radius:6px;min-width:0}
+.account-policy-group legend{padding:0 5px;font-weight:600;font-size:12px}
+.account-policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.account-empty{padding:22px 14px;text-align:center;border:1px dashed var(--vscode-panel-border,#555);border-radius:6px}
+.account-empty p{margin:5px 0 0}
+.account-switch{border:1px solid var(--vscode-panel-border,#555);border-left:3px solid var(--vscode-editorWarning-foreground,#cca700);border-radius:5px;padding:10px;display:grid;gap:8px;overflow-wrap:anywhere}
+.account-switch-inline{margin-top:9px;font-size:12px}
+.account-switch-inline .account-actions button{font:inherit;color:inherit;background:var(--vscode-button-secondaryBackground,#3a3d41);border:1px solid var(--vscode-button-border,transparent);border-radius:4px;padding:5px 8px;cursor:pointer}
+.account-switch-inline .account-actions button:disabled{opacity:.5;cursor:default}
+.account-dialog .nc-status:empty{display:none}
+.account-save-status{flex:1;min-width:120px;font-size:11px;color:var(--vscode-descriptionForeground,#aaa);overflow-wrap:anywhere}
+.account-save-status:empty{display:none}
+.auth-session-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
+@media(max-width:620px){.account-summary{grid-template-columns:32px minmax(0,1fr) auto}.account-quota{grid-column:2/-1;grid-row:2}.account-row-tools{grid-column:3;grid-row:1}}
+@media(max-width:520px){.account-policy-grid{grid-template-columns:minmax(0,1fr)}.account-tabs{padding-left:12px;padding-right:12px}.account-dialog .nc-header,.account-dialog .nc-footer{padding:12px 14px}.account-dialog .nc-body{padding:14px}.account-save-status{flex-basis:100%}.auth-session-row{gap:8px}}
+@media(max-width:360px){.account-summary{gap:7px;grid-template-columns:26px minmax(0,1fr) auto}.account-avatar{width:26px;height:26px;font-size:11px}.account-row{padding:9px}.account-row-tools{gap:0}.account-tool{width:25px;padding:4px}.account-tabs button{padding:8px;font-size:12px}}
+</style>
+<dialog id="accountManagerDialog" class="nc-dialog account-dialog" aria-labelledby="amTitle" aria-describedby="amSubtitle">
+  <form id="amForm">
+    <header class="nc-header">
+      <div class="nc-heading"><h2 id="amTitle">Quản lý account</h2><p id="amSubtitle">Tài khoản, quota và chuyển phiên</p></div>
+      <button id="amHelpButton" class="iconbtn account-help-button" type="button" aria-label="Hướng dẫn sử dụng" title="Hướng dẫn sử dụng" aria-controls="amHelpPanel" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 8.7a2.5 2.5 0 0 1 5 .3c0 1.8-2.5 2-2.5 4M12 16.5h.01"/></svg></button>
+      <button class="iconbtn nc-close" id="amClose" type="button" aria-label="Đóng quản lý account">×</button>
+    </header>
+    <nav class="account-tabs" role="tablist" aria-label="Quản lý account">
+      <button id="amAccountsTab" type="button" role="tab" aria-selected="true" aria-controls="amAccountsPanel" data-account-tab="accounts">Tài khoản <span id="amCount"></span></button>
+      <button id="amPolicyTab" type="button" role="tab" aria-selected="false" aria-controls="amPolicyPanel" tabindex="-1" data-account-tab="policy">Chính sách tự động</button>
+    </nav>
+    <div id="amBody" class="nc-body">
+      <section id="amHelpPanel" class="account-guide" aria-labelledby="amHelpTitle" hidden>
+        <div class="account-link-heading"><h3 id="amHelpTitle" tabindex="-1">Cách quản lý tài khoản</h3><button id="amHelpClose" class="iconbtn" type="button" aria-label="Đóng hướng dẫn">×</button></div>
+        <ol>
+          <li><strong>Chọn đúng hồ sơ Chrome</strong><p class="account-help">Mỗi BAT mở một hồ sơ Chrome. Nếu BAT đã có trong danh sách, bấm Liên kết ở hàng đó. Chỉ dùng Chọn tệp BAT… khi tệp của bạn chưa được thêm; bước này chưa tạo tài khoản hay đổi phiên Codex.</p></li>
+          <li><strong>Chọn một trong hai cách liên kết</strong><p class="account-help"><b>Phiên Codex hiện tại:</b> Chrome BAT phải đăng nhập cùng tài khoản và workspace với Codex. Tracker mở Chrome để đối chiếu rồi lưu bản phiên Codex được Windows bảo vệ; không đổi phiên đang làm việc.</p><p class="account-help"><b>Tài khoản khác:</b> mở trang đăng nhập Codex trong Chrome BAT đã chọn. Đăng nhập xong, quay lại bấm Kiểm tra đăng nhập. Phiên Codex hiện tại vẫn giữ nguyên.</p></li>
+          <li><strong>Kiểm tra rồi sử dụng</strong><p class="account-help">Liên kết thành công đưa tài khoản vào danh sách phía trên. Bấm biểu tượng làm mới trên hàng để đọc quota. Chỉ bấm mũi tên Chuyển khi muốn đổi tài khoản Codex đang dùng.</p></li>
+        </ol>
+        <dl>
+          <dt>Chuyển tài khoản</dt><dd>Áp dụng cho các cửa sổ VS Code dùng chung phiên. Chat đang chạy được xử lý theo Chính sách tự động; có thể cần reload. Liên kết tài khoản không tự thực hiện bước này.</dd>
+          <dt>Biểu tượng tùy chọn</dt><dd>Cấu hình riêng từng tài khoản, gồm cho phép tự chọn và tự kích hoạt 5h. Tự kích hoạt có thể mở Work và gửi một phép toán.</dd>
+          <dt>Chính sách tự động</dt><dd>Cấu hình chuyển tài khoản, resume và model dự phòng. Chỉ áp dụng sau khi bấm Lưu chính sách.</dd>
+          <dt>Biểu tượng nguồn</dt><dd>Deactive xóa phiên đăng nhập Codex đang dùng; không xóa lịch sử chat hoặc Chrome BAT.</dd>
+        </dl>
+      </section>
+      <div id="amNotice" class="nc-status" role="status" aria-live="polite" hidden></div>
+      <section id="amSwitch" class="account-switch" aria-labelledby="amSwitchTitle" hidden>
+        <div><strong id="amSwitchTitle"></strong> <span id="amSwitchCountdown"></span></div>
+        <p id="amSwitchError" class="account-help" hidden></p>
+        <label id="amTargetField" class="account-field">Tài khoản muốn chuyển<select id="amTarget" data-switch-target></select></label>
+        <div class="account-actions">
+          <button class="nc-button primary" type="button" data-account-action="choose">Chuyển ngay</button>
+          <button class="nc-button" type="button" data-account-action="cancel">Hủy chuyển</button>
+          <button class="nc-button" type="button" data-account-action="stopApprove">Dừng chat và chuyển</button>
+          <button class="nc-button" type="button" data-account-action="refresh" data-switch-recovery>Kiểm tra lại</button>
+          <button class="nc-button" type="button" data-account-action="rollback">Phục hồi phiên trước</button>
+        </div>
+      </section>
+      <section id="amAccountsPanel" class="account-panel" role="tabpanel" aria-labelledby="amAccountsTab" tabindex="0">
+        <div class="account-toolbar"><h3>Tài khoản đã liên kết</h3><div class="account-actions"><button id="amRefresh" class="account-tool" type="button" data-account-action="refresh" title="Làm mới danh sách" aria-label="Làm mới danh sách"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2 6M20 4v7h-7"/></svg></button><button id="amAdd" class="nc-button" type="button" aria-expanded="false" aria-controls="amLink">＋ Liên kết tài khoản</button></div></div>
+        <div id="amAccounts" class="account-list"></div>
+        <p id="amEmpty" class="account-help">Chưa có tài khoản liên kết với Codex.</p>
+        <section id="amDiscovered" class="account-discovered" aria-labelledby="amDiscoveredTitle" hidden><h3 id="amDiscoveredTitle">Chrome BAT đã có · Chưa liên kết Codex</h3><div id="amLaunchers" class="account-list"></div></section>
+        <section id="amLink" class="account-link" aria-labelledby="amLinkTitle">
+          <div class="account-link-heading"><h3 id="amLinkTitle">Liên kết tài khoản</h3><button id="amLinkClose" class="iconbtn" type="button" aria-label="Đóng phần liên kết">×</button></div>
+          <div class="account-link-step">
+            <label class="account-step-title" for="amLauncher"><span aria-hidden="true">1</span>Chọn hồ sơ Chrome</label>
+            <div class="account-bat-picker"><select id="amLauncher" data-link-launcher aria-describedby="amLauncherHelp"></select><button class="nc-button" type="button" data-account-action="import" title="Thêm tệp BAT chưa có trong danh sách">Chọn tệp BAT…</button></div>
+            <p id="amLauncherHelp" class="account-help">Chọn BAT đã có; chỉ chọn tệp mới khi chưa có trong danh sách.</p>
+          </div>
+          <div class="account-link-step">
+            <div class="account-step-title"><span aria-hidden="true">2</span>Chọn cách liên kết</div>
+            <div class="account-link-methods">
+              <div class="account-link-method"><strong>Phiên Codex hiện tại</strong><p class="account-help">Chrome phải cùng tài khoản và workspace. Mở Chrome để xác minh và lưu phiên; không đổi tài khoản đang dùng.</p><button class="nc-button" type="button" data-account-action="link">Liên kết phiên hiện tại</button></div>
+              <div class="account-link-method"><strong>Tài khoản khác</strong><p class="account-help">Mở đăng nhập Codex trong Chrome đã chọn. Phiên đang làm việc được giữ nguyên.</p><button class="nc-button" type="button" data-account-action="login">Mở đăng nhập</button></div>
+            </div>
+          </div>
+          <div id="amLoginStatus" class="account-login-status" hidden>
+            <p class="account-help">Hoàn tất đăng nhập trong Chrome, rồi kiểm tra để thêm tài khoản vào danh sách.</p>
+            <button class="nc-button" type="button" data-account-action="loginStatus">Kiểm tra đăng nhập</button>
+          </div>
+        </section>
+      </section>
+      <section id="amPolicyPanel" class="account-panel account-settings" role="tabpanel" aria-labelledby="amPolicyTab" tabindex="0" hidden>
+        <p class="account-help">Các thay đổi chỉ áp dụng khi bấm Lưu chính sách. Đóng cửa sổ vẫn giữ phần đang chỉnh.</p>
+        <fieldset class="account-policy-group">
+          <legend>Chuyển tài khoản</legend>
+          <label class="account-check"><input type="checkbox" data-account-config="autoSwitch"><span>Tự chuyển khi hết quota</span></label>
+          <div class="account-policy-grid">
+            <label class="account-field">Khi chat còn chạy<select data-account-config="busyPolicy"><option value="wait">Chờ chat dừng</option><option value="ask">Hỏi trước khi dừng</option><option value="interrupt">Tự dừng rồi chuyển</option></select></label>
+            <label class="account-field">Thời gian chờ tự chọn (giây)<input type="number" min="0" max="3600" step="1" data-account-config="choiceSeconds" aria-describedby="amDelayHelp"><small id="amDelayHelp" class="account-help">0 = chuyển ngay; để trống = chờ bạn chọn.</small></label>
+          </div>
+        </fieldset>
+        <fieldset class="account-policy-group">
+          <legend>Tiếp tục công việc</legend>
+          <label class="account-check"><input type="checkbox" data-account-config="autoResume"><span>Tự resume sau khi chuyển tài khoản</span></label>
+          <label class="account-field">Phạm vi resume<select data-account-config="resumeScope"><option value="none">Không resume</option><option value="trigger">Chỉ chat gây chuyển</option><option value="all">Mọi chat lỗi quota của tài khoản cũ</option></select></label>
+        </fieldset>
+        <fieldset class="account-policy-group">
+          <legend>Model dự phòng</legend>
+          <label class="account-check"><input type="checkbox" data-account-config="autoModelFallback"><span>Tự đổi model khi lỗi model</span></label>
+          <label class="account-field">Model được phép<input type="text" data-account-config="allowedModels" spellcheck="false" autocomplete="off" aria-describedby="amModelsHelp"><small id="amModelsHelp" class="account-help">Nhập ID model, cách nhau bằng dấu phẩy.</small></label>
+        </fieldset>
+      </section>
+    </div>
+    <footer class="nc-footer">
+      <span id="amSaveStatus" class="account-save-status" role="status" aria-live="polite"></span>
+      <button id="amDone" class="nc-button" type="button">Đóng</button>
+      <button id="amSave" class="nc-button primary" type="submit" data-account-action="configure" hidden>Lưu chính sách</button>
+    </footer>
+  </form>
+</dialog>

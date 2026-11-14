@@ -8,8 +8,10 @@
   <form id="coForm">
     <header class="nc-header"><div class="nc-heading"><h2 id="coTitle">Tuỳ chọn chat</h2><div id="coSource" class="hf-source"></div></div><button id="coClose" class="iconbtn nc-close" type="button" aria-label="Đóng tuỳ chọn chat">×</button></header>
     <div class="nc-body">
-      <label class="co-field" for="coLabel">Nhãn hiển thị<input id="coLabel" type="text" placeholder="Dùng tên gốc" title="Chỉ hiển thị trong Tracker, không đổi tên gốc"></label>
-      <div class="co-identity"><label class="co-field" for="coCode">ID chat hiện tại<input id="coCode" type="text" placeholder="Chưa đặt" title="1–30 chữ hoặc số"></label><label class="co-field" for="coNumber">Số hiện tại<input id="coNumber" type="text" inputmode="numeric" pattern="[0-9]+" value="0001"></label></div>
+      <button id="coCopyDeeplink" class="nc-button" type="button">Copy deeplink</button>
+      <div id="coCopyStatus" class="nc-status" role="status" aria-live="polite" hidden></div>
+      <label class="co-field" for="coLabel">Nhãn dãy chat<input id="coLabel" type="text" placeholder="Dùng tên gốc" title="Áp dụng cho dãy chuyển tiếp này; hiển thị kèm STT của từng chat"></label>
+      <div class="co-identity"><label class="co-field" for="coCode">ID dãy chat<input id="coCode" type="text" placeholder="Chưa đặt" title="1–30 chữ, số, dấu cách hoặc _. Đổi mã cho cả dãy, giữ STT riêng."></label><label class="co-field" for="coNumber">STT chat này<input id="coNumber" type="text" inputmode="numeric" pattern="[0-9]+" value="0001"></label></div>
       <div id="coNextPreview" aria-live="polite"></div>
       <label class="chat-option-row" for="coDelay">Chờ mở chat mới (giây)<input id="coDelay" type="number" min="0" max="3600" step="1" required></label>
       <label class="chat-option-row" for="coInterval">Chu kỳ kiểm tra (ms)<input id="coInterval" type="number" min="100" max="60000" step="1" required></label>
